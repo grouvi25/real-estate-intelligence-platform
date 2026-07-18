@@ -6,17 +6,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps
-COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install .
-
-# App code
+# Copy source, then editable install so `app`/`worker` import from /app and
+# run_migrations() can locate /app/migrations at runtime.
 COPY . .
+RUN pip install --upgrade pip && pip install -e .
 
 EXPOSE 8000
 

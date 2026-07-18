@@ -59,3 +59,78 @@ jobs:
 
       - name: Run tests
         run: pytest -v
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare VPS (Docker + .env)
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sh
+            fi
+            mkdir -p /opt/reip
+            if [ ! -f /opt/reip/.env ]; then
+              ENC=$(openssl rand -base64 32 | tr '+/' '-_')
+              SEC=$(openssl rand -hex 32)
+              cat > /opt/reip/.env <<EOF
+            DATABASE_URL=postgresql+asyncpg://re_app:dev_password@db:5432/realestate
+            REDIS_URL=redis://redis:6379/0
+            ENCRYPTION_KEY=${ENC}
+            SECRET_KEY=${SEC}
+            NODE_ENV=development
+            BASE_URL=http://${{ secrets.VPS_HOST }}
+            YC_SERVICE_ACCOUNT_KEY_FILE=/app/secrets/sa-key.json
+            YC_FOLDER_ID=dev
+            YC_S3_BUCKET=dev
+            YC_S3_ACCESS_KEY=dev
+            YC_S3_SECRET_KEY=dev
+            TELEGRAM_BOT_TOKEN=dev
+            TELEGRAM_BOT_USERNAME=dev_bot
+            EOF
+            fi
+
+      - name: Copy code to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT }}
+          source: "."
+          target: "/opt/reip"
+          overwrite: true
+
+      - name: Deploy (docker compose up)
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT }}
+          command_timeout: 20m
+          script: |
+            set -e
+            cd /opt/reip
+            docker compose up -d --build db redis app
+            echo "Waiting for app to become healthy..."
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
+                echo "OK: /health responded"
+                break
+              fi
+              sleep 3
+            done
+            docker compose ps
+            curl -fsS http://localhost:8000/health || (docker compose logs app --tail 60; exit 1)
