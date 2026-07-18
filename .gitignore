@@ -1,0 +1,66 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.log
+
+# === Virtual environments ===
+venv/
+ENV/
+env/
+.venv/
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.DS_Store
+
+# === Secrets - NEVER commit ===
+.env
+*.key
+*.pem
+*.crt
+sa-key.json
+s3-key.json
+secrets/
+
+# === Local databases ===
+*.db
+*.sqlite3
+
+# === Mini App build ===
+mini_app/dist/
+mini_app/node_modules/
+
+# === Railway proxy ===
+railway_proxy/.env
+railway_proxy/venv/
+
+# === Tests ===
+.pytest_cache/
+.coverage
+htmlcov/
+
+# === Docker ===
+.docker/
+docker-compose.override.yml
