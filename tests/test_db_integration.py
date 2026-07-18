@@ -14,6 +14,21 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+async def _dispose_engine_after_test():
+    """Dispose the shared async engine after each test.
+
+    The module-level engine binds its asyncpg pool to the event loop that first
+    used it. pytest-asyncio gives each test a fresh loop, so without disposing
+    between tests a pooled connection would be reused across loops
+    ("attached to a different loop"). Disposing in the test's own loop fixes it.
+    """
+    yield
+    from app.database import engine
+
+    await engine.dispose()
+
+
 @pytest.mark.asyncio
 async def test_migrations_apply_and_are_idempotent():
     from sqlalchemy import text
