@@ -14,11 +14,11 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.agency import Agency
-from app.models.base import Base
+from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
 from app.services.encryption import decrypt_pii, encrypt_pii
 
 
-class Manager(Base):
+class Manager(CreatedAtMixin, UpdatedAtMixin, Base):
     __tablename__ = "managers"
 
     agency_id: Mapped[uuid.UUID] = mapped_column(

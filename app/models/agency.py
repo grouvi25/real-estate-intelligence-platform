@@ -7,13 +7,13 @@ from sqlalchemy import Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base
+from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
 
 if TYPE_CHECKING:
     from app.models.manager import Manager
 
 
-class Agency(Base):
+class Agency(CreatedAtMixin, UpdatedAtMixin, Base):
     __tablename__ = "agencies"
 
     name: Mapped[str] = mapped_column(Text, nullable=False)

@@ -1,8 +1,10 @@
-"""Declarative base with UUID primary key and timestamp columns.
+"""Declarative base + timestamp mixins.
 
-TZ section 7.1 (fixed): the illustrative TZ imported ``TIMESTAMPTZ`` from
-``sqlalchemy`` (does not exist) and reused ``Mapped[func.now()]`` as a type. This
-implementation uses proper SQLAlchemy 2.0 typing.
+Not every table has both created_at and updated_at (see migration 001), so the
+timestamp columns are opt-in mixins rather than baked into Base:
+- Base:            id (UUID PK) only
+- CreatedAtMixin:  created_at
+- UpdatedAtMixin:  updated_at
 """
 from __future__ import annotations
 
@@ -15,20 +17,21 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    """Base class for all ORM models: UUID PK + created_at/updated_at."""
-
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
         server_default=func.gen_random_uuid(),
     )
+
+
+class CreatedAtMixin:
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class UpdatedAtMixin:
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

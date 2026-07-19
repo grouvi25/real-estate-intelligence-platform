@@ -96,3 +96,53 @@ async def test_reset_daily_ai_cost_clears_global_counter():
 
     assert await tracker.get_daily_cost() == 0.0
     await tracker.redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_full_chain_insert_and_pii_at_rest():
+    """Insert across agency->geo->source->signal->lead and verify PII encryption."""
+    from app.database import async_session, run_migrations
+    from app.models.agency import Agency
+    from app.models.geo_location import GeoLocation
+    from app.models.lead import Lead
+    from app.models.signal import Signal
+    from app.models.source import Source
+
+    await run_migrations()
+
+    async with async_session() as s:
+        agency = Agency(name="Chain Agency", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+
+        geo = GeoLocation(agency_id=agency.id, city_name="Геленджик", region="Краснодарский край", geo_type="base")
+        s.add(geo)
+        await s.flush()
+
+        source = Source(agency_id=agency.id, geo_location_id=geo.id, source_type="telegram_chat", source_url="https://t.me/x", source_name="Чат")
+        s.add(source)
+        await s.flush()
+
+        signal = Signal(agency_id=agency.id, source_id=source.id, geo_location_id=geo.id, raw_text="ищу квартиру у моря до 8 млн")
+        s.add(signal)
+        await s.flush()
+
+        lead = Lead(agency_id=agency.id, geo_location_id=geo.id, signal_id=signal.id, source_type="signal")
+        lead.name = "Иван Петров"
+        lead.phone = "+79001234567"
+        s.add(lead)
+        await s.commit()
+        lead_id = lead.id
+        signal_id = signal.id
+
+    async with async_session() as s:
+        got_lead = await s.get(Lead, lead_id)
+        assert got_lead.phone == "+79001234567"  # decrypts
+        assert got_lead._phone_encrypted is not None
+        assert got_lead._phone_encrypted != b"+79001234567"  # stored encrypted
+
+        got_signal = await s.get(Signal, signal_id)
+        # eager-joined relationship resolves the geo city
+        assert got_signal.geo_location is not None
+        assert got_signal.geo_location.city_name == "Геленджик"
+        assert got_signal.source.source_name == "Чат"

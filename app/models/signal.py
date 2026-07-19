@@ -1,0 +1,43 @@
+"""Signal model (raw intent signals). Migration 001 table 5."""
+from __future__ import annotations
+
+import uuid
+from typing import Optional
+
+from sqlalchemy import ForeignKey, Integer, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
+from app.models.geo_location import GeoLocation
+from app.models.source import Source
+
+
+class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
+    __tablename__ = "signals"
+
+    agency_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL")
+    )
+    geo_location_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("geo_locations.id", ondelete="SET NULL")
+    )
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    author_hash: Mapped[Optional[str]] = mapped_column(Text)
+    author_display_name: Mapped[Optional[str]] = mapped_column(Text)
+    signal_url: Mapped[Optional[str]] = mapped_column(Text)
+    intent_score: Mapped[Optional[int]] = mapped_column(Integer)
+    segment: Mapped[Optional[str]] = mapped_column(Text)
+    budget_min: Mapped[Optional[int]] = mapped_column(Integer)
+    budget_max: Mapped[Optional[int]] = mapped_column(Integer)
+    location_interest: Mapped[Optional[str]] = mapped_column(Text)
+    urgency: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="new")
+    ai_analysis: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # One-directional convenience relationships (used by scoring/pipeline code).
+    geo_location: Mapped[Optional[GeoLocation]] = relationship("GeoLocation", lazy="joined")
+    source: Mapped[Optional[Source]] = relationship("Source", lazy="joined")
