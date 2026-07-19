@@ -1,5 +1,10 @@
 version: "3.8"
 
+# NOTE: db and redis are intentionally NOT published to host ports.
+# The app reaches them over the internal compose network (hosts: db, redis).
+# This matches the server convention (localhost-only / behind nginx) and avoids
+# exposing PostgreSQL/Redis to the public internet.
+
 services:
   db:
     image: postgres:15
@@ -7,8 +12,8 @@ services:
       POSTGRES_USER: re_app
       POSTGRES_PASSWORD: dev_password
       POSTGRES_DB: realestate
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +24,8 @@ services:
 
   redis:
     image: redis:7
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -29,6 +34,7 @@ services:
 
   app:
     build: .
+    # Dev stand: exposed directly. For production put behind nginx + TLS.
     ports:
       - "8000:8000"
     env_file: .env
