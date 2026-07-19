@@ -6,7 +6,8 @@
 
 Fixes vs. TZ: matching is enqueued via a real Celery task (run_matching_for_lead),
 not asyncio.create_task(...).delay(); datetime imports added; SYSTEM_PROMPT_REPLY
-imported from reply_generator (its real module).
+imported from reply_generator (its real module). Endpoints use plain defaults so
+they are directly callable (not just via the HTTP layer).
 """
 from __future__ import annotations
 
@@ -15,7 +16,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends
+from fastapi import status as http_status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -29,6 +31,8 @@ from app.models.task import Task
 logger = structlog.get_logger()
 router = APIRouter()
 
+MAX_PAGE = 200
+
 
 class CreateLeadRequest(BaseModel):
     consent_text: str
@@ -41,18 +45,21 @@ class CreateLeadRequest(BaseModel):
 async def list_signals(
     agency_id: uuid.UUID,
     geo_id: Optional[uuid.UUID] = None,
-    status_filter: Optional[str] = Query(default=None, alias="status"),
+    status: Optional[str] = None,
     urgency: Optional[str] = None,
     min_intent_score: Optional[int] = None,
-    limit: int = Query(default=50, le=200),
+    limit: int = 50,
     offset: int = 0,
     session=Depends(get_session),
 ):
+    limit = min(max(limit, 1), MAX_PAGE)
+    offset = max(offset, 0)
+
     stmt = select(Signal).where(Signal.agency_id == agency_id)
     if geo_id is not None:
         stmt = stmt.where(Signal.geo_location_id == geo_id)
-    if status_filter is not None:
-        stmt = stmt.where(Signal.status == status_filter)
+    if status is not None:
+        stmt = stmt.where(Signal.status == status)
     if urgency is not None:
         stmt = stmt.where(Signal.urgency == urgency)
     if min_intent_score is not None:
@@ -78,7 +85,7 @@ async def list_signals(
     }
 
 
-@router.post("/{signal_id}/create-lead", status_code=status.HTTP_201_CREATED)
+@router.post("/{signal_id}/create-lead", status_code=http_status.HTTP_201_CREATED)
 async def create_lead_from_signal(
     signal_id: uuid.UUID, req: CreateLeadRequest, session=Depends(get_session)
 ):

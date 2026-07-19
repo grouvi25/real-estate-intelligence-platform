@@ -106,7 +106,7 @@ async def test_list_signals_filters():
         agency_id = agency.id
 
     async with async_session() as s:
-        all_new = await list_signals(agency_id=agency_id, status_filter="new", session=s)
+        all_new = await list_signals(agency_id=agency_id, status="new", session=s)
         assert all_new["count"] == 2
 
         hot = await list_signals(agency_id=agency_id, min_intent_score=70, session=s)
