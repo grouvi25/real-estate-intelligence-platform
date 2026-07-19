@@ -6,6 +6,7 @@ a corrected, working implementation.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import structlog
@@ -16,21 +17,31 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.config import config
 
 logger = structlog.get_logger()
 
 # === Async engine ===
-engine: AsyncEngine = create_async_engine(
-    config.database_url,
-    echo=config.node_env == "development",
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=30,
-    pool_recycle=3600,
-)
+# Under pytest (REIP_TESTING=1) use NullPool: pytest-asyncio creates a fresh event
+# loop per test, and asyncpg connections are loop-bound, so a pooled connection
+# reused across loops raises "attached to a different loop". NullPool opens a fresh
+# connection per checkout in the current loop. Production keeps a real QueuePool.
+if os.getenv("REIP_TESTING") == "1":
+    engine: AsyncEngine = create_async_engine(
+        config.database_url, echo=False, poolclass=NullPool
+    )
+else:
+    engine = create_async_engine(
+        config.database_url,
+        echo=config.node_env == "development",
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=30,
+        pool_recycle=3600,
+    )
 
 async_session = async_sessionmaker(
     engine,

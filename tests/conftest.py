@@ -6,6 +6,7 @@ import os
 
 from cryptography.fernet import Fernet
 
+os.environ.setdefault("REIP_TESTING", "1")
 os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-chars-long-000")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/test")
