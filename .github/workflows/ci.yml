@@ -60,8 +60,19 @@ jobs:
       - name: Run tests
         run: pytest -v
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Syntax-check Mini App JS
+        run: |
+          for f in $(find mini_app -name '*.js'); do echo "check $f"; node --check "$f"; done
+
   deploy:
-    needs: test
+    needs: [test, frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
