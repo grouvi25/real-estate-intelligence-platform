@@ -38,6 +38,21 @@ async_session = async_sessionmaker(
     class_=AsyncSession,
 )
 
+
+async def get_session():
+    """FastAPI dependency that yields a DB session and rolls back on error.
+
+    Endpoints commit explicitly; this dependency only guarantees cleanup.
+    """
+    session = async_session()
+    try:
+        yield session
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
+
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
