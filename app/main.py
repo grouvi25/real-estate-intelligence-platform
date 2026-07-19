@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from app.config import config
 from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
-from app.routers import auth, geo, health
+from app.routers import auth, geo, health, signals
 from app.services.ai_cost_tracker import init_cost_tracker
 
 logger = structlog.get_logger()
@@ -103,6 +103,7 @@ async def consent_handler(request: Request, exc: ConsentRequiredError):
 # Routers (added incrementally)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(geo.router, prefix="/api/geo", tags=["Geo"])
+app.include_router(signals.router, prefix="/api/signals", tags=["Signals"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
 
 

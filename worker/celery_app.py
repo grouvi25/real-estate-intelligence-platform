@@ -23,6 +23,7 @@ celery_app = Celery(
     include=[
         "worker.tasks.maintenance_tasks",
         "worker.tasks.geo_tasks",
+        "worker.tasks.matching_tasks",
     ],
 )
 

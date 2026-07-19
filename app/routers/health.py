@@ -43,19 +43,23 @@ async def health_check() -> HealthResponse:
 
 @router.get("/health/deep", response_model=DeepHealthResponse, tags=["Health"])
 async def deep_health_check() -> DeepHealthResponse:
-    """Deep readiness probe: database + redis."""
+    """Deep readiness probe: database + redis. Bounded by short timeouts so the
+    probe stays fast even when a dependency is down."""
+    import asyncio
+
     checks: dict[str, str] = {}
 
     try:
-        checks["database"] = "ok" if await check_database_connection() else "error"
+        db_ok = await asyncio.wait_for(check_database_connection(), timeout=3)
+        checks["database"] = "ok" if db_ok else "error"
     except Exception as e:  # noqa: BLE001
         checks["database"] = f"error: {str(e)[:100]}"
 
     try:
         import redis.asyncio as redis
 
-        client = redis.from_url(config.redis_url)
-        await client.ping()
+        client = redis.from_url(config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+        await asyncio.wait_for(client.ping(), timeout=3)
         await client.aclose()
         checks["redis"] = "ok"
     except Exception as e:  # noqa: BLE001
