@@ -22,6 +22,7 @@ celery_app = Celery(
     broker_connection_retry_on_startup=True,
     include=[
         "worker.tasks.maintenance_tasks",
+        "worker.tasks.geo_tasks",
     ],
 )
 
