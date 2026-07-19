@@ -3,7 +3,10 @@
 
 def _finalized_app():
     """Import task modules and finalize the app so shared_task tasks register."""
-    import worker.tasks.maintenance_tasks  # noqa: F401  (registers via @shared_task)
+    import worker.tasks.geo_tasks  # noqa: F401
+    import worker.tasks.maintenance_tasks  # noqa: F401
+    import worker.tasks.matching_tasks  # noqa: F401
+    import worker.tasks.source_tasks  # noqa: F401
     from worker.celery_app import celery_app
 
     celery_app.finalize()

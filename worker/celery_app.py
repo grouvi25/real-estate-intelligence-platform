@@ -24,6 +24,7 @@ celery_app = Celery(
         "worker.tasks.maintenance_tasks",
         "worker.tasks.geo_tasks",
         "worker.tasks.matching_tasks",
+        "worker.tasks.source_tasks",
     ],
 )
 
@@ -43,6 +44,10 @@ celery_app.conf.beat_schedule = {
     "ai-cost-daily-reset": {
         "task": "worker.tasks.maintenance_tasks.reset_daily_ai_cost",
         "schedule": crontab(hour=0, minute=1),  # 00:01 daily
+    },
+    "geo-discovery-weekly": {
+        "task": "worker.tasks.source_tasks.geo_discovery_cron",
+        "schedule": crontab(hour=2, minute=0, day_of_week=1),  # Mon 02:00 MSK
     },
 }
 
