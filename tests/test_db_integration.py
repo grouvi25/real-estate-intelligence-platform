@@ -80,3 +80,19 @@ async def test_agency_manager_crud_with_encryption():
 
         agencies = (await s.execute(select(Agency))).scalars().all()
         assert any(a.base_city == "Геленджик" for a in agencies)
+
+
+@pytest.mark.asyncio
+async def test_reset_daily_ai_cost_clears_global_counter():
+    from app.config import config
+    from app.services.ai_cost_tracker import RedisCostTracker
+    from worker.tasks.maintenance_tasks import _reset_daily_ai_cost
+
+    tracker = RedisCostTracker(config.redis_url)
+    await tracker.add_cost(12.5)
+    assert await tracker.get_daily_cost() > 0
+
+    await _reset_daily_ai_cost()  # resets global + all agencies
+
+    assert await tracker.get_daily_cost() == 0.0
+    await tracker.redis.aclose()

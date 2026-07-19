@@ -123,7 +123,7 @@ jobs:
           script: |
             set -e
             cd /opt/reip
-            docker compose up -d --build db redis app
+            docker compose up -d --build
             echo "Waiting for app to become healthy..."
             for i in $(seq 1 30); do
               if curl -fsS http://localhost:8000/health >/dev/null 2>&1; then
