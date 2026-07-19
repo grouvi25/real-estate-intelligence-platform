@@ -61,8 +61,15 @@ async def deep_health_check() -> DeepHealthResponse:
     except Exception as e:  # noqa: BLE001
         checks["redis"] = f"error: {str(e)[:100]}"
 
-    # AI provider check is added once ai_service is implemented.
-    checks["ai"] = "not_configured"
+    # AI provider readiness (does the selected provider have credentials).
+    try:
+        from app.services.ai_service import AIService
+
+        ai = AIService()
+        checks["ai"] = "configured" if ai.provider_configured else "not_configured"
+        await ai.close()
+    except Exception as e:  # noqa: BLE001
+        checks["ai"] = f"error: {str(e)[:100]}"
 
     critical_ok = all(
         value == "ok" for key, value in checks.items() if key in ("database", "redis")

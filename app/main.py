@@ -17,6 +17,7 @@ from app.config import config
 from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
 from app.routers import health
+from app.services.ai_cost_tracker import init_cost_tracker
 
 logger = structlog.get_logger()
 
@@ -24,6 +25,7 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application starting...")
+    init_cost_tracker(config.redis_url)
     try:
         await run_migrations()
         logger.info("Database migrations applied")
