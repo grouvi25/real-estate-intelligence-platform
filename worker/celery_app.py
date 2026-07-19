@@ -25,6 +25,7 @@ celery_app = Celery(
         "worker.tasks.geo_tasks",
         "worker.tasks.matching_tasks",
         "worker.tasks.source_tasks",
+        "worker.tasks.partner_tasks",
     ],
 )
 
@@ -48,6 +49,10 @@ celery_app.conf.beat_schedule = {
     "geo-discovery-weekly": {
         "task": "worker.tasks.source_tasks.geo_discovery_cron",
         "schedule": crontab(hour=2, minute=0, day_of_week=1),  # Mon 02:00 MSK
+    },
+    "check-referral-expiry": {
+        "task": "worker.tasks.partner_tasks.check_referral_expiry",
+        "schedule": crontab(hour=9, minute=0),  # 09:00 daily
     },
 }
 
