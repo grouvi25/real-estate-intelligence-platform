@@ -4,6 +4,9 @@ The encryption key lives only in ENCRYPTION_KEY (env), never in the database.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+import re
 from typing import Optional
 
 import structlog
@@ -45,3 +48,18 @@ def decrypt_pii(encrypted_bytes: Optional[bytes]) -> Optional[str]:
     except Exception:  # noqa: BLE001
         logger.error("PII decryption failed. Possible key mismatch or data corruption.")
         return "[DECRYPTION_ERROR]"
+
+
+def phone_blind_index(phone: Optional[str]) -> Optional[str]:
+    """Deterministic HMAC of a normalized phone, for duplicate lookups.
+
+    Digits-only normalization means "+7 900 123-45-67" and "+79001234567" collide,
+    which is what we want for dedup. The blind index reveals nothing about the phone
+    without the secret key, and is stored alongside the encrypted value.
+    """
+    if not phone:
+        return None
+    digits = re.sub(r"\D", "", phone)
+    if not digits:
+        return None
+    return hmac.new(config.secret_key.encode(), digits.encode(), hashlib.sha256).hexdigest()

@@ -15,7 +15,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
-from app.services.encryption import decrypt_pii, encrypt_pii
+from app.services.encryption import decrypt_pii, encrypt_pii, phone_blind_index
 
 
 class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
@@ -38,6 +38,8 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     _phone_encrypted: Mapped[Optional[bytes]] = mapped_column("phone_encrypted", LargeBinary)
     _email_encrypted: Mapped[Optional[bytes]] = mapped_column("email_encrypted", LargeBinary)
     telegram_username: Mapped[Optional[str]] = mapped_column(Text)
+    # Deterministic blind index for phone dedup (migration 003).
+    phone_hash: Mapped[Optional[str]] = mapped_column(Text)
 
     consent_given: Mapped[bool] = mapped_column(Boolean, default=False)
     consent_given_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
@@ -76,6 +78,7 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     @phone.setter
     def phone(self, value: Optional[str]) -> None:
         self._phone_encrypted = encrypt_pii(value) if value else None
+        self.phone_hash = phone_blind_index(value) if value else None
 
     @hybrid_property
     def email(self) -> Optional[str]:

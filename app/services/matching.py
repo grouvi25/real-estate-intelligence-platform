@@ -77,6 +77,31 @@ def _pitch_payload(lead: Any, prop: Any) -> dict:
 
 class MatchingEngine:
     @staticmethod
+    async def find_matches(session, lead: Any, limit: int = 5, budget_max: Optional[int] = None):
+        """Read-only: score active agency properties for a lead, return top matches.
+
+        Returns a list of (Property, score) sorted by score desc. Used by the
+        lead-magnet flow to show an immediate selection (no AI cost).
+        """
+        from app.models.property import Property
+
+        stmt = select(Property).where(
+            Property.agency_id == lead.agency_id, Property.status == "active"
+        )
+        if lead.geo_location_id is not None:
+            stmt = stmt.where(Property.geo_location_id == lead.geo_location_id)
+        properties = (await session.execute(stmt)).scalars().all()
+
+        cap = budget_max or lead.budget_max
+        scored: list[tuple[Any, int]] = []
+        for prop in properties:
+            if cap and prop.price and prop.price > cap * 1.5:
+                continue  # far over budget
+            scored.append((prop, calculate_match_score(lead, prop)))
+        scored.sort(key=lambda pair: pair[1], reverse=True)
+        return scored[:limit]
+
+    @staticmethod
     async def run_for_new_lead(lead_id: str, override_budget: Optional[int] = None) -> int:
         """Score active properties in the lead's geo, persist matches >= threshold.
 
