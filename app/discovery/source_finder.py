@@ -18,12 +18,19 @@ SANDBOX_THRESHOLD = 40
 
 
 async def search_telegram_sources(geo_keywords: dict[str, Any]) -> list[dict]:
-    """Find candidate Telegram sources for a geo.
+    """Find candidate Telegram sources for a geo via the Telethon collector.
 
-    MVP: real search requires a Telethon userbot session (collectors module, added
-    later). Returns [] for now; this is the stable integration point.
+    Uses the ``search_queries.telegram`` vocabulary from the geo keyword set. If
+    no Telethon session is configured the collector returns [] (stable no-op).
     """
-    return []
+    from app.collectors.telegram_collector import search_candidate_sources
+
+    queries = (geo_keywords.get("search_queries") or {}).get("telegram") or []
+    if not queries:
+        queries = geo_keywords.get("city_variations") or []
+    if not queries:
+        return []
+    return await search_candidate_sources(queries, limit=10)
 
 
 async def evaluate_and_save_sources(

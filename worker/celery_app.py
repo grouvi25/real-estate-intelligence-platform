@@ -29,6 +29,7 @@ celery_app = Celery(
         "worker.tasks.knowledge_tasks",
         "worker.tasks.crm_tasks",
         "worker.tasks.report_tasks",
+        "worker.tasks.collector_tasks",
     ],
 )
 
@@ -80,6 +81,10 @@ celery_app.conf.beat_schedule = {
     "queue-depth-check": {
         "task": "worker.tasks.maintenance_tasks.check_queue_depth",
         "schedule": crontab(minute="*/5"),  # every 5 min
+    },
+    "collect-telegram-sources": {
+        "task": "worker.tasks.collector_tasks.collect_telegram_sources",
+        "schedule": crontab(minute="*/10"),  # every 10 min (no-op without Telethon)
     },
 }
 

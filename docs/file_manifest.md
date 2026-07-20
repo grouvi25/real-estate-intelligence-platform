@@ -37,8 +37,9 @@ Core: `ai_service`, `ai_cost_tracker`, `bot_abstraction`, `encryption`, `pii_ano
 - `channels/` — `base`, `classifieds` (Avito/CIAN), `messaging` (Telegram/MAX), `vk` + registry.
 - `crm/` — `base`, `adapters` (Topnlab/amoCRM/Bitrix24/YUcrm) + registry.
 
-## Discovery (`app/discovery/`)
-`keyword_builder`, `source_finder` (Telethon search stub + evaluation).
+## Discovery & collectors
+`app/discovery/`: `keyword_builder`, `source_finder` (candidate search + AI evaluation).
+`app/collectors/telegram_collector.py`: Telethon userbot — searches candidate channels and pulls messages into content_units + signals (credential-gated; no-op without a session). Driven by `worker/tasks/collector_tasks.py`.
 
 ## Prompts (`app/prompts/`)
 11 AI prompt modules (qualification, intent_scoring, pitch_generator, reply_generator, buyer_profile, object_analysis, market_analysis, listing_generator, geo_keywords, source_evaluation, daily_report).

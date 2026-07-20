@@ -5,6 +5,7 @@ def _finalized_app():
     """Import task modules and finalize the app so shared_task tasks register."""
     import worker.tasks.crm_tasks  # noqa: F401
     import worker.tasks.geo_tasks  # noqa: F401
+    import worker.tasks.collector_tasks  # noqa: F401
     import worker.tasks.knowledge_tasks  # noqa: F401
     import worker.tasks.maintenance_tasks  # noqa: F401
     import worker.tasks.matching_tasks  # noqa: F401
