@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import TIMESTAMP, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,3 +26,7 @@ class LeadPropertyMatch(CreatedAtMixin, UpdatedAtMixin, Base):
     match_reasons: Mapped[list] = mapped_column(JSONB, default=list)
     generated_pitch: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="suggested")
+    # Feedback loop (migration 005).
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text)
+    rejection_category: Mapped[Optional[str]] = mapped_column(Text)
+    feedback_given_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))

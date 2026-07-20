@@ -41,13 +41,33 @@ router = APIRouter()
 VALID_GOALS = {"own", "invest", "rent_out", "relocate", "children"}
 
 
+class UTMFields(BaseModel):
+    """Attribution tags forwarded by landing pages (TZ 32)."""
+
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    utm_content: Optional[str] = None
+    utm_term: Optional[str] = None
+    referrer: Optional[str] = None
+
+
+def _apply_utm(lead: Lead, utm: UTMFields) -> None:
+    lead.utm_source = utm.utm_source
+    lead.utm_medium = utm.utm_medium
+    lead.utm_campaign = utm.utm_campaign
+    lead.utm_content = utm.utm_content
+    lead.utm_term = utm.utm_term
+    lead.referrer = utm.referrer
+
+
 class LM1Start(BaseModel):
     session_id: Optional[str] = None
     goal: Optional[str] = None
     budget_max: Optional[int] = None
 
 
-class LM1Result(BaseModel):
+class LM1Result(UTMFields):
     agency_id: uuid.UUID
     session_id: Optional[str] = None
     goal: str = "own"
@@ -104,6 +124,7 @@ async def lm1_submit(req: LM1Result, session=Depends(get_session)):
     )
     lead.name = req.contact_name
     lead.phone = req.contact_phone
+    _apply_utm(lead, req)
     session.add(lead)
     await session.flush()
 
@@ -143,7 +164,7 @@ async def lm1_submit(req: LM1Result, session=Depends(get_session)):
 VALID_MAGNETS = {"mortgage", "roi", "districts", "object_check"}
 
 
-class MagnetSubscribe(BaseModel):
+class MagnetSubscribe(UTMFields):
     agency_id: uuid.UUID
     magnet: str
     contact_name: str
@@ -183,6 +204,7 @@ async def _subscribe_magnet(req: MagnetSubscribe, session) -> dict:
     )
     lead.name = req.contact_name
     lead.phone = req.contact_phone
+    _apply_utm(lead, req)
     session.add(lead)
     await session.flush()
 

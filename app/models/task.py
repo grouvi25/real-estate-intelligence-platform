@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import TIMESTAMP, ForeignKey, Text
+from sqlalchemy import TIMESTAMP, Boolean, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,3 +31,6 @@ class Task(CreatedAtMixin, UpdatedAtMixin, Base):
     due_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
     status: Mapped[str] = mapped_column(Text, default="pending")
     completed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    # SLA escalation (migration 004).
+    is_urgent: Mapped[bool] = mapped_column(Boolean, default=False)
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))

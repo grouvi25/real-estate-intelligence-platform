@@ -59,15 +59,22 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.knowledge_tasks.update_knowledge_moat",
         "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sun 03:00 MSK
     },
+    "lead-score-decay": {
+        "task": "worker.tasks.maintenance_tasks.decay_lead_scores",
+        "schedule": crontab(hour="*/12", minute=15),  # every 12h
+    },
+    "escalate-overdue-leads": {
+        "task": "worker.tasks.maintenance_tasks.escalate_overdue_leads",
+        "schedule": crontab(minute=0),  # hourly
+    },
+    "dead-source-check": {
+        "task": "worker.tasks.maintenance_tasks.check_dead_sources",
+        "schedule": crontab(hour=6, minute=0),  # 06:00 daily
+    },
 }
 
 # --- Planned schedule from TZ 11.1 (enable as each task is implemented) ---
 # "intent-scoring-batch":   worker.tasks.signal_tasks.score_intent_batch        every 5 min
 # "daily-report":           worker.tasks.report_tasks.generate_daily_report     07:30 MSK
-# "knowledge-moat-update":  worker.tasks.knowledge_tasks.update_knowledge_moat   Sun 03:00
-# "check-referral-expiry":  worker.tasks.partner_tasks.check_referral_expiry     09:00
-# "geo-discovery-weekly":   worker.tasks.source_tasks.geo_discovery_cron         Mon 02:00
-# "lead-score-decay":       worker.tasks.maintenance_tasks.decay_lead_scores     every 12h
-# "dead-source-check":      worker.tasks.maintenance_tasks.check_dead_sources    06:00
-# "price-change-rematch":   worker.tasks.matching_tasks.rematch_on_price_change  every 2h
-# "escalate-overdue-leads": worker.tasks.maintenance_tasks.escalate_overdue_leads hourly
+# rematch_on_price_change is triggered on demand from the property PATCH endpoint
+# (worker.tasks.matching_tasks.rematch_on_price_change), not on a fixed schedule.

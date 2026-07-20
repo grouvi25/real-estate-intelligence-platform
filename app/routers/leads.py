@@ -24,11 +24,19 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 LEAD_STATUSES = {"new", "in_progress", "qualified", "deal", "rejected", "archived", "referred"}
+MATCH_STATUSES = {"suggested", "presented", "accepted", "rejected"}
+REJECTION_CATEGORIES = {"price", "location", "layout", "floor", "condition", "developer", "other"}
 MAX_PAGE = 200
 
 
 class UpdateStatusRequest(BaseModel):
     status: str
+    rejection_reason: Optional[str] = None
+
+
+class MatchFeedbackRequest(BaseModel):
+    status: str  # presented | accepted | rejected
+    rejection_category: Optional[str] = None
     rejection_reason: Optional[str] = None
 
 
@@ -137,6 +145,68 @@ async def update_lead_status(
         lead.rejection_reason = req.rejection_reason
     await session.commit()
     return {"id": str(lead.id), "status": lead.status}
+
+
+@router.patch("/{lead_id}/matches/{property_id}")
+async def update_match_feedback(
+    lead_id: uuid.UUID,
+    property_id: uuid.UUID,
+    req: MatchFeedbackRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Record manager feedback on a suggested match (TZ 32 feedback loop).
+
+    A rejection records the reason + category and writes a hard exclusion so the
+    matching engine never re-suggests this property to this lead.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.match_exclusion import MatchExclusion
+
+    if req.status not in MATCH_STATUSES:
+        raise ValidationError("status", f"недопустимый статус: {req.status}")
+    if req.rejection_category is not None and req.rejection_category not in REJECTION_CATEGORIES:
+        raise ValidationError("rejection_category", f"недопустимая категория: {req.rejection_category}")
+
+    lead = await _get_scoped_lead(lead_id, current, session)
+
+    match = (
+        await session.execute(
+            select(LeadPropertyMatch).where(
+                LeadPropertyMatch.lead_id == lead_id,
+                LeadPropertyMatch.property_id == property_id,
+            )
+        )
+    ).scalars().first()
+    if match is None:
+        raise NotFoundError("Match", f"{lead_id}/{property_id}")
+
+    match.status = req.status
+    if req.status == "rejected":
+        match.rejection_reason = req.rejection_reason
+        match.rejection_category = req.rejection_category
+        match.feedback_given_at = datetime.now(timezone.utc)
+        # Idempotent exclusion (UNIQUE lead_id, property_id).
+        existing = (
+            await session.execute(
+                select(MatchExclusion).where(
+                    MatchExclusion.lead_id == lead_id,
+                    MatchExclusion.property_id == property_id,
+                )
+            )
+        ).scalars().first()
+        if existing is None:
+            session.add(
+                MatchExclusion(
+                    agency_id=lead.agency_id, lead_id=lead_id, property_id=property_id,
+                    category=req.rejection_category, reason=req.rejection_reason,
+                )
+            )
+    await session.commit()
+    logger.info("Match feedback", lead_id=str(lead_id), property_id=str(property_id),
+                status=req.status)
+    return {"lead_id": str(lead_id), "property_id": str(property_id), "status": match.status}
 
 
 @router.post("/{lead_id}/process-alternative", status_code=201)

@@ -63,6 +63,14 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     referred_to: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
     ai_qualification: Mapped[dict] = mapped_column(JSONB, default=dict)
 
+    # UTM / attribution (migration 006).
+    utm_source: Mapped[Optional[str]] = mapped_column(Text)
+    utm_medium: Mapped[Optional[str]] = mapped_column(Text)
+    utm_campaign: Mapped[Optional[str]] = mapped_column(Text)
+    utm_content: Mapped[Optional[str]] = mapped_column(Text)
+    utm_term: Mapped[Optional[str]] = mapped_column(Text)
+    referrer: Mapped[Optional[str]] = mapped_column(Text)
+
     @hybrid_property
     def name(self) -> Optional[str]:
         return decrypt_pii(self._name_encrypted) if self._name_encrypted else None

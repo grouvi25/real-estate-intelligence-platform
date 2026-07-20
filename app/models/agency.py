@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Text
+from sqlalchemy import Boolean, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,12 @@ class Agency(CreatedAtMixin, UpdatedAtMixin, Base):
     base_city: Mapped[str] = mapped_column(Text, nullable=False)
     subscription_plan: Mapped[str] = mapped_column(Text, default="mvp")
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # Outbound CRM export (migration 007).
+    crm_export_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    crm_type: Mapped[str | None] = mapped_column(Text)
+    crm_webhook_url: Mapped[str | None] = mapped_column(Text)
+    crm_field_mapping: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     managers: Mapped[list["Manager"]] = relationship(
         back_populates="agency", cascade="all, delete-orphan"

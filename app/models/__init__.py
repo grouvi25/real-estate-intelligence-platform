@@ -11,6 +11,7 @@ from app.models.geo_location import GeoLocation
 from app.models.lead import Lead
 from app.models.manager import Manager
 from app.models.match import LeadPropertyMatch
+from app.models.match_exclusion import MatchExclusion
 from app.models.partner_agency import PartnerAgency
 from app.models.partner_referral import PartnerReferral
 from app.models.property import Property
@@ -31,6 +32,7 @@ __all__ = [
     "Lead",
     "Manager",
     "LeadPropertyMatch",
+    "MatchExclusion",
     "PartnerAgency",
     "PartnerReferral",
     "Property",

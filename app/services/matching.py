@@ -17,6 +17,14 @@ logger = structlog.get_logger()
 MATCH_THRESHOLD = 60
 
 
+async def excluded_property_ids(session, lead_id) -> set:
+    """Property ids a manager has explicitly rejected for this lead (migration 005)."""
+    from app.models.match_exclusion import MatchExclusion
+
+    stmt = select(MatchExclusion.property_id).where(MatchExclusion.lead_id == lead_id)
+    return set((await session.execute(stmt)).scalars().all())
+
+
 def calculate_match_score(lead: Any, prop: Any) -> int:
     """Weighted 0-100 score for how well a property fits a lead."""
     score = 0
@@ -92,9 +100,13 @@ class MatchingEngine:
             stmt = stmt.where(Property.geo_location_id == lead.geo_location_id)
         properties = (await session.execute(stmt)).scalars().all()
 
+        excluded = await excluded_property_ids(session, lead.id) if lead.id else set()
+
         cap = budget_max or lead.budget_max
         scored: list[tuple[Any, int]] = []
         for prop in properties:
+            if prop.id in excluded:
+                continue  # manager rejected this pairing
             if cap and prop.price and prop.price > cap * 1.5:
                 continue  # far over budget
             scored.append((prop, calculate_match_score(lead, prop)))
@@ -128,6 +140,9 @@ class MatchingEngine:
             if not properties:
                 logger.info("Matching: no active properties in geo", lead_id=lead_id)
                 return 0
+
+            excluded = await excluded_property_ids(session, lead.id)
+            properties = [p for p in properties if p.id not in excluded]
 
             scoring_lead: Any = lead
             if override_budget is not None:
@@ -174,4 +189,72 @@ class MatchingEngine:
                 await ai.close()
 
         logger.info("Matching completed", lead_id=lead_id, matches_created=created)
+        return created
+
+    @staticmethod
+    async def rematch_property(property_id: str) -> int:
+        """Re-score a property against active leads in its geo after a price change.
+
+        Creates new suggested matches for leads that now clear the threshold and
+        don't already have a match (or exclusion) for this property. Returns the
+        number of new matches created. Templated pitch only (no AI cost on a
+        background price-change sweep).
+        """
+        from app.database import async_session
+        from app.models.lead import Lead
+        from app.models.match import LeadPropertyMatch
+        from app.models.match_exclusion import MatchExclusion
+        from app.models.property import Property
+
+        created = 0
+        async with async_session() as session:
+            prop = await session.get(Property, property_id)
+            if prop is None or prop.status != "active":
+                return 0
+
+            lead_stmt = select(Lead).where(
+                Lead.agency_id == prop.agency_id,
+                Lead.status.in_(("new", "contacted", "qualifying")),
+            )
+            if prop.geo_location_id is not None:
+                lead_stmt = lead_stmt.where(Lead.geo_location_id == prop.geo_location_id)
+            leads = (await session.execute(lead_stmt)).scalars().all()
+
+            for lead in leads:
+                score = calculate_match_score(lead, prop)
+                if score < MATCH_THRESHOLD:
+                    continue
+                exists = (
+                    await session.execute(
+                        select(LeadPropertyMatch.id).where(
+                            LeadPropertyMatch.lead_id == lead.id,
+                            LeadPropertyMatch.property_id == prop.id,
+                        )
+                    )
+                ).first()
+                if exists:
+                    continue
+                excluded = (
+                    await session.execute(
+                        select(MatchExclusion.id).where(
+                            MatchExclusion.lead_id == lead.id,
+                            MatchExclusion.property_id == prop.id,
+                        )
+                    )
+                ).first()
+                if excluded:
+                    continue
+                pitch = prop.title
+                if prop.price:
+                    pitch = f"{prop.title} — новая цена {prop.price:,} ₽".replace(",", " ")
+                session.add(
+                    LeadPropertyMatch(
+                        lead_id=lead.id, property_id=prop.id, match_score=score,
+                        generated_pitch=pitch, status="suggested",
+                    )
+                )
+                created += 1
+            await session.commit()
+
+        logger.info("Rematch on price change", property_id=property_id, matches_created=created)
         return created
