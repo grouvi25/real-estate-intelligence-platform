@@ -75,6 +75,9 @@ jobs:
     needs: [test, frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: reip-vps-deploy
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +137,8 @@ jobs:
           script: |
             set -e
             cd /opt/reip
+            # Remove leftover temp-renamed app containers from an interrupted/concurrent deploy.
+            docker ps -a --filter "name=reip-app-1" --format '{{.ID}} {{.Names}}' | awk '$2 != "reip-app-1" {print $1}' | xargs -r docker rm -f || true
             docker compose up -d --build
             echo "Waiting for app to become healthy..."
             for i in $(seq 1 30); do
