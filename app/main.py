@@ -16,9 +16,11 @@ from fastapi.responses import JSONResponse
 from app.config import config
 from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
+from app.logging_config import setup_logging
 from app.routers import auth, deals, geo, health, lead_magnets, leads, referrals, signals
 from app.services.ai_cost_tracker import init_cost_tracker
 
+setup_logging()
 logger = structlog.get_logger()
 
 

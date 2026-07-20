@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     secret_key: str = Field(..., alias="SECRET_KEY")
     encryption_key: str = Field(..., alias="ENCRYPTION_KEY")  # 32 bytes, base64 (44 chars)
     node_env: Literal["development", "production"] = Field(default="production", alias="NODE_ENV")
+    admin_telegram_id: Optional[int] = Field(default=None, alias="ADMIN_TELEGRAM_ID")
 
     # === 152-FZ ===
     consent_version: str = Field(default="1.0", alias="CONSENT_VERSION")

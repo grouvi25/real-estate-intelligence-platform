@@ -107,7 +107,7 @@ class AIService:
 
         # 4. Cost accounting.
         cost = response.usage.total_tokens * self._get_rate_per_token(model) / 1000
-        await tracker.add_cost(cost, agency_id)
+        total = await tracker.add_cost(cost, agency_id)
         logger.info(
             "AI call completed",
             module=module,
@@ -116,6 +116,16 @@ class AIService:
             tokens=response.usage.total_tokens,
             cost_rub=round(cost, 3),
         )
+        # 5. Soft budget alert at 90% (best-effort, never blocks the call).
+        if self.daily_budget and total >= 0.9 * self.daily_budget:
+            try:
+                from app.services.alerts import send_critical_alert
+
+                await send_critical_alert(
+                    f"AI-бюджет: {round(total, 2)}/{self.daily_budget} ₽ (>90%), agency={agency_id}"
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return response.text
 
     async def _call_yandex(self, system: str, user: str, model: str) -> AIResponse:
