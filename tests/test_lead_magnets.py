@@ -1,8 +1,10 @@
-"""Tests for the LM-1 public lead magnet (property finder)."""
+"""Tests for the public lead magnets (property finder + LM-2/3/4/6)."""
 import os
 import uuid
 
 import pytest
+
+from app.exceptions import ConsentRequiredError
 
 
 @pytest.mark.asyncio
@@ -16,7 +18,6 @@ async def test_lm1_start_returns_session():
 
 @pytest.mark.asyncio
 async def test_lm1_requires_consent():
-    from app.exceptions import ConsentRequiredError
     from app.routers.lead_magnets import LM1Result, lm1_submit
 
     req = LM1Result(
@@ -87,3 +88,68 @@ async def test_lm1_creates_lead_matches_and_dedup():
         res2 = await lm1_submit(req2, session=s)
     assert res2["is_duplicate"] is True
     assert res2["lead_id"] == lead_id
+
+
+# --- LM-2/3/4/6 endpoints (pure, no DB) -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mortgage_calculate_endpoint_compares_all():
+    from app.routers.lead_magnets import MortgageCalcRequest, mortgage_calculate
+
+    res = await mortgage_calculate(
+        MortgageCalcRequest(price=6_000_000, down_payment=1_500_000, term_years=20)
+    )
+    assert res["matkapital"] == 833_000
+    assert len(res["programs"]) >= 5
+    assert all("monthly_payment" in p for p in res["programs"])
+
+
+@pytest.mark.asyncio
+async def test_mortgage_calculate_single_program():
+    from app.routers.lead_magnets import MortgageCalcRequest, mortgage_calculate
+
+    res = await mortgage_calculate(
+        MortgageCalcRequest(price=6_000_000, down_payment=2_000_000, term_years=20, program="family")
+    )
+    assert len(res["programs"]) == 1
+    assert res["programs"][0]["program"] == "family"
+
+
+@pytest.mark.asyncio
+async def test_roi_calculate_endpoint():
+    from app.routers.lead_magnets import RoiCalcRequest, roi_calculate
+
+    res = await roi_calculate(RoiCalcRequest(price=10_000_000, area_sqm=50, city="Москва"))
+    assert res["monthly_rent"] > 0
+    assert res["payback_years"] > 0
+
+
+@pytest.mark.asyncio
+async def test_districts_recommend_endpoint():
+    from app.routers.lead_magnets import DistrictsRequest, districts_recommend
+
+    res = await districts_recommend(DistrictsRequest(city="Москва", scenario="young_family"))
+    assert res["recommendations"]
+    assert "young_family" in res["scenarios"]
+
+
+@pytest.mark.asyncio
+async def test_object_check_endpoint_blocks_cian():
+    from app.routers.lead_magnets import ObjectCheckRequest, object_check
+
+    res = await object_check(ObjectCheckRequest(url="https://cian.ru/sale/flat/1/"))
+    assert res["auto_check_available"] is False
+    assert res["platform"] == "ЦИАН"
+
+
+@pytest.mark.asyncio
+async def test_magnet_subscribe_requires_consent():
+    from app.routers.lead_magnets import MagnetSubscribe, magnet_subscribe
+
+    req = MagnetSubscribe(
+        agency_id=uuid.uuid4(), magnet="mortgage",
+        contact_name="Пётр", contact_phone="+79005553311", consent_given=False,
+    )
+    with pytest.raises(ConsentRequiredError):
+        await magnet_subscribe(req, session=None)

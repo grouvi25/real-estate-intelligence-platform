@@ -21,6 +21,7 @@ dependencies = [
     "aiogram>=3.3",
     "telethon>=1.34",
     "python-multipart>=0.0.9",
+    "beautifulsoup4>=4.12",
 ]
 
 [project.optional-dependencies]
