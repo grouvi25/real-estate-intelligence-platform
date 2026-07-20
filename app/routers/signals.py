@@ -41,6 +41,14 @@ class CreateLeadRequest(BaseModel):
     purchase_goal: str = "own"
 
 
+class ReplyDraftRequest(BaseModel):
+    reply_draft: str
+    reply_channel: Optional[str] = None
+
+
+REPLY_QUEUE_STATUSES = ("draft", "pending")
+
+
 @router.get("")
 async def list_signals(
     agency_id: uuid.UUID,
@@ -98,6 +106,7 @@ async def create_lead_from_signal(
         agency_id=signal.agency_id,
         geo_location_id=signal.geo_location_id,
         signal_id=signal.id,
+        source_signal_id=signal.id,
         source_type="signal",
         source_platform="telegram",
         segment=signal.segment or ai.get("segment"),
@@ -156,3 +165,74 @@ async def generate_chat_reply(signal_id: uuid.UUID, session=Depends(get_session)
     finally:
         await ai.close()
     return {"reply": safe_ai_parse(res, {"reply_text": "Ошибка генерации ответа"})}
+
+
+# --- Signal Bus reply workflow (addendum) ----------------------------------
+
+
+@router.get("/queue")
+async def signal_reply_queue(
+    agency_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
+    session=Depends(get_session),
+):
+    """Signals awaiting a reply (draft/pending), hottest first."""
+    limit = min(max(limit, 1), MAX_PAGE)
+    offset = max(offset, 0)
+    stmt = (
+        select(Signal)
+        .where(Signal.agency_id == agency_id, Signal.reply_status.in_(REPLY_QUEUE_STATUSES))
+        .order_by(Signal.intent_score.desc().nullslast(), Signal.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return {
+        "count": len(rows),
+        "signals": [
+            {
+                "id": str(s.id),
+                "raw_text": s.raw_text,
+                "intent_score": s.intent_score,
+                "segment": s.segment,
+                "origin_system": s.origin_system,
+                "reply_channel": s.reply_channel,
+                "reply_status": s.reply_status,
+                "reply_draft": s.reply_draft,
+                "created_at": s.created_at.isoformat(),
+            }
+            for s in rows
+        ],
+    }
+
+
+@router.patch("/{signal_id}/reply-draft")
+async def set_reply_draft(
+    signal_id: uuid.UUID, req: ReplyDraftRequest, session=Depends(get_session)
+):
+    """Save/update a reply draft for a signal (status -> draft)."""
+    signal = await session.get(Signal, signal_id)
+    if signal is None:
+        raise NotFoundError("Signal", str(signal_id))
+    signal.reply_draft = req.reply_draft
+    if req.reply_channel is not None:
+        signal.reply_channel = req.reply_channel
+    signal.reply_status = "draft"
+    await session.commit()
+    return {"id": str(signal.id), "reply_status": signal.reply_status}
+
+
+@router.post("/{signal_id}/send-reply")
+async def send_reply(
+    signal_id: uuid.UUID, manager_id: Optional[str] = None, session=Depends(get_session)
+):
+    """Deliver the saved reply draft on the originating channel."""
+    signal = await session.get(Signal, signal_id)
+    if signal is None:
+        raise NotFoundError("Signal", str(signal_id))
+
+    from app.services.signal_bus import send_signal_reply
+
+    result = await send_signal_reply(session, signal, manager_id=manager_id)
+    return {"id": str(signal.id), "reply_status": signal.reply_status, "result": result}

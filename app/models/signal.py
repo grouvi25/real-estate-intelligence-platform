@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, Text
+from sqlalchemy import TIMESTAMP, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +38,19 @@ class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
     urgency: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="new")
     ai_analysis: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # Signal Bus addendum (migrations 040-041).
+    origin_system: Mapped[Optional[str]] = mapped_column(Text)
+    content_unit_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("content_units.id", ondelete="SET NULL")
+    )
+    reply_channel: Mapped[Optional[str]] = mapped_column(Text)
+    reply_status: Mapped[str] = mapped_column(Text, default="none")
+    reply_draft: Mapped[Optional[str]] = mapped_column(Text)
+    replied_by_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("managers.id", ondelete="SET NULL")
+    )
+    replied_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
 
     # One-directional convenience relationships (used by scoring/pipeline code).
     geo_location: Mapped[Optional[GeoLocation]] = relationship("GeoLocation", lazy="joined")

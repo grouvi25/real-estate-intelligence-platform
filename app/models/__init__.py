@@ -5,7 +5,9 @@ Importing this package registers every model with SQLAlchemy's mapper registry
 """
 from app.models.activity_log import ActivityLog
 from app.models.agency import Agency
+from app.models.agency_crm_config import AgencyCRMConfig
 from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
+from app.models.content_unit import ContentUnit
 from app.models.deal_outcome import DealOutcome
 from app.models.geo_location import GeoLocation
 from app.models.lead import Lead
@@ -27,6 +29,8 @@ __all__ = [
     "UpdatedAtMixin",
     "ActivityLog",
     "Agency",
+    "AgencyCRMConfig",
+    "ContentUnit",
     "DealOutcome",
     "GeoLocation",
     "Lead",

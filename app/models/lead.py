@@ -71,6 +71,12 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     utm_term: Mapped[Optional[str]] = mapped_column(Text)
     referrer: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Signal Bus addendum (migration 042).
+    source_signal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("signals.id", ondelete="SET NULL")
+    )
+    crm_deal_id: Mapped[Optional[str]] = mapped_column(Text)
+
     @hybrid_property
     def name(self) -> Optional[str]:
         return decrypt_pii(self._name_encrypted) if self._name_encrypted else None
