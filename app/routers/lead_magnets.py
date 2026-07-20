@@ -20,6 +20,7 @@ from app.models.agency import Agency
 from app.models.lead import Lead
 from app.models.match import LeadPropertyMatch
 from app.models.task import Task
+from app.services.rate_limit import rate_limit
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -59,7 +60,11 @@ async def lm1_start(req: LM1Start):
     return {"session_id": session_id, "next_step": "budget_and_city"}
 
 
-@router.post("/property-finder/result", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/property-finder/result",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("lm_result", limit=10, window=60))],
+)
 async def lm1_submit(req: LM1Result, session=Depends(get_session)):
     """Save the lead (152-FZ consent), dedup by phone, return a matched selection."""
     if not req.consent_given:
