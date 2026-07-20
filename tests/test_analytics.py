@@ -37,7 +37,7 @@ async def test_analytics_overview_funnel_and_source_roi():
         s.add(Lead(agency_id=agency.id, source_type="signal", status="in_progress"))
         s.add(Property(agency_id=agency.id, title="Кв", price=5_000_000, status="active"))
         await s.flush()
-        s.add(DealOutcome(agency_id=agency.id, lead_id=won_lead.id, outcome="won",
+        s.add(DealOutcome(agency_id=agency.id, lead_id=won_lead.id, outcome="deal_done",
                           commission_amount=300_000, deal_amount=5_000_000))
         await s.commit()
         agency_id = str(agency.id)

@@ -22,6 +22,11 @@ from app.models.task import Task
 logger = structlog.get_logger()
 router = APIRouter()
 
+# deal_outcomes.outcome allowed values (migration 001). A "won" deal is
+# 'deal_done'; the rest are losses.
+WON_OUTCOME = "deal_done"
+LOST_OUTCOMES = ("rejected", "lost_to_competitor", "expired")
+
 
 def _agency_uuid(current: CurrentManager) -> uuid.UUID:
     return uuid.UUID(current.agency_id)
@@ -56,13 +61,13 @@ async def analytics_overview(
             select(
                 func.count().label("deals"),
                 func.coalesce(func.sum(DealOutcome.commission_amount), 0).label("commission"),
-            ).where(DealOutcome.agency_id == aid, DealOutcome.outcome == "won")
+            ).where(DealOutcome.agency_id == aid, DealOutcome.outcome == WON_OUTCOME)
         )
     ).one()
     lost = (
         await session.execute(
             select(func.count()).select_from(DealOutcome).where(
-                DealOutcome.agency_id == aid, DealOutcome.outcome == "lost")
+                DealOutcome.agency_id == aid, DealOutcome.outcome.in_(LOST_OUTCOMES))
         )
     ).scalar_one()
 
@@ -130,11 +135,11 @@ async def analytics_managers(
             Manager.name,
             func.count(DealOutcome.id).label("deals"),
             func.coalesce(
-                func.sum(case((DealOutcome.outcome == "won", DealOutcome.commission_amount),
+                func.sum(case((DealOutcome.outcome == WON_OUTCOME, DealOutcome.commission_amount),
                               else_=0)), 0
             ).label("commission"),
             func.coalesce(
-                func.sum(case((DealOutcome.outcome == "won", 1), else_=0)), 0
+                func.sum(case((DealOutcome.outcome == WON_OUTCOME, 1), else_=0)), 0
             ).label("won"),
         )
         .select_from(Manager)
@@ -179,7 +184,7 @@ async def analytics_source_roi(
             )
             .select_from(DealOutcome)
             .join(Lead, DealOutcome.lead_id == Lead.id)
-            .where(DealOutcome.agency_id == aid, DealOutcome.outcome == "won")
+            .where(DealOutcome.agency_id == aid, DealOutcome.outcome == WON_OUTCOME)
             .group_by(func.coalesce(Lead.utm_source, "direct"))
         )
     ).all()
