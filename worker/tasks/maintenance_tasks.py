@@ -206,3 +206,30 @@ async def _check_dead_sources() -> int:
 @shared_task(name="worker.tasks.maintenance_tasks.check_dead_sources")
 def check_dead_sources() -> int:
     return asyncio.run(_check_dead_sources())
+
+
+# --- Celery queue depth alert (TZ 24) --------------------------------------
+# Every few minutes: if the pending backlog on the default queue exceeds the
+# threshold, fire a critical alert so a stuck/overloaded worker is noticed.
+QUEUE_ALERT_THRESHOLD = 50
+
+
+async def _check_queue_depth() -> int:
+    import redis.asyncio as aioredis
+
+    from app.services.alerts import send_critical_alert
+
+    client = aioredis.from_url(config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+    try:
+        depth = int(await client.llen("celery"))
+    finally:
+        await client.aclose()
+    if depth > QUEUE_ALERT_THRESHOLD:
+        await send_critical_alert(f"Очередь Celery перегружена: {depth} задач в ожидании")
+        logger.warning("Celery queue backlog high", depth=depth)
+    return depth
+
+
+@shared_task(name="worker.tasks.maintenance_tasks.check_queue_depth")
+def check_queue_depth() -> int:
+    return asyncio.run(_check_queue_depth())

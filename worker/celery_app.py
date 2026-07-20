@@ -28,6 +28,7 @@ celery_app = Celery(
         "worker.tasks.partner_tasks",
         "worker.tasks.knowledge_tasks",
         "worker.tasks.crm_tasks",
+        "worker.tasks.report_tasks",
     ],
 )
 
@@ -72,10 +73,17 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.maintenance_tasks.check_dead_sources",
         "schedule": crontab(hour=6, minute=0),  # 06:00 daily
     },
+    "daily-report": {
+        "task": "worker.tasks.report_tasks.generate_daily_report",
+        "schedule": crontab(hour=7, minute=30),  # 07:30 MSK
+    },
+    "queue-depth-check": {
+        "task": "worker.tasks.maintenance_tasks.check_queue_depth",
+        "schedule": crontab(minute="*/5"),  # every 5 min
+    },
 }
 
 # --- Planned schedule from TZ 11.1 (enable as each task is implemented) ---
 # "intent-scoring-batch":   worker.tasks.signal_tasks.score_intent_batch        every 5 min
-# "daily-report":           worker.tasks.report_tasks.generate_daily_report     07:30 MSK
 # rematch_on_price_change is triggered on demand from the property PATCH endpoint
 # (worker.tasks.matching_tasks.rematch_on_price_change), not on a fixed schedule.

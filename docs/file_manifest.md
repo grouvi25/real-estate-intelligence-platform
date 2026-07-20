@@ -44,7 +44,7 @@ Core: `ai_service`, `ai_cost_tracker`, `bot_abstraction`, `encryption`, `pii_ano
 11 AI prompt modules (qualification, intent_scoring, pitch_generator, reply_generator, buyer_profile, object_analysis, market_analysis, listing_generator, geo_keywords, source_evaluation, daily_report).
 
 ## Workers (`worker/`)
-`celery_app.py` (app + beat schedule). Tasks: `maintenance_tasks` (ai-cost reset, lead-score decay, escalate-overdue, dead-source check), `matching_tasks` (run + rematch-on-price-change), `geo_tasks`, `source_tasks`, `partner_tasks`, `knowledge_tasks`, `crm_tasks`.
+`celery_app.py` (app + beat schedule). Tasks: `maintenance_tasks` (ai-cost reset, lead-urgency decay, escalate-overdue, dead-source check, queue-depth alert), `matching_tasks` (run + rematch-on-price-change), `geo_tasks`, `source_tasks`, `partner_tasks`, `knowledge_tasks`, `crm_tasks`, `report_tasks` (daily manager report 07:30).
 
 ## Migrations (`migrations/`)
 `001_init` .. `008_status_extensions` (core + product extensions) and `040`–`044` (Signal Bus: content_units, signal reply fields, lead↔signal link, agency_crm_config, `v_signal_to_outcome` view). Applied idempotently by the SQL migration runner.
