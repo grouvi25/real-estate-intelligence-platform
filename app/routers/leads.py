@@ -137,3 +137,27 @@ async def update_lead_status(
         lead.rejection_reason = req.rejection_reason
     await session.commit()
     return {"id": str(lead.id), "status": lead.status}
+
+
+@router.post("/{lead_id}/process-alternative", status_code=201)
+async def process_alternative(
+    lead_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Sell-to-buy: create sell+buy tasks and re-run matching by target budget."""
+    lead = await _get_scoped_lead(lead_id, current, session)
+    if lead.lead_type != "alternative":
+        raise ValidationError("lead_type", "лид не является альтернативным")
+
+    from app.services.alternative_lead import build_alternative_tasks
+
+    tasks, target_budget = build_alternative_tasks(lead)
+    for task in tasks:
+        session.add(task)
+    await session.commit()
+
+    from worker.tasks.matching_tasks import run_matching_for_lead
+
+    run_matching_for_lead.delay(str(lead.id), target_budget)
+    return {"tasks_created": len(tasks), "target_budget": target_budget}

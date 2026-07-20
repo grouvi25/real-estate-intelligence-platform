@@ -10,7 +10,7 @@ logger = structlog.get_logger()
 
 
 @shared_task(name="worker.tasks.matching_tasks.run_matching_for_lead")
-def run_matching_for_lead(lead_id: str) -> int:
+def run_matching_for_lead(lead_id: str, override_budget: int | None = None) -> int:
     from app.services.matching import MatchingEngine
 
-    return asyncio.run(MatchingEngine.run_for_new_lead(lead_id))
+    return asyncio.run(MatchingEngine.run_for_new_lead(lead_id, override_budget=override_budget))
