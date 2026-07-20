@@ -104,7 +104,7 @@ jobs:
             ENCRYPTION_KEY=${ENC}
             SECRET_KEY=${SEC}
             NODE_ENV=development
-            BASE_URL=http://${{ secrets.VPS_HOST }}
+            BASE_URL=https://reip.grouvi.online
             YC_SERVICE_ACCOUNT_KEY_FILE=/app/secrets/sa-key.json
             YC_FOLDER_ID=dev
             YC_S3_BUCKET=dev

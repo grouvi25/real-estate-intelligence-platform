@@ -32,9 +32,10 @@ services:
 
   app:
     build: .
-    # Dev stand: exposed directly. For production put behind nginx + TLS.
+    # Behind the shared system nginx + TLS (https://reip.grouvi.online).
+    # Bound to loopback so the app is reachable only via the TLS reverse proxy.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file: .env
     depends_on:
       db:

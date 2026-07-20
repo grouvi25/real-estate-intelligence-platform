@@ -4,7 +4,7 @@
 
 ## 🟢 Инфраструктура и безопасность
 - ✅ Docker Compose поднимается без ошибок (dev-стенд через CD; отдельный prod-профиль — ⏳)
-- ⏳ SSL-сертификат + редирект HTTP→HTTPS (стенд на `:8000`; nginx+TLS впереди)
+- ✅ HTTPS + редирект HTTP→HTTPS: `https://reip.grouvi.online` (Let's Encrypt, авто-продление), приложение за общим nginx, порт 8000 только на loopback
 - ✅ Все секреты в `.env`, в коде нет токенов/ключей
 - ✅ `ENCRYPTION_KEY` валиден; ПД в БД читаются только через hybrid-свойства (Fernet)
 - ✅ `.gitignore` блокирует `.env`, `*.key`, `secrets/`
@@ -30,9 +30,9 @@
 - ✅ Вс 03:00 `update_knowledge_moat`: Source ROI + веса в `agency.settings`
 
 ## 🟡 Деплой и мониторинг
-- ✅ Mini App статика отдаётся FastAPI по `/mini-app/` (nginx+TLS перед проксированием — впереди)
+- ✅ Mini App статика отдаётся FastAPI по `https://reip.grouvi.online/mini-app/`
 - ✅ `/api/health/deep` возвращает статус DB, Redis, AI, Telegram-бота и очереди Celery (с таймаутами)
-- ⏳ Nginx reverse-proxy `/api/` и `/webhooks/` (стенд напрямую `:8000`)
+- ✅ Nginx reverse-proxy + TLS перед `/api/`, `/webhooks/`, `/mini-app/` (`https://reip.grouvi.online`)
 - ✅ Structlog пишет JSON
 - ⚙️ Алерт на AI-бюджет >90% ✅; авто-алерт при очереди Celery >50 ✅ (каждые 5 мин)
 
@@ -53,7 +53,7 @@
 
 Финальная сводка по всем блокам системы. Статусы: ✅ готово · ⚙️ частично · ⏳ впереди
 
-**35.1 Инфраструктура.** ✅ Docker Compose (dev-стенд, namespaced `reip`), CI/CD на VPS, секреты только в `.env`. ⏳ prod-профиль с nginx+TLS.
+**35.1 Инфраструктура.** ✅ Docker Compose (dev-стенд, namespaced `reip`), CI/CD на VPS, секреты только в `.env`, HTTPS через общий nginx + Let's Encrypt (`https://reip.grouvi.online`), приложение слушает 8000 только на loopback.
 
 **35.2 База данных и миграции.** ✅ 15+ таблиц, идемпотентный SQL-раннер миграций (001–008, 040–044), blind-index для дедупликации, представление `v_signal_to_outcome`.
 
