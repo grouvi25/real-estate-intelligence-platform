@@ -213,8 +213,12 @@ async def test_escalate_overdue_leads_creates_task(monkeypatch):
     await run_migrations()
     async with async_session() as s:
         agency, geo = await _seed_agency_geo(s)
+        from app.models.manager import Manager
+        mgr = Manager(agency_id=agency.id, name="Менеджер", role="manager")
+        s.add(mgr)
+        await s.flush()
         lead = Lead(agency_id=agency.id, geo_location_id=geo.id, source_type="signal",
-                    status="new", urgency="hot", assigned_to=uuid.uuid4())
+                    status="new", urgency="hot", assigned_to=mgr.id)
         s.add(lead)
         await s.commit()
         lead_id = lead.id
