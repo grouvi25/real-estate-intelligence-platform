@@ -166,29 +166,32 @@ async def analytics_source_roi(
     """Attribution: leads generated and commission earned per UTM source."""
     aid = _agency_uuid(current)
 
+    # Group by the raw column (NULLs collapse into one group) and coalesce to
+    # "direct" in Python. Grouping by coalesce(...) in SQL would emit two distinct
+    # bind params (SELECT vs GROUP BY) that PostgreSQL won't treat as equal.
     lead_rows = (
         await session.execute(
-            select(func.coalesce(Lead.utm_source, "direct"), func.count())
+            select(Lead.utm_source, func.count())
             .where(Lead.agency_id == aid)
-            .group_by(func.coalesce(Lead.utm_source, "direct"))
+            .group_by(Lead.utm_source)
         )
     ).all()
-    leads_by_source = {src: count for src, count in lead_rows}
+    leads_by_source = {(src or "direct"): count for src, count in lead_rows}
 
     deal_rows = (
         await session.execute(
             select(
-                func.coalesce(Lead.utm_source, "direct"),
+                Lead.utm_source,
                 func.count(DealOutcome.id),
                 func.coalesce(func.sum(DealOutcome.commission_amount), 0),
             )
             .select_from(DealOutcome)
             .join(Lead, DealOutcome.lead_id == Lead.id)
             .where(DealOutcome.agency_id == aid, DealOutcome.outcome == WON_OUTCOME)
-            .group_by(func.coalesce(Lead.utm_source, "direct"))
+            .group_by(Lead.utm_source)
         )
     ).all()
-    deals_by_source = {src: (deals, int(comm or 0)) for src, deals, comm in deal_rows}
+    deals_by_source = {(src or "direct"): (deals, int(comm or 0)) for src, deals, comm in deal_rows}
 
     sources = []
     for src, lead_count in sorted(leads_by_source.items(), key=lambda kv: kv[1], reverse=True):
