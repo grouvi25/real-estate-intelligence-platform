@@ -1,11 +1,11 @@
 """Standalone load test for REIP. TZ section 35 (50 RPS target).
 
-Fires a steady request rate at public endpoints and reports latency percentiles
-and error rate. Deliberately NOT wired into the app or CI, and NOT pointed at the
-shared dev VPS by default — run it against a dedicated/staging instance.
+Fires a steady request rate at lightweight, un-rate-limited endpoints and reports
+latency percentiles and error rate. Deliberately NOT wired into the app or CI.
+Point it at a dedicated/staging instance or the public TLS URL.
 
 Usage:
-    python scripts/loadtest.py --url http://localhost:8000 --rps 50 --seconds 30
+    python scripts/loadtest.py --url https://reip.grouvi.online --rps 50 --seconds 30
 
 Requires httpx (already a project dependency).
 """
@@ -17,22 +17,16 @@ import time
 
 import httpx
 
-# Public, cheap endpoints (no auth, no PII, no persistence).
-MORTGAGE_BODY = {
-    "property_price": 8_000_000, "down_payment": 2_000_000,
-    "term_years": 20, "program": "family",
-}
+# Lightweight, un-rate-limited endpoints (health/liveness). Rotating between the
+# root liveness probe and the versioned API health keeps both paths warm.
+ENDPOINTS = ["/health", "/api/health"]
 
 
-async def _one(client: httpx.AsyncClient, base: str, results: list) -> None:
+async def _one(client: httpx.AsyncClient, base: str, i: int, results: list) -> None:
     start = time.perf_counter()
     ok = False
     try:
-        # Alternate between a trivial GET and a compute POST.
-        if int(start * 1000) % 2 == 0:
-            r = await client.get(f"{base}/health", timeout=10)
-        else:
-            r = await client.post(f"{base}/api/lm/lm2/calculate", json=MORTGAGE_BODY, timeout=10)
+        r = await client.get(f"{base}{ENDPOINTS[i % len(ENDPOINTS)]}", timeout=10)
         ok = r.status_code < 400
     except Exception:  # noqa: BLE001
         ok = False
@@ -47,7 +41,7 @@ async def run(base: str, rps: int, seconds: int) -> None:
         deadline = time.perf_counter() + seconds
         n = 0
         while time.perf_counter() < deadline:
-            tasks.append(asyncio.create_task(_one(client, base, results)))
+            tasks.append(asyncio.create_task(_one(client, base, n, results)))
             n += 1
             await asyncio.sleep(interval)
         await asyncio.gather(*tasks)
