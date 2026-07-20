@@ -11,6 +11,7 @@ def _finalized_app():
     import worker.tasks.matching_tasks  # noqa: F401
     import worker.tasks.partner_tasks  # noqa: F401
     import worker.tasks.report_tasks  # noqa: F401
+    import worker.tasks.signal_tasks  # noqa: F401
     import worker.tasks.source_tasks  # noqa: F401
     from worker.celery_app import celery_app
 

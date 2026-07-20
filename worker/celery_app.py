@@ -30,6 +30,7 @@ celery_app = Celery(
         "worker.tasks.crm_tasks",
         "worker.tasks.report_tasks",
         "worker.tasks.collector_tasks",
+        "worker.tasks.signal_tasks",
     ],
 )
 
@@ -86,9 +87,12 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.collector_tasks.collect_telegram_sources",
         "schedule": crontab(minute="*/10"),  # every 10 min (no-op without Telethon)
     },
+    "intent-scoring-batch": {
+        "task": "worker.tasks.signal_tasks.score_intent_batch",
+        "schedule": crontab(minute="*/5"),  # every 5 min (no-op without AI keys)
+    },
 }
 
-# --- Planned schedule from TZ 11.1 (enable as each task is implemented) ---
-# "intent-scoring-batch":   worker.tasks.signal_tasks.score_intent_batch        every 5 min
+# --- Planned schedule from TZ 11.1 (all core periodic tasks now implemented) ---
 # rematch_on_price_change is triggered on demand from the property PATCH endpoint
 # (worker.tasks.matching_tasks.rematch_on_price_change), not on a fixed schedule.
