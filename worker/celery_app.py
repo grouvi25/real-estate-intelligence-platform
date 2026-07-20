@@ -27,6 +27,7 @@ celery_app = Celery(
         "worker.tasks.source_tasks",
         "worker.tasks.partner_tasks",
         "worker.tasks.knowledge_tasks",
+        "worker.tasks.crm_tasks",
     ],
 )
 

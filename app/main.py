@@ -18,6 +18,7 @@ from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
 from app.logging_config import setup_logging
 from app.routers import (
+    analytics,
     auth,
     deals,
     geo,
@@ -124,6 +125,7 @@ app.include_router(properties.router, prefix="/api/properties", tags=["Propertie
 app.include_router(lead_magnets.router, prefix="/api/lm", tags=["Lead Magnets"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
 app.include_router(deals.router, prefix="/api/deals", tags=["Deals"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
 

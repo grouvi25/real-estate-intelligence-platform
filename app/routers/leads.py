@@ -10,6 +10,7 @@ from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -140,10 +141,18 @@ async def update_lead_status(
         raise ValidationError("status", f"недопустимый статус: {req.status}")
 
     lead = await _get_scoped_lead(lead_id, current, session)
+    previous = lead.status
     lead.status = req.status
     if req.rejection_reason is not None:
         lead.rejection_reason = req.rejection_reason
     await session.commit()
+
+    # Push newly qualified leads to the agency CRM (best-effort, off request path).
+    if req.status == "qualified" and previous != "qualified":
+        from worker.tasks.crm_tasks import export_lead_to_crm
+
+        export_lead_to_crm.delay(str(lead.id))
+
     return {"id": str(lead.id), "status": lead.status}
 
 
@@ -207,6 +216,43 @@ async def update_match_feedback(
     logger.info("Match feedback", lead_id=str(lead_id), property_id=str(property_id),
                 status=req.status)
     return {"lead_id": str(lead_id), "property_id": str(property_id), "status": match.status}
+
+
+@router.get("/{lead_id}/document")
+async def lead_commercial_offer(
+    lead_id: uuid.UUID,
+    format: str = "html",
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Render a commercial offer (КП) with the lead's matched properties.
+
+    ?format=html (default) or pdf. PDF needs the optional 'pdf' extra installed.
+    """
+    from app.services.document_service import render_html, render_pdf
+
+    lead = await _get_scoped_lead(lead_id, current, session)
+    mstmt = (
+        select(LeadPropertyMatch, Property)
+        .join(Property, LeadPropertyMatch.property_id == Property.id)
+        .where(LeadPropertyMatch.lead_id == lead_id)
+        .order_by(LeadPropertyMatch.match_score.desc())
+    )
+    properties = [
+        {"title": prop.title, "price": prop.price, "match_score": match.match_score,
+         "pitch": match.generated_pitch}
+        for match, prop in (await session.execute(mstmt)).all()
+    ]
+    context = {
+        "agency_name": "",
+        "manager_name": "",
+        "client_name": lead.name,
+        "properties": properties,
+    }
+    if format == "pdf":
+        pdf = render_pdf("commercial_offer", context)
+        return Response(content=pdf, media_type="application/pdf")
+    return HTMLResponse(content=render_html("commercial_offer", context))
 
 
 @router.post("/{lead_id}/process-alternative", status_code=201)

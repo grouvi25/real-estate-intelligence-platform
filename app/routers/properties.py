@@ -11,6 +11,7 @@ from typing import Optional
 
 import structlog
 from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -107,3 +108,31 @@ async def update_property(
 
     return {"id": str(prop.id), "price": prop.price, "status": prop.status,
             "price_changed": price_changed}
+
+
+@router.get("/{property_id}/report")
+async def property_report(
+    property_id: uuid.UUID,
+    format: str = "html",
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Render an object report. ?format=html (default) or pdf."""
+    from app.services.document_service import render_html, render_pdf
+
+    prop = await _get_scoped_property(property_id, current, session)
+    context = {
+        "title": prop.title,
+        "price": prop.price,
+        "address": prop.address,
+        "district": prop.district,
+        "rooms": prop.rooms,
+        "area_total": prop.area_total,
+        "floor": prop.floor,
+        "floors_total": prop.floors_total,
+        "description": prop.description_original,
+    }
+    if format == "pdf":
+        pdf = render_pdf("object_report", context)
+        return Response(content=pdf, media_type="application/pdf")
+    return HTMLResponse(content=render_html("object_report", context))
