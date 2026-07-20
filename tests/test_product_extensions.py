@@ -239,7 +239,7 @@ async def test_check_dead_sources():
 async def test_utm_captured_on_subscribe():
     from app.database import async_session, run_migrations
     from app.models.lead import Lead
-    from app.routers.lead_magnets import MagnetSubscribe, magnet_subscribe
+    from app.routers.lead_magnets import LM6CalcRequest, LM6SubscribeRequest, lm6_subscribe
 
     await run_migrations()
     async with async_session() as s:
@@ -247,17 +247,18 @@ async def test_utm_captured_on_subscribe():
         await s.commit()
         agency_id = agency.id
 
-    req = MagnetSubscribe(
-        agency_id=agency_id, magnet="roi", contact_name="Пётр",
+    req = LM6SubscribeRequest(
+        calc_data=LM6CalcRequest(property_price=7_500_000, city="Геленджик"),
+        agency_id=agency_id, contact_name="Пётр",
         contact_phone="+7 900 777-88-99", consent_given=True, consent_text="ok",
         utm_source="vk", utm_campaign="spring", utm_medium="cpc",
     )
     async with async_session() as s:
-        res = await magnet_subscribe(req, session=s)
+        res = await lm6_subscribe(req, session=s)
         lead_id = uuid.UUID(res["lead_id"])
 
     async with async_session() as s:
         lead = await s.get(Lead, lead_id)
         assert lead.utm_source == "vk"
         assert lead.utm_campaign == "spring"
-        assert lead.buyer_profile.get("magnet") == "roi"
+        assert lead.buyer_profile.get("lm_source") == "lm6_roi"

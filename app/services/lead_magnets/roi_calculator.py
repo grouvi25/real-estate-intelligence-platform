@@ -1,98 +1,64 @@
-"""LM-6: rental ROI calculator. TZ section 29.6.
+"""LM-6: investor ROI calculator. TZ section 29.4 (exact spec).
 
-Estimates rental yield, payback period and compares the investment against a
-bank deposit at the current key-rate-driven deposit rate. Pure functions.
+Seasonal rental economics for Black Sea coast cities vs a bank deposit. Pure.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from typing import Optional
 
-# Ставка по банковскому вкладу для сравнения (при ключевой ставке ~16%).
-DEPOSIT_RATE = 0.16
-
-# Допущения по аренде: средняя ставка аренды за м²/мес и заполняемость.
-RENTAL_ASSUMPTIONS: dict[str, dict] = {
-    "Москва": {"rent_per_sqm": 1200, "occupancy": 0.92, "annual_growth": 0.07},
-    "Санкт-Петербург": {"rent_per_sqm": 900, "occupancy": 0.90, "annual_growth": 0.06},
-    "Казань": {"rent_per_sqm": 650, "occupancy": 0.88, "annual_growth": 0.06},
-    "Екатеринбург": {"rent_per_sqm": 600, "occupancy": 0.88, "annual_growth": 0.05},
-    "Новосибирск": {"rent_per_sqm": 580, "occupancy": 0.87, "annual_growth": 0.05},
-    "Сочи": {"rent_per_sqm": 1500, "occupancy": 0.80, "annual_growth": 0.09},
-    "default": {"rent_per_sqm": 500, "occupancy": 0.85, "annual_growth": 0.05},
+RENTAL_ASSUMPTIONS = {
+    "Геленджик": {"season_months": 5.0, "rate_pct": 0.007, "occupancy": 0.75},
+    "Сочи": {"season_months": 9.0, "rate_pct": 0.009, "occupancy": 0.80},
+    "Новороссийск": {"season_months": 3.5, "rate_pct": 0.005, "occupancy": 0.65},
+    "Анапа": {"season_months": 4.5, "rate_pct": 0.006, "occupancy": 0.70},
+    "default": {"season_months": 4.0, "rate_pct": 0.006, "occupancy": 0.70},
 }
-
-# Доля дохода, уходящая на налоги, управление, простой и текущий ремонт.
-EXPENSE_RATIO = 0.15
-
-
-@dataclass
-class RoiResult:
-    city: str
-    price: int
-    area_sqm: float
-    monthly_rent: int
-    occupancy: float
-    annual_gross_income: int
-    annual_net_income: int
-    gross_yield_pct: float
-    net_yield_pct: float
-    payback_years: float
-    deposit_annual_income: int
-    deposit_rate_pct: float
-    verdict: str
-    notes: list[str] = field(default_factory=list)
+DEPOSIT_RATE = 0.16   # ставка по вкладу 2026
+APPRECIATION = 0.05   # консервативный прирост стоимости в год
 
 
-def calculate_roi(
-    price: int,
-    area_sqm: float,
+def calculate_investment_roi(
+    property_price: int,
     city: str,
-    monthly_rent: int | None = None,
-) -> RoiResult:
-    """Estimate rental economics for a property.
-
-    monthly_rent may be provided (a known asking rent); otherwise it is derived
-    from the per-m² assumption for the city.
-    """
-    assumptions = RENTAL_ASSUMPTIONS.get(city, RENTAL_ASSUMPTIONS["default"])
-    notes: list[str] = []
-
-    if monthly_rent is None or monthly_rent <= 0:
-        monthly_rent = int(round(assumptions["rent_per_sqm"] * area_sqm))
-        notes.append("Аренда рассчитана по средней ставке за м² в городе")
-    if city not in RENTAL_ASSUMPTIONS:
-        notes.append("Для города нет точных данных — использованы средние значения")
-
-    occupancy = assumptions["occupancy"]
-    gross_income = monthly_rent * 12 * occupancy
-    net_income = gross_income * (1 - EXPENSE_RATIO)
-
-    gross_yield = (gross_income / price * 100) if price else 0
-    net_yield = (net_income / price * 100) if price else 0
-    payback = (price / net_income) if net_income else 0
-
-    deposit_income = price * DEPOSIT_RATE
-
-    if net_income > deposit_income:
-        verdict = "Аренда выгоднее вклада"
-    elif net_yield >= DEPOSIT_RATE * 100 * 0.7:
-        verdict = "Сопоставимо с вкладом, но есть рост стоимости актива"
-    else:
-        verdict = "Вклад выгоднее по текущему денежному потоку"
-
-    return RoiResult(
-        city=city,
-        price=price,
-        area_sqm=area_sqm,
-        monthly_rent=int(round(monthly_rent)),
-        occupancy=occupancy,
-        annual_gross_income=int(round(gross_income)),
-        annual_net_income=int(round(net_income)),
-        gross_yield_pct=round(gross_yield, 2),
-        net_yield_pct=round(net_yield, 2),
-        payback_years=round(payback, 1),
-        deposit_annual_income=int(round(deposit_income)),
-        deposit_rate_pct=round(DEPOSIT_RATE * 100, 1),
-        verdict=verdict,
-        notes=notes,
-    )
+    down_payment: Optional[int] = None,
+    renovation_budget: int = 0,
+    monthly_expenses: int = 5_000,
+) -> dict:
+    a = RENTAL_ASSUMPTIONS.get(city, RENTAL_ASSUMPTIONS["default"])
+    total = property_price + renovation_budget
+    monthly_rental = property_price * a["rate_pct"]
+    annual_gross = monthly_rental * a["season_months"] * a["occupancy"]
+    annual_net = annual_gross - monthly_expenses * 12
+    roi_rental = annual_net / total * 100
+    payback = total / annual_net if annual_net > 0 else 999
+    deposit_base = down_payment or property_price
+    deposit_income = deposit_base * DEPOSIT_RATE
+    total_return = annual_net + property_price * APPRECIATION
+    return {
+        "city": city,
+        "property_price": property_price,
+        "total_investment": total,
+        "assumptions": {
+            "season_months": a["season_months"],
+            "occupancy_pct": int(a["occupancy"] * 100),
+            "monthly_rental_estimate": int(monthly_rental),
+        },
+        "rental_income": {
+            "annual_gross": int(annual_gross),
+            "annual_expenses": int(monthly_expenses * 12),
+            "annual_net": int(annual_net),
+        },
+        "roi_rental_only_pct": round(roi_rental, 1),
+        "roi_with_appreciation_pct": round(total_return / total * 100, 1),
+        "payback_years": round(payback, 1),
+        "vs_deposit": {
+            "deposit_amount": deposit_base,
+            "deposit_rate_pct": DEPOSIT_RATE * 100,
+            "deposit_annual_income": int(deposit_income),
+            "real_estate_advantage": int(total_return - deposit_income),
+            "verdict": "Недвижимость выгоднее депозита"
+            if total_return > deposit_income
+            else "Депозит выгоднее при данных параметрах",
+        },
+        "note": "Расчёт оценочный. Реальные показатели зависят от объекта и управления.",
+    }

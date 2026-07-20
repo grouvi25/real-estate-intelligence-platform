@@ -90,66 +90,56 @@ async def test_lm1_creates_lead_matches_and_dedup():
     assert res2["lead_id"] == lead_id
 
 
-# --- LM-2/3/4/6 endpoints (pure, no DB) -------------------------------------
+# --- LM-2/3/4/6 endpoints (pure, no DB) — TZ 29 shapes ----------------------
 
 
 @pytest.mark.asyncio
-async def test_mortgage_calculate_endpoint_compares_all():
-    from app.routers.lead_magnets import MortgageCalcRequest, mortgage_calculate
+async def test_lm2_calculate_endpoint():
+    from app.routers.lead_magnets import LM2CalcRequest, lm2_calculate
 
-    res = await mortgage_calculate(
-        MortgageCalcRequest(price=6_000_000, down_payment=1_500_000, term_years=20)
+    res = await lm2_calculate(
+        LM2CalcRequest(property_price=8_000_000, down_payment=2_000_000, term_years=20, program="family")
     )
-    assert res["matkapital"] == 833_000
-    assert len(res["programs"]) >= 5
-    assert all("monthly_payment" in p for p in res["programs"])
+    assert res["selected_program"]["monthly_payment"] > 0
+    assert len(res["all_programs"]) == 5
 
 
 @pytest.mark.asyncio
-async def test_mortgage_calculate_single_program():
-    from app.routers.lead_magnets import MortgageCalcRequest, mortgage_calculate
+async def test_lm2_subscribe_requires_consent():
+    from app.routers.lead_magnets import LM2CalcRequest, LM2SubscribeRequest, lm2_subscribe
 
-    res = await mortgage_calculate(
-        MortgageCalcRequest(price=6_000_000, down_payment=2_000_000, term_years=20, program="family")
-    )
-    assert len(res["programs"]) == 1
-    assert res["programs"][0]["program"] == "family"
-
-
-@pytest.mark.asyncio
-async def test_roi_calculate_endpoint():
-    from app.routers.lead_magnets import RoiCalcRequest, roi_calculate
-
-    res = await roi_calculate(RoiCalcRequest(price=10_000_000, area_sqm=50, city="Москва"))
-    assert res["monthly_rent"] > 0
-    assert res["payback_years"] > 0
-
-
-@pytest.mark.asyncio
-async def test_districts_recommend_endpoint():
-    from app.routers.lead_magnets import DistrictsRequest, districts_recommend
-
-    res = await districts_recommend(DistrictsRequest(city="Москва", scenario="young_family"))
-    assert res["recommendations"]
-    assert "young_family" in res["scenarios"]
-
-
-@pytest.mark.asyncio
-async def test_object_check_endpoint_blocks_cian():
-    from app.routers.lead_magnets import ObjectCheckRequest, object_check
-
-    res = await object_check(ObjectCheckRequest(url="https://cian.ru/sale/flat/1/"))
-    assert res["auto_check_available"] is False
-    assert res["platform"] == "ЦИАН"
-
-
-@pytest.mark.asyncio
-async def test_magnet_subscribe_requires_consent():
-    from app.routers.lead_magnets import MagnetSubscribe, magnet_subscribe
-
-    req = MagnetSubscribe(
-        agency_id=uuid.uuid4(), magnet="mortgage",
-        contact_name="Пётр", contact_phone="+79005553311", consent_given=False,
+    req = LM2SubscribeRequest(
+        calc_data=LM2CalcRequest(property_price=8_000_000, down_payment=2_000_000, term_years=20),
+        contact_phone="+79001234567", contact_name="Тест", consent_given=False,
+        agency_id=uuid.uuid4(),
     )
     with pytest.raises(ConsentRequiredError):
-        await magnet_subscribe(req, session=None)
+        await lm2_subscribe(req, session=None)
+
+
+@pytest.mark.asyncio
+async def test_lm6_calculate_endpoint():
+    from app.routers.lead_magnets import LM6CalcRequest, lm6_calculate
+
+    res = await lm6_calculate(LM6CalcRequest(property_price=7_500_000, city="Геленджик"))
+    assert "roi_rental_only_pct" in res
+    assert res["vs_deposit"]["deposit_rate_pct"] == 16.0
+
+
+@pytest.mark.asyncio
+async def test_lm3_analyze_blocked_url():
+    from app.routers.lead_magnets import LM3AnalyzeRequest, lm3_analyze
+
+    res = await lm3_analyze(
+        LM3AnalyzeRequest(listing_url="https://cian.ru/sale/flat/123/", city="Геленджик")
+    )
+    assert res["needs_manual_text"] is True
+
+
+@pytest.mark.asyncio
+async def test_lm4_districts_fallback_when_no_ai():
+    from app.routers.lead_magnets import LM4DistrictsRequest, lm4_districts
+
+    # No AI provider configured in tests -> graceful fallback.
+    res = await lm4_districts(LM4DistrictsRequest(city="Геленджик", scenario="family"))
+    assert "districts" in res

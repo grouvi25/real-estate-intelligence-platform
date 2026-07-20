@@ -1,129 +1,50 @@
-"""LM-4: district recommender by life scenario. TZ section 29.4.
+"""LM-4: district map by life scenario. TZ section 29.3 (exact spec).
 
-Maps a buyer's life scenario to district characteristics and ranks districts
-within a city by fit + budget. Data-driven, pure functions.
+The TZ uses an AI prompt (SYSTEM_PROMPT_DISTRICTS) to return top-3 districts for
+a life scenario. We keep the prompt + scenarios here; the router calls the AI and
+falls back to a lightweight data-driven recommender if AI is unavailable, so the
+endpoint never hard-fails.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+SYSTEM_PROMPT_DISTRICTS = """
+Ты — эксперт по недвижимости черноморского побережья.
+Задача: топ-3 района по сценарию жизни покупателя (только реальные факты).
+ВОЗВРАЩАЙ СТРОГО JSON БЕЗ MARKDOWN:
+{"districts":[{"name":"","description":"","why_fits":"","pros":[],"cons":[],
+"price_range":"","score":0}],"city_overview":"","recommendation":""}
+"""
 
-# Жизненные сценарии → приоритеты (теги инфраструктуры).
-LIFE_SCENARIOS: dict[str, dict] = {
-    "young_family": {
-        "name": "Молодая семья с детьми",
-        "priorities": ["schools", "kindergartens", "parks", "safety", "clinics"],
-    },
-    "investor": {
-        "name": "Инвестор",
-        "priorities": ["liquidity", "transport", "business", "price_growth"],
-    },
-    "professional": {
-        "name": "Работающий профессионал",
-        "priorities": ["transport", "business", "restaurants", "fitness"],
-    },
-    "retiree": {
-        "name": "Спокойная жизнь / для родителей",
-        "priorities": ["parks", "clinics", "quiet", "ecology"],
-    },
-    "student": {
-        "name": "Студент / первое жильё",
-        "priorities": ["transport", "universities", "price_low", "restaurants"],
-    },
+LIFE_SCENARIOS = {
+    "family": "Семья с детьми: школа рядом, детская площадка, безопасный двор",
+    "investor": "Инвестор: ликвидность, туристический поток, аренда",
+    "relocant": "Переезд на ПМЖ: инфраструктура, работа, комьюнити",
+    "remote": "Удалённая работа: тишина, быстрый интернет, кофейни",
+    "senior": "Пенсионеры: тишина, поликлиника рядом, зелёные зоны",
+    "vacationer": "Отдых: близость к морю, развлечения, парковка",
 }
 
-# Районы по городам. tags — сильные стороны района.
-DISTRICTS: dict[str, list[dict]] = {
-    "Москва": [
-        {"name": "Хамовники", "avg_price_sqm": 550_000,
-         "tags": ["parks", "schools", "safety", "restaurants", "clinics"]},
-        {"name": "Раменки", "avg_price_sqm": 380_000,
-         "tags": ["schools", "kindergartens", "parks", "universities", "transport"]},
-        {"name": "Марьино", "avg_price_sqm": 250_000,
-         "tags": ["price_low", "transport", "parks", "safety"]},
-        {"name": "Пресненский (Москва-Сити)", "avg_price_sqm": 500_000,
-         "tags": ["business", "transport", "liquidity", "restaurants", "fitness"]},
-        {"name": "Некрасовка", "avg_price_sqm": 220_000,
-         "tags": ["price_low", "kindergartens", "schools", "price_growth"]},
-        {"name": "Коммунарка (Новая Москва)", "avg_price_sqm": 240_000,
-         "tags": ["price_growth", "kindergartens", "schools", "clinics", "liquidity"]},
-    ],
-    "Санкт-Петербург": [
-        {"name": "Центральный", "avg_price_sqm": 340_000,
-         "tags": ["restaurants", "business", "transport", "liquidity"]},
-        {"name": "Приморский", "avg_price_sqm": 250_000,
-         "tags": ["parks", "schools", "kindergartens", "safety", "transport"]},
-        {"name": "Московский", "avg_price_sqm": 260_000,
-         "tags": ["transport", "business", "clinics", "liquidity"]},
-        {"name": "Мурино (ЛО)", "avg_price_sqm": 180_000,
-         "tags": ["price_low", "price_growth", "kindergartens", "transport"]},
-    ],
-    "Казань": [
-        {"name": "Вахитовский", "avg_price_sqm": 230_000,
-         "tags": ["business", "restaurants", "transport", "liquidity", "universities"]},
-        {"name": "Ново-Савиновский", "avg_price_sqm": 170_000,
-         "tags": ["schools", "kindergartens", "parks", "safety"]},
-        {"name": "Советский", "avg_price_sqm": 150_000,
-         "tags": ["price_low", "transport", "clinics", "price_growth"]},
+# Lightweight fallback data used only when the AI provider is not configured.
+_FALLBACK_DISTRICTS = {
+    "Геленджик": [
+        {"name": "Центр", "why_fits": "Вся инфраструктура в шаговой доступности",
+         "pros": ["набережная", "магазины", "рестораны"], "cons": ["летом шумно"],
+         "price_range": "180 000–260 000 ₽/м²", "score": 80},
+        {"name": "Тонкий мыс", "why_fits": "Тихий район у моря",
+         "pros": ["море рядом", "спокойно"], "cons": ["дальше от центра"],
+         "price_range": "160 000–230 000 ₽/м²", "score": 75},
+        {"name": "Толстый мыс", "why_fits": "Видовые квартиры, престиж",
+         "pros": ["виды", "новостройки"], "cons": ["выше цена"],
+         "price_range": "200 000–300 000 ₽/м²", "score": 72},
     ],
 }
 
 
-@dataclass
-class DistrictRecommendation:
-    name: str
-    avg_price_sqm: int
-    match_pct: int
-    matched_priorities: list[str]
-    affordable: bool
-    notes: list[str] = field(default_factory=list)
-
-
-# Человекочитаемые названия тегов для UI.
-TAG_LABELS = {
-    "schools": "школы", "kindergartens": "детские сады", "parks": "парки",
-    "safety": "безопасность", "clinics": "медицина", "liquidity": "ликвидность",
-    "transport": "транспорт", "business": "бизнес-центры", "price_growth": "рост цен",
-    "restaurants": "рестораны", "fitness": "фитнес", "quiet": "тишина",
-    "ecology": "экология", "universities": "вузы", "price_low": "низкая цена",
-}
-
-
-def recommend_districts(
-    city: str,
-    scenario: str,
-    budget_max: int | None = None,
-    area_sqm: float | None = None,
-) -> list[DistrictRecommendation]:
-    """Rank a city's districts by how well they fit a life scenario + budget."""
-    scenario_def = LIFE_SCENARIOS.get(scenario, LIFE_SCENARIOS["young_family"])
-    priorities = scenario_def["priorities"]
-    districts = DISTRICTS.get(city, [])
-
-    recs: list[DistrictRecommendation] = []
-    for d in districts:
-        matched = [p for p in priorities if p in d["tags"]]
-        match_pct = int(round(len(matched) / len(priorities) * 100)) if priorities else 0
-
-        affordable = True
-        notes: list[str] = []
-        if budget_max and area_sqm:
-            est_price = d["avg_price_sqm"] * area_sqm
-            if est_price > budget_max:
-                affordable = False
-                notes.append(
-                    f"Оценка {int(est_price):,} ₽ выше бюджета {budget_max:,} ₽".replace(",", " ")
-                )
-
-        recs.append(
-            DistrictRecommendation(
-                name=d["name"],
-                avg_price_sqm=d["avg_price_sqm"],
-                match_pct=match_pct,
-                matched_priorities=[TAG_LABELS.get(p, p) for p in matched],
-                affordable=affordable,
-                notes=notes,
-            )
-        )
-
-    recs.sort(key=lambda r: (not r.affordable, -r.match_pct, r.avg_price_sqm))
-    return recs
+def fallback_districts(city: str, scenario: str) -> dict:
+    districts = _FALLBACK_DISTRICTS.get(city, [])
+    return {
+        "districts": districts,
+        "city_overview": f"{city}: подборка районов под сценарий «{scenario}».",
+        "recommendation": "Уточните бюджет — менеджер подберёт объекты в выбранном районе.",
+        "ai_used": False,
+    }
