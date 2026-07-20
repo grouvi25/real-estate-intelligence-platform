@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import config
 from app.database import check_database_connection, engine, run_migrations
@@ -128,6 +130,12 @@ app.include_router(deals.router, prefix="/api/deals", tags=["Deals"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
+
+# Serve the Mini App SPA as static files (bot opens /mini-app/). html=True makes
+# /mini-app/ resolve to index.html. Guarded so tests/imports don't require it.
+_mini_app_dir = Path(__file__).resolve().parent.parent / "mini_app"
+if _mini_app_dir.exists():
+    app.mount("/mini-app", StaticFiles(directory=str(_mini_app_dir), html=True), name="mini_app")
 
 
 @app.get("/")

@@ -47,3 +47,10 @@ def test_api_deep_health_shape():
     # Section 33 additions.
     assert "telegram_bot" in body["checks"]
     assert "celery_queue" in body["checks"]
+
+
+def test_mini_app_served():
+    client = TestClient(app)
+    r = client.get("/mini-app/")
+    assert r.status_code == 200
+    assert "Real Estate Intelligence" in r.text
