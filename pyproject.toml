@@ -39,6 +39,11 @@ dev = [
 pdf = [
     "weasyprint>=61.0",
 ]
+# Object storage (Yandex Object Storage, S3-compatible). Optional: dev/CI use the
+# LocalStorage fallback. Enable with: pip install -e .[storage]
+storage = [
+    "boto3>=1.34",
+]
 
 [tool.ruff]
 line-length = 120

@@ -44,3 +44,6 @@ def test_api_deep_health_shape():
     assert "database" in body["checks"]
     assert "redis" in body["checks"]
     assert body["checks"]["ai"] == "not_configured"
+    # Section 33 additions.
+    assert "telegram_bot" in body["checks"]
+    assert "celery_queue" in body["checks"]

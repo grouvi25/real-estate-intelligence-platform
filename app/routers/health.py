@@ -75,6 +75,34 @@ async def deep_health_check() -> DeepHealthResponse:
     except Exception as e:  # noqa: BLE001
         checks["ai"] = f"error: {str(e)[:100]}"
 
+    # Telegram bot reachability (non-critical). getMe is bounded so a slow or
+    # blocked network never stalls the probe. A dummy/dev token reports an error
+    # rather than failing readiness.
+    try:
+        token = config.telegram_bot_token
+        if not token or token.startswith("dummy") or token == "changeme":
+            checks["telegram_bot"] = "not_configured"
+        else:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=3) as client:
+                resp = await client.get(f"https://api.telegram.org/bot{token}/getMe")
+            checks["telegram_bot"] = "ok" if resp.status_code == 200 else f"error: {resp.status_code}"
+    except Exception as e:  # noqa: BLE001
+        checks["telegram_bot"] = f"error: {str(e)[:100]}"
+
+    # Celery queue depth via the Redis broker (non-critical). Reports the pending
+    # task backlog on the default queue so operators can spot a stuck worker.
+    try:
+        import redis.asyncio as redis
+
+        client = redis.from_url(config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+        depth = await asyncio.wait_for(client.llen("celery"), timeout=3)
+        await client.aclose()
+        checks["celery_queue"] = f"ok: {int(depth)} pending"
+    except Exception as e:  # noqa: BLE001
+        checks["celery_queue"] = f"error: {str(e)[:100]}"
+
     critical_ok = all(
         value == "ok" for key, value in checks.items() if key in ("database", "redis")
     )
