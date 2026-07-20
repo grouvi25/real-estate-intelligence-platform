@@ -26,7 +26,11 @@ router = APIRouter()
 
 LEAD_STATUSES = {"new", "in_progress", "qualified", "deal", "rejected", "archived", "referred"}
 MATCH_STATUSES = {"suggested", "presented", "accepted", "rejected"}
-REJECTION_CATEGORIES = {"price", "location", "layout", "floor", "condition", "developer", "other"}
+# TZ 32.5 rejection categories.
+REJECTION_CATEGORIES = {
+    "price_too_high", "wrong_location", "wrong_size",
+    "wrong_type", "client_changed_mind", "other",
+}
 MAX_PAGE = 200
 
 
@@ -216,6 +220,56 @@ async def update_match_feedback(
     logger.info("Match feedback", lead_id=str(lead_id), property_id=str(property_id),
                 status=req.status)
     return {"lead_id": str(lead_id), "property_id": str(property_id), "status": match.status}
+
+
+@router.post("/{lead_id}/matches/{property_id}/feedback")
+async def match_feedback(
+    lead_id: uuid.UUID,
+    property_id: uuid.UUID,
+    status: str,
+    rejection_reason: Optional[str] = None,
+    rejection_category: Optional[str] = None,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """TZ 32.5 match feedback: update the match and, on rejection, record the
+    exclusion in buyer_profile.match_exclusions (last 20) so the matching engine
+    never re-suggests this property to this lead."""
+    from datetime import datetime, timezone
+
+    if status not in MATCH_STATUSES:
+        raise ValidationError("status", f"недопустимый статус: {status}")
+    if rejection_category is not None and rejection_category not in REJECTION_CATEGORIES:
+        raise ValidationError("rejection_category", f"недопустимая категория: {rejection_category}")
+
+    lead = await _get_scoped_lead(lead_id, current, session)
+    match = (
+        await session.execute(
+            select(LeadPropertyMatch).where(
+                LeadPropertyMatch.lead_id == lead_id,
+                LeadPropertyMatch.property_id == property_id,
+            )
+        )
+    ).scalars().first()
+    if match is None:
+        raise NotFoundError("Match", f"{lead_id}/{property_id}")
+
+    match.status = status
+    match.rejection_reason = rejection_reason
+    match.rejection_category = rejection_category
+    match.feedback_given_at = datetime.now(timezone.utc)
+
+    if status == "rejected" and rejection_category:
+        profile = dict(lead.buyer_profile or {})
+        excl = list(profile.get("match_exclusions", []))
+        excl.append({"property_id": str(property_id), "reason": rejection_category,
+                     "at": datetime.now(timezone.utc).isoformat()})
+        profile["match_exclusions"] = excl[-20:]
+        lead.buyer_profile = profile
+    await session.commit()
+    logger.info("Match feedback (TZ 32.5)", lead_id=str(lead_id), property_id=str(property_id),
+                status=status)
+    return {"status": "feedback_recorded", "match_status": match.status}
 
 
 @router.get("/{lead_id}/document")

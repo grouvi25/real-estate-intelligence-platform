@@ -85,7 +85,11 @@ async def update_property(
 
     prop = await _get_scoped_property(property_id, current, session)
     old_price = prop.price
-    price_changed = req.price is not None and req.price != old_price
+    # TZ 32.4: only a price DROP of >= 5% triggers a re-match.
+    price_dropped = (
+        req.price is not None and old_price and req.price < old_price
+        and (old_price - req.price) / old_price >= 0.05
+    )
 
     if req.price is not None:
         prop.price = req.price
@@ -99,15 +103,15 @@ async def update_property(
         prop.description_original = req.description_original
     await session.commit()
 
-    if price_changed and prop.status == "active":
+    if price_dropped:
         from worker.tasks.matching_tasks import rematch_on_price_change
 
-        rematch_on_price_change.delay(str(prop.id))
-        logger.info("Price changed, rematch queued", property_id=str(prop.id),
+        rematch_on_price_change.delay(str(prop.id), old_price, req.price)
+        logger.info("Price dropped >=5%, rematch queued", property_id=str(prop.id),
                     old_price=old_price, new_price=req.price)
 
     return {"id": str(prop.id), "price": prop.price, "status": prop.status,
-            "price_changed": price_changed}
+            "price_changed": price_dropped}
 
 
 @router.get("/{property_id}/report")

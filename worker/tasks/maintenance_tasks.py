@@ -43,13 +43,10 @@ def reset_daily_ai_cost() -> int:
     return asyncio.run(_reset_daily_ai_cost())
 
 
-# --- Lead score decay (TZ 32) ----------------------------------------------
-# Stale, un-progressed leads slowly lose intent score so dashboards stay honest
-# and the hottest *fresh* leads bubble up.
-DECAY_AFTER_DAYS = 3
-DECAY_FACTOR = 0.85
-# Only leads still being worked (per the leads status CHECK in migration 001).
-ACTIVE_LEAD_STATUSES = ("new", "in_progress", "qualified")
+# --- Lead urgency decay (TZ 32.2) ------------------------------------------
+# Stale leads cool down: hot -> warm after 48h without activity, warm -> cold
+# after 7 days. Operates on urgency (not intent_score) per TZ acceptance 35.7.
+DECAY_EXCLUDED_STATUSES = ("deal", "rejected", "archived")
 
 
 async def _decay_lead_scores() -> int:
@@ -60,22 +57,31 @@ async def _decay_lead_scores() -> int:
     from app.database import async_session
     from app.models.lead import Lead
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=DECAY_AFTER_DAYS)
+    now = datetime.now(timezone.utc)
     changed = 0
     async with async_session() as session:
-        stmt = select(Lead).where(
-            Lead.status.in_(ACTIVE_LEAD_STATUSES),
-            Lead.intent_score.isnot(None),
-            Lead.intent_score > 0,
-            Lead.updated_at < cutoff,
-        )
-        for lead in (await session.execute(stmt)).scalars().all():
-            new_score = int(lead.intent_score * DECAY_FACTOR)
-            if new_score != lead.intent_score:
-                lead.intent_score = new_score
-                changed += 1
+        hot = (await session.execute(
+            select(Lead).where(
+                Lead.urgency == "hot",
+                Lead.status.notin_(DECAY_EXCLUDED_STATUSES),
+                Lead.updated_at < now - timedelta(hours=48),
+            )
+        )).scalars().all()
+        warm = (await session.execute(
+            select(Lead).where(
+                Lead.urgency == "warm",
+                Lead.status.notin_(DECAY_EXCLUDED_STATUSES),
+                Lead.updated_at < now - timedelta(days=7),
+            )
+        )).scalars().all()
+        for lead in hot:
+            lead.urgency = "warm"
+            changed += 1
+        for lead in warm:
+            lead.urgency = "cold"
+            changed += 1
         await session.commit()
-    logger.info("Lead scores decayed", leads=changed)
+    logger.info("Lead urgency decayed", leads=changed)
     return changed
 
 
@@ -84,39 +90,64 @@ def decay_lead_scores() -> int:
     return asyncio.run(_decay_lead_scores())
 
 
-# --- Overdue lead escalation (TZ 32) ---------------------------------------
-# A pending contact task whose due time has passed (or that has aged past the
-# SLA) is flagged urgent so the manager UI can surface it.
-SLA_HOURS = 24
-
-
+# --- Overdue lead escalation (TZ 32.3) -------------------------------------
+# Hourly: hot leads at 4h -> remind manager, any lead at 24h -> notify owner,
+# at 48h -> create an urgent 'escalation' task (once).
 async def _escalate_overdue_leads() -> int:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
 
-    from sqlalchemy import or_, select
+    from sqlalchemy import select
 
     from app.database import async_session
+    from app.models.lead import Lead
+    from app.models.manager import Manager
     from app.models.task import Task
+    from app.services.bot_abstraction import bot_layer
 
     now = datetime.now(timezone.utc)
-    sla_cutoff = now - timedelta(hours=SLA_HOURS)
-    escalated = 0
+    actions = 0
     async with async_session() as session:
-        stmt = select(Task).where(
-            Task.status == "pending",
-            Task.is_urgent.is_(False),
-            or_(
-                Task.due_at.isnot(None) & (Task.due_at < now),
-                Task.due_at.is_(None) & (Task.created_at < sla_cutoff),
-            ),
-        )
-        for task in (await session.execute(stmt)).scalars().all():
-            task.is_urgent = True
-            task.escalated_at = now
-            escalated += 1
+        leads = (await session.execute(
+            select(Lead).where(
+                Lead.status.in_(("new", "in_progress")),
+                Lead.assigned_to.isnot(None),
+            )
+        )).scalars().all()
+        for lead in leads:
+            hrs = (now - lead.updated_at).total_seconds() / 3600
+            short = str(lead.id)[:6]
+            if lead.urgency == "hot" and 4 <= hrs < 5:
+                await bot_layer.notify_manager(
+                    str(lead.assigned_to),
+                    f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
+                actions += 1
+            elif 24 <= hrs < 25:
+                owner = (await session.execute(
+                    select(Manager).where(
+                        Manager.agency_id == lead.agency_id,
+                        Manager.role == "owner").limit(1)
+                )).scalar_one_or_none()
+                if owner:
+                    await bot_layer.notify_manager(
+                        str(owner.id), f"⚠️ Лид #{short} без контакта 24ч.")
+                    actions += 1
+            elif 48 <= hrs < 49:
+                existing = (await session.execute(
+                    select(Task).where(
+                        Task.lead_id == lead.id, Task.task_type == "escalation")
+                )).scalar_one_or_none()
+                if not existing:
+                    session.add(Task(
+                        agency_id=lead.agency_id, lead_id=lead.id,
+                        manager_id=lead.assigned_to, task_type="escalation",
+                        title=f"🚨 ПРОСРОЧЕНО 48ч: #{short}",
+                        due_at=now, status="pending", is_urgent=True,
+                        escalated_at=now,
+                    ))
+                    actions += 1
         await session.commit()
-    logger.info("Overdue leads escalated", tasks=escalated)
-    return escalated
+    logger.info("Overdue leads escalated", actions=actions)
+    return actions
 
 
 @shared_task(name="worker.tasks.maintenance_tasks.escalate_overdue_leads")
@@ -124,36 +155,52 @@ def escalate_overdue_leads() -> int:
     return asyncio.run(_escalate_overdue_leads())
 
 
-# --- Dead source detection (TZ 32) -----------------------------------------
-# Sources that stopped producing signals are marked dead so operators can prune
-# them and the discovery engine can look for replacements.
-DEAD_SOURCE_DAYS = 14
+# --- Dead source detection (TZ 32.10) --------------------------------------
+# Daily: active sources with no signals for 7+ days -> paused + notify owner.
+DEAD_SOURCE_DAYS = 7
 
 
 async def _check_dead_sources() -> int:
     from datetime import datetime, timedelta, timezone
 
-    from sqlalchemy import or_, select
+    from sqlalchemy import func, select
 
     from app.database import async_session
+    from app.models.manager import Manager
+    from app.models.signal import Signal
     from app.models.source import Source
+    from app.services.bot_abstraction import bot_layer
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=DEAD_SOURCE_DAYS)
-    dead = 0
+    dead: list[Source] = []
     async with async_session() as session:
-        stmt = select(Source).where(
-            Source.status == "active",
-            or_(
-                Source.last_checked_at.is_(None) & (Source.created_at < cutoff),
-                Source.last_checked_at < cutoff,
-            ),
-        )
-        for source in (await session.execute(stmt)).scalars().all():
-            source.status = "dead"
-            dead += 1
-        await session.commit()
-    logger.info("Dead sources flagged", sources=dead)
-    return dead
+        active = (await session.execute(
+            select(Source).where(Source.status == "active")
+        )).scalars().all()
+        for src in active:
+            last = await session.scalar(
+                select(func.max(Signal.created_at)).where(Signal.source_id == src.id))
+            if not last or last < cutoff:
+                src.status = "paused"
+                dead.append(src)
+        if dead:
+            await session.commit()
+            by_agency: dict = {}
+            for s in dead:
+                by_agency.setdefault(str(s.agency_id), []).append(s.source_name or str(s.id)[:8])
+            for aid, names in by_agency.items():
+                owner = (await session.execute(
+                    select(Manager).where(
+                        Manager.agency_id == aid,
+                        Manager.role.in_(("owner", "admin"))).limit(1)
+                )).scalar_one_or_none()
+                if owner:
+                    names_fmt = "\n".join(f"• {n}" for n in names[:10])
+                    await bot_layer.notify_manager(
+                        str(owner.id),
+                        f"🔇 Источники без сигналов 7+ дней → приостановлены:\n{names_fmt}")
+    logger.info("Dead sources paused", sources=len(dead))
+    return len(dead)
 
 
 @shared_task(name="worker.tasks.maintenance_tasks.check_dead_sources")
