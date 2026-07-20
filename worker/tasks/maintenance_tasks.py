@@ -48,7 +48,8 @@ def reset_daily_ai_cost() -> int:
 # and the hottest *fresh* leads bubble up.
 DECAY_AFTER_DAYS = 3
 DECAY_FACTOR = 0.85
-ACTIVE_LEAD_STATUSES = ("new", "contacted", "qualifying")
+# Only leads still being worked (per the leads status CHECK in migration 001).
+ACTIVE_LEAD_STATUSES = ("new", "in_progress", "qualified")
 
 
 async def _decay_lead_scores() -> int:

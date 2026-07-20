@@ -214,7 +214,7 @@ class MatchingEngine:
 
             lead_stmt = select(Lead).where(
                 Lead.agency_id == prop.agency_id,
-                Lead.status.in_(("new", "contacted", "qualifying")),
+                Lead.status.in_(("new", "in_progress", "qualified")),
             )
             if prop.geo_location_id is not None:
                 lead_stmt = lead_stmt.where(Lead.geo_location_id == prop.geo_location_id)
