@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from app.config import config
 from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
-from app.routers import auth, geo, health, lead_magnets, leads, referrals, signals
+from app.routers import auth, deals, geo, health, lead_magnets, leads, referrals, signals
 from app.services.ai_cost_tracker import init_cost_tracker
 
 logger = structlog.get_logger()
@@ -107,6 +107,7 @@ app.include_router(signals.router, prefix="/api/signals", tags=["Signals"])
 app.include_router(leads.router, prefix="/api/leads", tags=["Leads"])
 app.include_router(lead_magnets.router, prefix="/api/lm", tags=["Lead Magnets"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
+app.include_router(deals.router, prefix="/api/deals", tags=["Deals"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
 
 

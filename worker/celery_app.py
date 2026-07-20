@@ -26,6 +26,7 @@ celery_app = Celery(
         "worker.tasks.matching_tasks",
         "worker.tasks.source_tasks",
         "worker.tasks.partner_tasks",
+        "worker.tasks.knowledge_tasks",
     ],
 )
 
@@ -53,6 +54,10 @@ celery_app.conf.beat_schedule = {
     "check-referral-expiry": {
         "task": "worker.tasks.partner_tasks.check_referral_expiry",
         "schedule": crontab(hour=9, minute=0),  # 09:00 daily
+    },
+    "knowledge-moat-update": {
+        "task": "worker.tasks.knowledge_tasks.update_knowledge_moat",
+        "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sun 03:00 MSK
     },
 }
 
