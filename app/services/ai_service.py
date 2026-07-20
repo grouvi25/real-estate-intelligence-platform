@@ -136,7 +136,7 @@ class AIService:
             "Content-Type": "application/json",
         }
         payload = {
-            "modelUri": f"gpt://{config.yandex_gpt_folder_id}/yandexgpt/{model}",
+            "modelUri": f"gpt://{config.yandex_gpt_folder_id}/{model}/latest",
             "completionOptions": {"stream": False, "temperature": 0.2, "maxTokens": 2000},
             "messages": [
                 {"role": "system", "text": system},
