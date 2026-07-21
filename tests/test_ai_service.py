@@ -83,6 +83,75 @@ async def test_provider_configured_false_without_keys():
     await ai.close()
 
 
+@pytest.mark.asyncio
+async def test_complete_gigachat_oauth_then_chat(monkeypatch):
+    from app.config import config
+
+    monkeypatch.setattr(config, "gigachat_verify_ssl", True)  # use mocked self.http
+    monkeypatch.setattr(config, "gigachat_client_id", "cid")
+    monkeypatch.setattr(config, "gigachat_client_secret", "csecret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "oauth" in url:
+            assert request.headers.get("RqUID")
+            assert request.headers["Authorization"].startswith("Basic ")
+            return httpx.Response(200, json={"access_token": "tok-123", "expires_at": 0})
+        assert "chat/completions" in url
+        assert request.headers["Authorization"] == "Bearer tok-123"
+        return httpx.Response(200, json={
+            "choices": [{"message": {"role": "assistant", "content": '{"ok": true}'}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 60, "total_tokens": 100},
+        })
+
+    tracker = FakeTracker()
+    ai = AIService(cost_tracker=tracker)
+    ai.provider = AIProvider.GIGACHAT
+    ai.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    text = await ai.complete("system", "user", "intent_scoring")
+    await ai.close()
+
+    assert '"ok"' in text
+    # 100 tokens * 0.20 rub / 1000 = 0.02
+    assert tracker.added and round(tracker.added[0], 4) == 0.02
+
+
+@pytest.mark.asyncio
+async def test_complete_anthropic_via_proxy_anonymizes(monkeypatch):
+    from app.config import config
+
+    monkeypatch.setattr(config, "railway_proxy_url", "https://proxy.test")
+    monkeypatch.setattr(config, "railway_proxy_secret", "psecret")
+    monkeypatch.setattr(config, "anthropic_api_key", "sk-ant-xxx")
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://proxy.test/v1/messages"
+        assert request.headers["x-api-key"] == "sk-ant-xxx"
+        assert request.headers["X-Proxy-Secret"] == "psecret"
+        assert request.headers["anthropic-version"] == "2023-06-01"
+        import json as _json
+
+        captured["user"] = _json.loads(request.content)["messages"][0]["content"]
+        return httpx.Response(200, json={
+            "content": [{"type": "text", "text": '{"score": 5}'}],
+            "usage": {"input_tokens": 12, "output_tokens": 8},
+        })
+
+    tracker = FakeTracker()
+    ai = AIService(cost_tracker=tracker)
+    ai.provider = AIProvider.ANTHROPIC
+    ai.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    text = await ai.complete("system", "Иван Петров, тел +7 900 123-45-67", "intent_scoring")
+    await ai.close()
+
+    assert '"score"' in text
+    # 152-FZ: PII is stripped before the foreign provider.
+    assert "[PHONE]" in captured["user"] and "[NAME]" in captured["user"]
+    assert "+7 900" not in captured["user"]
+
+
 def test_safe_ai_parse_plain():
     assert safe_ai_parse('{"a": 1}', {})["a"] == 1
 

@@ -52,6 +52,11 @@ _RATES_PER_1K = {
     "yandexgpt-pro": 0.06,
     "gpt-4o-mini": 5.0,
     "gpt-4o": 45.0,
+    "GigaChat": 0.20,
+    "GigaChat-Pro": 1.50,
+    "GigaChat-Max": 1.90,
+    "claude-3-5-haiku-latest": 6.0,
+    "claude-3-5-sonnet-latest": 30.0,
 }
 
 
@@ -61,6 +66,7 @@ class AIService:
         self.provider: AIProvider = AIProvider(config.ai_default_provider)
         self.daily_budget: float = config.ai_daily_budget_rub
         self._cost_tracker_override = cost_tracker
+        self._gigachat_token: str | None = None
 
     # --- cost tracker resolution ---
     def _tracker(self):
@@ -80,11 +86,17 @@ class AIService:
             return bool(config.yandex_gpt_api_key and config.yandex_gpt_folder_id)
         if self.provider == AIProvider.GIGACHAT:
             return bool(config.gigachat_client_id and config.gigachat_client_secret)
-        if self.provider in (AIProvider.OPENAI, AIProvider.ANTHROPIC):
+        if self.provider == AIProvider.OPENAI:
             return bool(
                 config.railway_proxy_url
                 and config.railway_proxy_secret
                 and config.openai_api_key
+            )
+        if self.provider == AIProvider.ANTHROPIC:
+            return bool(
+                config.railway_proxy_url
+                and config.railway_proxy_secret
+                and config.anthropic_api_key
             )
         return False
 
@@ -103,14 +115,22 @@ class AIService:
         # 2. Model selection by task + provider.
         if self.provider == AIProvider.YANDEX_GPT:
             model = config.ai_models.get(module, "yandexgpt-lite")
+        elif self.provider == AIProvider.GIGACHAT:
+            model = config.gigachat_models.get(module, "GigaChat")
+        elif self.provider == AIProvider.ANTHROPIC:
+            model = config.anthropic_models.get(module, "claude-3-5-haiku-latest")
         else:
             model = config.openai_models.get(module, "gpt-4o-mini")
 
         # 3. Dispatch.
         if self.provider == AIProvider.YANDEX_GPT:
             response = await self._call_yandex(system, user, model)
+        elif self.provider == AIProvider.GIGACHAT:
+            response = await self._call_gigachat(system, user, model)
         elif self.provider == AIProvider.OPENAI:
             response = await self._call_openai(system, user, model)
+        elif self.provider == AIProvider.ANTHROPIC:
+            response = await self._call_anthropic(system, user, model)
         else:
             raise NotImplementedError(f"Provider {self.provider} not implemented")
 
@@ -201,6 +221,106 @@ class AIService:
         )
         text = data["choices"][0]["message"]["content"]
         return AIResponse(text=text, model=model, provider=AIProvider.OPENAI, usage=usage)
+
+    async def _gigachat_access_token(self) -> str:
+        """Fetch (and cache) a GigaChat OAuth access token.
+
+        Sber's OAuth expects Basic auth built from the client id + secret and a
+        unique RqUID per request. Tokens are short-lived; we cache within the
+        AIService instance and refresh lazily on the next call.
+        """
+        if self._gigachat_token:
+            return self._gigachat_token
+        import base64
+        import uuid
+
+        raw = f"{config.gigachat_client_id}:{config.gigachat_client_secret}".encode()
+        basic = base64.b64encode(raw).decode()
+        resp = await self.http.post(
+            "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
+            headers={
+                "Authorization": f"Basic {basic}",
+                "RqUID": str(uuid.uuid4()),
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+            data={"scope": config.gigachat_scope},
+        )
+        resp.raise_for_status()
+        self._gigachat_token = resp.json()["access_token"]
+        return self._gigachat_token
+
+    async def _call_gigachat(self, system: str, user: str, model: str) -> AIResponse:
+        # GigaChat is a Russian provider (data stays in RU), so no anonymization
+        # is applied. TLS verification follows config.gigachat_verify_ssl because
+        # Sber uses the Russian Trusted Root CA.
+        token = await self._gigachat_access_token()
+        url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 2000,
+        }
+        if config.gigachat_verify_ssl:
+            resp = await self.http.post(url, headers=headers, json=payload)
+        else:
+            async with httpx.AsyncClient(timeout=60.0, verify=False) as client:  # noqa: S501
+                resp = await client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        u = data.get("usage", {})
+        prompt_tokens = int(u.get("prompt_tokens", 0))
+        completion_tokens = int(u.get("completion_tokens", 0))
+        usage = AIUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=int(u.get("total_tokens", 0)) or (prompt_tokens + completion_tokens),
+        )
+        text = data["choices"][0]["message"]["content"]
+        return AIResponse(text=text, model=model, provider=AIProvider.GIGACHAT, usage=usage)
+
+    async def _call_anthropic(self, system: str, user: str, model: str) -> AIResponse:
+        # Foreign provider — routed through the Railway proxy (152-FZ), same as
+        # OpenAI. Uses Anthropic's native Messages API shape; the proxy forwards
+        # the Anthropic key upstream. The user prompt is already anonymized.
+        url = f"{config.railway_proxy_url}/v1/messages"
+        headers = {
+            "x-api-key": config.anthropic_api_key or "",
+            "anthropic-version": "2023-06-01",
+            "X-Proxy-Secret": config.railway_proxy_secret or "",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+            "temperature": 0.2,
+            "max_tokens": 2000,
+        }
+        resp = await self.http.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        u = data.get("usage", {})
+        prompt_tokens = int(u.get("input_tokens", 0))
+        completion_tokens = int(u.get("output_tokens", 0))
+        usage = AIUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
+        # Anthropic returns content as a list of blocks; concatenate text blocks.
+        blocks = data.get("content", [])
+        text = "".join(b.get("text", "") for b in blocks if isinstance(b, dict))
+        return AIResponse(text=text, model=model, provider=AIProvider.ANTHROPIC, usage=usage)
 
     def _get_rate_per_token(self, model: str) -> float:
         return _RATES_PER_1K.get(model, 0.1)

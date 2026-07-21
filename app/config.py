@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     yandex_gpt_api_key: Optional[str] = Field(default=None, alias="YANDEX_GPT_API_KEY")
     gigachat_client_id: Optional[str] = Field(default=None, alias="GIGACHAT_CLIENT_ID")
     gigachat_client_secret: Optional[str] = Field(default=None, alias="GIGACHAT_CLIENT_SECRET")
+    gigachat_scope: str = Field(default="GIGACHAT_API_PERS", alias="GIGACHAT_SCOPE")
+    # Sber's GigaChat serves TLS from the "Russian Trusted Root CA", which isn't in
+    # the default trust store. Verification is off by default; set to true once the
+    # CA bundle is installed on the host.
+    gigachat_verify_ssl: bool = Field(default=False, alias="GIGACHAT_VERIFY_SSL")
 
     # === AI - FOREIGN (via Railway proxy) ===
     railway_proxy_url: Optional[str] = Field(default=None, alias="RAILWAY_PROXY_URL")
@@ -126,6 +131,21 @@ class Settings(BaseSettings):
         gpt-4o; the rest use the cheaper gpt-4o-mini."""
         heavy = {"buyer_profile", "object_analysis", "matching_pitch", "daily_report"}
         return {module: ("gpt-4o" if module in heavy else "gpt-4o-mini")
+                for module in self.ai_models}
+
+    @property
+    def gigachat_models(self) -> dict[str, str]:
+        """GigaChat model per task. Heavy analytical tasks use GigaChat-Pro."""
+        heavy = {"buyer_profile", "object_analysis", "matching_pitch", "daily_report"}
+        return {module: ("GigaChat-Pro" if module in heavy else "GigaChat")
+                for module in self.ai_models}
+
+    @property
+    def anthropic_models(self) -> dict[str, str]:
+        """Anthropic model per task (via proxy). Heavy tasks use Sonnet."""
+        heavy = {"buyer_profile", "object_analysis", "matching_pitch", "daily_report"}
+        return {module: ("claude-3-5-sonnet-latest" if module in heavy
+                         else "claude-3-5-haiku-latest")
                 for module in self.ai_models}
 
     @field_validator("encryption_key")
