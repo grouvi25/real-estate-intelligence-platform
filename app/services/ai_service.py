@@ -68,7 +68,9 @@ class AIService:
 
         tracker = self._cost_tracker_override or ai_cost_tracker.cost_tracker
         if tracker is None:
-            raise RuntimeError("AI cost tracker is not initialized (call init_cost_tracker)")
+            # Lazily initialize when the FastAPI lifespan hasn't run in this
+            # process (e.g. Celery worker/beat, one-off scripts).
+            tracker = ai_cost_tracker.init_cost_tracker(config.redis_url)
         return tracker
 
     @property
