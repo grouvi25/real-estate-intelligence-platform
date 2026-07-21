@@ -120,6 +120,14 @@ class Settings(BaseSettings):
             "listing_generator": "yandexgpt-pro",
         }
 
+    @property
+    def openai_models(self) -> dict[str, str]:
+        """OpenAI model per task (via Railway proxy). Heavy analytical tasks use
+        gpt-4o; the rest use the cheaper gpt-4o-mini."""
+        heavy = {"buyer_profile", "object_analysis", "matching_pitch", "daily_report"}
+        return {module: ("gpt-4o" if module in heavy else "gpt-4o-mini")
+                for module in self.ai_models}
+
     @field_validator("encryption_key")
     @classmethod
     def validate_encryption_key(cls, v: str) -> str:

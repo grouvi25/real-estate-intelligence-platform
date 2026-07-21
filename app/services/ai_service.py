@@ -94,8 +94,11 @@ class AIService:
         if self.provider in (AIProvider.OPENAI, AIProvider.ANTHROPIC):
             user = anonymize(user)
 
-        # 2. Model selection by task.
-        model = config.ai_models.get(module, "yandexgpt-lite")
+        # 2. Model selection by task + provider.
+        if self.provider == AIProvider.YANDEX_GPT:
+            model = config.ai_models.get(module, "yandexgpt-lite")
+        else:
+            model = config.openai_models.get(module, "gpt-4o-mini")
 
         # 3. Dispatch.
         if self.provider == AIProvider.YANDEX_GPT:
