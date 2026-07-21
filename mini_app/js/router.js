@@ -1,32 +1,23 @@
-// Mini App SPA router (hash-based). TZ section 30 (router.js).
-// Routes are registered as { pattern: handler }. Patterns support :params,
-// e.g. "leads/:id". No bundler: exposed as global `Router`.
-
+// Mini App hash router. Global `Router`. Patterns support :params ("leads/:id").
 const Router = (() => {
   const routes = [];
-  let notFound = () => UI.render(UI.empty('Экран не найден'));
+  let notFound = () => UI.render(UI.empty({ title: 'Экран не найден' }));
 
   const add = (pattern, handler) => {
-    const parts = pattern.split('/').filter(Boolean);
-    routes.push({ parts, handler });
+    routes.push({ parts: pattern.split('/').filter(Boolean), handler });
   };
-
   const setNotFound = (fn) => { notFound = fn; };
 
-  const parse = () => {
-    const hash = (location.hash || '#/').replace(/^#\/?/, '');
-    return hash.split('/').filter(Boolean);
-  };
+  const parse = () => (location.hash || '#/').replace(/^#\/?/, '').split('/').filter(Boolean);
 
-  const match = (segments) => {
+  const match = (segs) => {
     for (const r of routes) {
-      if (r.parts.length !== segments.length) continue;
-      const params = {};
-      let ok = true;
+      if (r.parts.length !== segs.length) continue;
+      const params = {}; let ok = true;
       for (let i = 0; i < r.parts.length; i++) {
         const p = r.parts[i];
-        if (p.startsWith(':')) params[p.slice(1)] = decodeURIComponent(segments[i]);
-        else if (p !== segments[i]) { ok = false; break; }
+        if (p[0] === ':') params[p.slice(1)] = decodeURIComponent(segs[i]);
+        else if (p !== segs[i]) { ok = false; break; }
       }
       if (ok) return { handler: r.handler, params };
     }
@@ -34,32 +25,23 @@ const Router = (() => {
   };
 
   const resolve = () => {
-    const segments = parse();
-    const m = match(segments);
-    // Sync bottom-nav active state to the top-level route.
-    const top = segments[0] || 'dashboard';
-    document.querySelectorAll('.nav a').forEach((a) => {
-      a.classList.toggle('active', a.getAttribute('data-route') === top);
-    });
-    // Telegram back button on non-root screens.
+    const segs = parse();
+    const top = segs[0] || 'dashboard';
+    document.querySelectorAll('.nav__item').forEach((a) =>
+      a.classList.toggle('nav__item--active', a.getAttribute('data-route') === top));
     try {
       const tg = window.Telegram && window.Telegram.WebApp;
-      if (tg && tg.BackButton) {
-        if (segments.length > 1) { tg.BackButton.show(); }
-        else { tg.BackButton.hide(); }
-      }
+      if (tg && tg.BackButton) { segs.length > 1 ? tg.BackButton.show() : tg.BackButton.hide(); }
     } catch (e) { /* ignore */ }
 
+    const m = match(segs);
     if (m) {
-      Promise.resolve(m.handler(m.params)).catch((err) => {
-        UI.render(UI.error('Ошибка: ' + (err && err.message ? err.message : err)));
-      });
-    } else {
-      notFound();
-    }
+      Promise.resolve(m.handler(m.params)).catch((err) =>
+        UI.render(UI.errorState(err && err.message ? err.message : String(err))));
+    } else { notFound(); }
   };
 
-  const go = (path) => { location.hash = '#/' + path.replace(/^\/?#?\/?/, ''); };
+  const go = (path) => { location.hash = '#/' + String(path).replace(/^#?\/?/, ''); };
 
   const start = () => {
     window.addEventListener('hashchange', resolve);

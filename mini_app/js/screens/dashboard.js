@@ -1,23 +1,33 @@
-// Screen: Dashboard (agency overview). TZ section 30.
+// Screen: Dashboard.
 window.Screens = window.Screens || {};
 
 Screens.dashboard = async function () {
-  UI.setHeader('Дашборд', 'Обзор агентства');
-  UI.render(UI.spinner());
+  UI.setHeader('Дашборд', 'Обзор агентства', { actionIcon: 'settings', onAction: () => Router.go('settings') });
+  UI.render(UI.skelStats() + '<div style="height:10px"></div>' + UI.skelCard());
+
   const o = await API.overview();
-  const html = `
-    <div class="stats">
-      <div class="stat"><div class="n">${o.total_leads}</div><div class="l">Лиды</div></div>
-      <div class="stat"><div class="n">${o.active_properties}</div><div class="l">Объекты</div></div>
-      <div class="stat"><div class="n">${o.deals_won}</div><div class="l">Сделки</div></div>
-      <div class="stat"><div class="n">${o.urgent_tasks}</div><div class="l">Срочные задачи</div></div>
-    </div>
-    <div class="card">
-      <div class="row"><span class="muted">Комиссия (всего)</span>
-        <span class="price">${UI.money(o.total_commission)}</span></div>
-    </div>
-    <button class="btn block" onclick="Router.go('queue')">Очередь ответов на сигналы</button>
-    <button class="btn secondary block" onclick="Router.go('analytics')">Аналитика</button>
-  `;
-  UI.render(html);
+  const stat = (ic, n, l) =>
+    `<div class="stat"><div class="stat__ico">${UI.icon(ic)}</div>` +
+    `<div class="stat__n">${n}</div><div class="stat__l">${l}</div></div>`;
+
+  UI.render(
+    `<div class="stats">
+       ${stat('leads', o.total_leads, 'Лиды')}
+       ${stat('properties', o.active_properties, 'Объекты')}
+       ${stat('handshake', o.deals_won, 'Сделки')}
+       ${stat('flame', o.urgent_tasks, 'Срочные')}
+     </div>
+     <div class="card" style="margin-top:12px">
+       <div class="between"><span class="muted">Комиссия за сделки</span>
+         <span class="price" style="font-size:18px">${UI.money(o.total_commission)}</span></div>
+     </div>
+     <div class="section-title">Быстрые действия</div>
+     <button class="btn btn--block" id="q-queue">${UI.icon('queue')} Очередь ответов на сигналы</button>
+     <div style="height:8px"></div>
+     <button class="btn btn--secondary btn--block" id="q-an">${UI.icon('analytics')} Открыть аналитику</button>`,
+    () => {
+      document.getElementById('q-queue').onclick = () => Router.go('queue');
+      document.getElementById('q-an').onclick = () => Router.go('analytics');
+    }
+  );
 };

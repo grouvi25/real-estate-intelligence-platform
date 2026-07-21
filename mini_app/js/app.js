@@ -1,57 +1,54 @@
-// Mini App SPA bootstrap. TZ section 30 (app.js).
-// Registers routes, authenticates, renders the shell (header + bottom nav), and
-// starts the hash router.
-
+// Mini App bootstrap: auth, shell (header + nav), routes, router start.
 (function () {
   const ROUTES = [
-    ['dashboard', Screens.dashboard],
-    ['signals', Screens.signals],
-    ['signals/:id', Screens.signalDetail],
-    ['queue', Screens.queue],
-    ['leads', Screens.leads],
-    ['leads/:id', Screens.leadDetail],
-    ['properties', Screens.properties],
-    ['properties/:id', Screens.propertyDetail],
-    ['analytics', Screens.analytics],
-    ['settings', Screens.settings],
+    ['dashboard', () => Screens.dashboard()],
+    ['signals', () => Screens.signals()],
+    ['signals/:id', (p) => Screens.signalDetail(p)],
+    ['queue', () => Screens.queue()],
+    ['leads', () => Screens.leads()],
+    ['leads/:id', (p) => Screens.leadDetail(p)],
+    ['properties', () => Screens.properties()],
+    ['properties/:id', (p) => Screens.propertyDetail(p)],
+    ['analytics', () => Screens.analytics()],
+    ['settings', () => Screens.settings()],
   ];
 
   const NAV = [
-    ['dashboard', '🏠', 'Дом'],
-    ['queue', '💬', 'Ответы'],
-    ['leads', '👤', 'Лиды'],
-    ['properties', '🏢', 'Объекты'],
-    ['analytics', '📊', 'Аналитика'],
-    ['settings', '⚙️', 'Профиль'],
+    ['dashboard', 'dashboard', 'Обзор'],
+    ['signals', 'signals', 'Сигналы'],
+    ['leads', 'leads', 'Лиды'],
+    ['properties', 'properties', 'Объекты'],
+    ['analytics', 'analytics', 'Аналитика'],
   ];
 
-  function renderShell() {
-    document.body.innerHTML = `
-      <header class="app-header">
-        <h1 id="header-title">Real Estate Intelligence</h1>
-        <div class="sub" id="header-sub"></div>
-      </header>
-      <main id="view"><div class="spinner">Загрузка…</div></main>
-      <nav class="nav">
-        ${NAV.map(([r, ico, label]) =>
-          `<a data-route="${r}" href="#/${r}"><span class="ico">${ico}</span>${label}</a>`).join('')}
-      </nav>
-    `;
+  function shell() {
+    document.body.innerHTML =
+      '<header class="header" id="hdr"></header>' +
+      '<main id="view"></main>' +
+      '<nav class="nav">' + NAV.map(([r, ic, l]) =>
+        `<a class="nav__item" data-route="${r}" href="#/${r}">${Icons.svg(ic, 'nav__ico')}<span>${l}</span></a>`
+      ).join('') + '</nav>';
   }
 
   async function boot() {
     try {
+      const tg = window.Telegram && window.Telegram.WebApp;
+      if (tg) { tg.ready(); tg.expand(); }
+    } catch (e) { /* ignore */ }
+
+    try {
       await authenticate();
     } catch (e) {
       document.body.innerHTML =
-        '<div class="empty err">Не удалось авторизоваться. Откройте приложение через бота.</div>';
-      // eslint-disable-next-line no-console
-      console.error('Auth failed:', e);
+        '<div class="empty" style="padding-top:80px">' + Icons.svg('close') +
+        '<div class="empty__t">Не удалось авторизоваться</div>' +
+        '<div class="empty__s">Откройте приложение через кнопку в боте.</div></div>';
       return;
     }
-    renderShell();
-    ROUTES.forEach(([pattern, handler]) => Router.add(pattern, handler));
-    Router.setNotFound(() => UI.render(UI.empty('Экран не найден')));
+
+    shell();
+    ROUTES.forEach(([p, h]) => Router.add(p, h));
+    Router.setNotFound(() => UI.render(UI.empty({ title: 'Экран не найден' })));
     if (!location.hash) location.hash = '#/dashboard';
     Router.start();
   }

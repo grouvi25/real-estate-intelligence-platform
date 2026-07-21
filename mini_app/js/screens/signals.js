@@ -1,50 +1,57 @@
-// Screens: Signals list + detail. TZ section 30.
+// Screens: Signals list + detail.
 window.Screens = window.Screens || {};
 
 Screens.signals = async function () {
-  UI.setHeader('Сигналы', 'Входящие намерения');
-  UI.render(UI.spinner());
+  UI.setHeader('Сигналы', 'Входящие намерения',
+    { actionIcon: 'queue', onAction: () => Router.go('queue') });
+  UI.render(UI.skelList());
   const data = await API.signals({ limit: 50 });
-  const body = UI.list(data.signals, (s) => `
-    <div class="card" onclick="Router.go('signals/${s.id}')">
-      <div class="row">
-        <span class="score">${s.intent_score == null ? '—' : s.intent_score}</span>
-        ${UI.urgencyBadge(s.urgency)}
+  UI.render(UI.list(data.signals, (s) => `
+    <div class="card card--tap" data-go="signals/${s.id}">
+      <div class="item">
+        <div class="grow">
+          <div class="row" style="gap:10px">${UI.scoreEl(s.intent_score)}${UI.urgencyChip(s.urgency)}
+            ${s.segment ? `<span class="chip chip--accent">${UI.esc(UI.seg(s.segment))}</span>` : ''}</div>
+          <div class="item__sub" style="margin-top:8px">${UI.esc((s.raw_text || '').slice(0, 130))}</div>
+        </div>
+        <span class="item__chev">${UI.icon('chevron')}</span>
       </div>
-      <div class="stack">
-        <div>${UI.esc((s.raw_text || '').slice(0, 120))}</div>
-        <div class="muted">${UI.esc(s.segment || '')} · ${UI.esc(s.status)}</div>
-      </div>
-    </div>`, 'Пока нет сигналов');
-  UI.render(body);
+    </div>`, { icon: 'signals', title: 'Пока нет сигналов', sub: 'Появятся после подключения источников' }),
+    bindGo);
 };
 
 Screens.signalDetail = async function (params) {
-  UI.setHeader('Сигнал', '');
-  UI.render(UI.spinner());
-  // No single-signal GET; fetch the list and find it (small volumes in-app).
+  UI.setHeader('Сигнал', '', { back: true });
+  UI.render(UI.skelCard());
   const data = await API.signals({ limit: 200 });
   const s = (data.signals || []).find((x) => x.id === params.id);
-  if (!s) { UI.render(UI.empty('Сигнал не найден')); return; }
-  const html = `
+  if (!s) { UI.render(UI.empty({ icon: 'signals', title: 'Сигнал не найден' })); return; }
+
+  UI.render(`
     <div class="card">
-      <div class="row"><span class="score">Интент: ${s.intent_score == null ? '—' : s.intent_score}</span>
-        ${UI.urgencyBadge(s.urgency)}</div>
-      <p>${UI.esc(s.raw_text)}</p>
-      <div class="muted">${UI.esc(s.segment || '')} · ${UI.esc(s.status)}</div>
+      <div class="row" style="gap:10px">${UI.scoreEl(s.intent_score)}${UI.urgencyChip(s.urgency)}
+        ${s.segment ? `<span class="chip chip--accent">${UI.esc(UI.seg(s.segment))}</span>` : ''}
+        ${UI.statusChip(s.status)}</div>
+      <p style="margin:12px 0 0">${UI.esc(s.raw_text)}</p>
     </div>
-    <button class="btn block" id="mk-lead">Квалифицировать в лид</button>
-    <button class="btn secondary block" onclick="Router.go('queue')">К очереди ответов</button>
-  `;
-  UI.render(html, () => {
-    const btn = document.getElementById('mk-lead');
-    if (btn) btn.onclick = async () => {
-      btn.disabled = true;
-      try {
-        await API.createLead(s.id, { consent_text: 'Согласие получено в чате (152-ФЗ)' });
-        UI.toast('Лид создан');
-        Router.go('leads');
-      } catch (e) { UI.toast('Ошибка: ' + e.message); btn.disabled = false; }
-    };
-  });
+    <button class="btn btn--block" id="mk" style="margin-top:12px">${UI.icon('leads')} Квалифицировать в лид</button>
+    <button class="btn btn--secondary btn--block" id="toq" style="margin-top:8px">${UI.icon('queue')} К очереди ответов</button>`,
+    () => {
+      document.getElementById('toq').onclick = () => Router.go('queue');
+      const b = document.getElementById('mk');
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await API.createLead(s.id, { consent_text: 'Согласие получено в чате (152-ФЗ)' });
+          UI.toast('Лид создан'); Router.go('leads');
+        } catch (e) { UI.toast('Ошибка: ' + e.message); b.disabled = false; }
+      };
+    });
 };
+
+function bindGo() {
+  document.querySelectorAll('[data-go]').forEach((el) => {
+    el.onclick = () => Router.go(el.getAttribute('data-go'));
+  });
+}
+window.bindGo = bindGo;
