@@ -1,9 +1,11 @@
 """Geo management router. TZ sections 13.2 + 28.
 
-POST /api/geo/agencies/{agency_id}/geo:
-  1. geo protection check -> blocked (409) | partner_offer (202) | allowed
-  2. create the sales geo + reserve the region (protected_geos)
-  3. enqueue AI keyword generation (Celery)
+- GET  /api/geo                          list sales/base geos for current agency (JWT)
+- POST /api/geo                          add a city for current agency (JWT)
+- POST /api/geo/agencies/{agency_id}/geo onboarding path (no JWT, used internally)
+
+Flow on create: geo protection check -> blocked (409) | partner_offer (202) |
+allowed -> create sales geo + reserve region + enqueue AI keyword generation.
 """
 from __future__ import annotations
 
@@ -13,8 +15,10 @@ import structlog
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.database import get_session
+from app.dependencies import CurrentManager, get_current_manager
 from app.exceptions import AppException, NotFoundError
 from app.models.agency import Agency
 from app.models.geo_location import GeoLocation
@@ -32,14 +36,20 @@ class CreateGeoRequest(BaseModel):
     primary_segments: list[str] = ["family", "investor"]
 
 
-@router.post("/agencies/{agency_id}/geo", status_code=status.HTTP_201_CREATED)
-async def create_geo_location(
-    agency_id: uuid.UUID, req: CreateGeoRequest, session=Depends(get_session)
-):
-    agency = await session.get(Agency, agency_id)
-    if agency is None:
-        raise NotFoundError("Agency", str(agency_id))
+def _geo_dto(g: GeoLocation) -> dict:
+    return {
+        "id": str(g.id),
+        "city_name": g.city_name,
+        "region": g.region,
+        "geo_type": g.geo_type,
+        "is_active": g.is_active,
+        "auto_discovery_enabled": g.auto_discovery_enabled,
+        "has_keywords": bool(g.keywords),
+    }
 
+
+async def _create_geo(session, agency_id: uuid.UUID, req: CreateGeoRequest):
+    """Shared create logic (protection -> create -> reserve -> keywords)."""
     protection = await check_geo_protection(req.city_name, req.region)
     if protection["decision"] == "blocked":
         raise AppException(
@@ -66,20 +76,14 @@ async def create_geo_location(
     )
     session.add(geo)
     await session.flush()
-
-    # Reserve the region for this agency.
     session.add(
         ProtectedGeo(
-            city_name=req.city_name,
-            region=req.region,
-            protected_by_agency_id=agency_id,
-            status="active",
-            protection_radius_km=50,
+            city_name=req.city_name, region=req.region,
+            protected_by_agency_id=agency_id, status="active", protection_radius_km=50,
         )
     )
     await session.commit()
 
-    # Enqueue AI keyword generation (non-blocking).
     payload = req.model_dump()
     payload["agency_id"] = str(agency_id)
     from worker.tasks.geo_tasks import generate_keywords_for_geo
@@ -92,3 +96,36 @@ async def create_geo_location(
         "geo_protected": True,
         "message": f"Город {req.city_name} добавлен и зарезервирован. Генерация keywords запущена.",
     }
+
+
+@router.get("")
+async def list_geo(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    stmt = (
+        select(GeoLocation)
+        .where(GeoLocation.agency_id == uuid.UUID(current.agency_id))
+        .order_by(GeoLocation.geo_type, GeoLocation.city_name)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return {"count": len(rows), "geo": [_geo_dto(g) for g in rows]}
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_geo(
+    req: CreateGeoRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    return await _create_geo(session, uuid.UUID(current.agency_id), req)
+
+
+@router.post("/agencies/{agency_id}/geo", status_code=status.HTTP_201_CREATED)
+async def create_geo_location(
+    agency_id: uuid.UUID, req: CreateGeoRequest, session=Depends(get_session)
+):
+    agency = await session.get(Agency, agency_id)
+    if agency is None:
+        raise NotFoundError("Agency", str(agency_id))
+    return await _create_geo(session, agency_id, req)

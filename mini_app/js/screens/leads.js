@@ -79,6 +79,7 @@ Screens.leadDetail = async function (params) {
       <button class="btn btn--secondary btn--sm" id="kp">${UI.icon('file')} КП</button>
     </div>
     <button class="btn btn--danger btn--block" id="arch" style="margin-top:8px">Отправить в архив</button>
+    <button class="btn btn--secondary btn--block" id="refer" style="margin-top:8px">${UI.icon('handshake')} Передать партнёру</button>
     ${alt}
     <div class="section-title">Подборка объектов</div>
     ${matches}`,
@@ -101,6 +102,7 @@ function wire(l) {
 
   document.getElementById('deal').onclick = () => dealSheet(l);
   document.getElementById('kp').onclick = () => docSheet(l);
+  document.getElementById('refer').onclick = () => referralSheet(l);
 
   document.querySelectorAll('[data-acc]').forEach((b) => b.onclick = async () => {
     try { await API.matchFeedback(l.id, b.getAttribute('data-acc'), { status: 'accepted' }); UI.toast('Отмечено «подходит»'); }
@@ -163,4 +165,27 @@ async function docSheet(l) {
         document.querySelector('.sheet__body').innerHTML = UI.errorState(e.message);
       }
     });
+}
+
+async function referralSheet(l) {
+  UI.sheet('Передать партнёру', UI.skelList(2), async (close) => {
+    let data;
+    try { data = await API.partners({ active_only: true }); }
+    catch (e) { document.querySelector('.sheet__body').innerHTML = UI.errorState(e.message); return; }
+    if (!data.partners.length) {
+      document.querySelector('.sheet__body').innerHTML =
+        UI.empty({ icon: 'handshake', title: 'Нет партнёров', sub: 'Добавьте партнёра в разделе Профиль' });
+      return;
+    }
+    document.querySelector('.sheet__body').innerHTML = data.partners.map((p) => `
+      <button class="btn btn--secondary btn--block" data-p="${p.id}" style="margin-bottom:8px">
+        ${UI.esc(p.partner_name)} · ${UI.esc(p.partner_city)}${p.commission_percent ? ' · ' + p.commission_percent + '%' : ''}
+      </button>`).join('');
+    document.querySelectorAll('[data-p]').forEach((b) => b.onclick = async () => {
+      try {
+        await API.createReferral({ lead_id: l.id, partner_agency_id: b.getAttribute('data-p') });
+        close(); UI.toast('Лид передан партнёру'); Router.go('leads');
+      } catch (e) { UI.toast('Ошибка: ' + e.message); }
+    });
+  });
 }

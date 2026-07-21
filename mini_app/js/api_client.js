@@ -70,5 +70,14 @@
     funnel: () => api.request('/analytics/funnel'),
     managers: () => api.request('/analytics/managers'),
     sourceRoi: () => api.request('/analytics/source-roi'),
+
+    // Partners & referrals
+    partners: (f) => api.request('/partners' + qs(f)),
+    createPartner: (body) => api.request('/partners', 'POST', body),
+    createReferral: (body) => api.request('/referrals', 'POST', body),
+
+    // Geo
+    geoList: () => api.request('/geo'),
+    createGeo: (body) => api.request('/geo', 'POST', body),
   };
 })();

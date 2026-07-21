@@ -27,6 +27,7 @@ from app.routers import (
     health,
     lead_magnets,
     leads,
+    partners,
     properties,
     referrals,
     signals,
@@ -126,6 +127,7 @@ app.include_router(leads.router, prefix="/api/leads", tags=["Leads"])
 app.include_router(properties.router, prefix="/api/properties", tags=["Properties"])
 app.include_router(lead_magnets.router, prefix="/api/lm", tags=["Lead Magnets"])
 app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"])
+app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 app.include_router(deals.router, prefix="/api/deals", tags=["Deals"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])

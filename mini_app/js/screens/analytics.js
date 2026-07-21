@@ -41,7 +41,6 @@ Screens.settings = async function () {
   UI.setHeader('Профиль', '', { back: true });
   const platform = (window.PlatformSDK && PlatformSDK.platform) || 'web';
   const user = (window.PlatformSDK && PlatformSDK.user) || {};
-  const isOwner = true; // owner-only extras are safe; endpoint is agency-scoped
 
   UI.render(`
     <div class="card">
@@ -53,24 +52,113 @@ Screens.settings = async function () {
       <hr class="divider">
       <div class="item__sub">Агентство: <span class="muted">${UI.esc(api.agencyId || '—')}</span></div>
     </div>
-    <div class="section-title">Команда</div>
+
+    <div class="between" style="margin:18px 2px 8px">
+      <span class="section-title" style="margin:0">Города (гео)</span>
+      <button class="btn btn--ghost btn--sm" id="add-geo">${UI.icon('plus')} Город</button></div>
+    <div id="geos">${UI.skelList(2)}</div>
+
+    <div class="between" style="margin:18px 2px 8px">
+      <span class="section-title" style="margin:0">Партнёры</span>
+      <button class="btn btn--ghost btn--sm" id="add-partner">${UI.icon('plus')} Партнёр</button></div>
+    <div id="partners">${UI.skelList(2)}</div>
+
+    <div class="between" style="margin:18px 2px 8px">
+      <span class="section-title" style="margin:0">Команда</span></div>
     <div id="mgrs">${UI.skelList(2)}</div>
+
     <button class="btn btn--danger btn--block" id="logout" style="margin-top:16px">${UI.icon('logout')} Выйти</button>`,
-    async () => {
+    () => {
       document.getElementById('logout').onclick = () => {
         try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
         location.reload();
       };
-      try {
-        const m = await API.managers();
-        document.getElementById('mgrs').innerHTML = UI.list(m.managers, (x) => `
-          <div class="card"><div class="between">
-            <span class="item__title">${UI.esc(x.name)}</span>
-            <span class="chip chip--accent">${x.deals_won} сделок</span></div>
-            <div class="item__sub" style="margin-top:4px">Комиссия: ${UI.money(x.commission)}</div></div>`,
-          { icon: 'leads', title: 'Нет менеджеров' });
-      } catch (e) {
-        document.getElementById('mgrs').innerHTML = UI.errorState(e.message);
-      }
+      document.getElementById('add-geo').onclick = geoSheet;
+      document.getElementById('add-partner').onclick = partnerSheet;
+      loadGeos(); loadPartners(); loadMgrs();
     });
 };
+
+async function loadMgrs() {
+  try {
+    const m = await API.managers();
+    document.getElementById('mgrs').innerHTML = UI.list(m.managers, (x) => `
+      <div class="card"><div class="between"><span class="item__title">${UI.esc(x.name)}</span>
+        <span class="chip chip--accent">${x.deals_won} сделок</span></div>
+        <div class="item__sub" style="margin-top:4px">Комиссия: ${UI.money(x.commission)}</div></div>`,
+      { icon: 'leads', title: 'Нет менеджеров' });
+  } catch (e) { document.getElementById('mgrs').innerHTML = UI.errorState(e.message); }
+}
+
+async function loadGeos() {
+  try {
+    const d = await API.geoList();
+    document.getElementById('geos').innerHTML = UI.list(d.geo, (g) => `
+      <div class="card"><div class="between">
+        <span class="item__title">${UI.icon('location')} ${UI.esc(g.city_name)}</span>
+        <span class="chip ${g.geo_type === 'base' ? 'chip--accent' : ''}">${UI.esc(g.geo_type)}</span></div>
+        <div class="item__sub" style="margin-top:4px">${UI.esc(g.region || '')}
+          ${g.has_keywords ? '· ключевые слова готовы' : '· keywords генерируются'}</div></div>`,
+      { icon: 'location', title: 'Городов нет' });
+  } catch (e) { document.getElementById('geos').innerHTML = UI.errorState(e.message); }
+}
+
+async function loadPartners() {
+  try {
+    const d = await API.partners({ active_only: false });
+    document.getElementById('partners').innerHTML = UI.list(d.partners, (p) => `
+      <div class="card"><div class="between">
+        <span class="item__title">${UI.esc(p.partner_name)}</span>
+        <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выкл'}</span></div>
+        <div class="item__sub" style="margin-top:4px">${UI.esc(p.partner_city)}
+          ${p.commission_percent ? '· ' + p.commission_percent + '%' : ''}</div></div>`,
+      { icon: 'handshake', title: 'Партнёров нет', sub: 'Добавьте, чтобы передавать защищённые лиды' });
+  } catch (e) { document.getElementById('partners').innerHTML = UI.errorState(e.message); }
+}
+
+function geoSheet() {
+  UI.sheet('Добавить город',
+    `<div class="field"><label>Город</label><input id="g-city" placeholder="напр. Сочи"></div>
+     <div class="field"><label>Регион</label><input id="g-region" placeholder="напр. Краснодарский край"></div>
+     <div class="field"><label>Тип рынка</label><select id="g-type">
+       <option value="urban">Город</option><option value="resort">Курорт</option><option value="suburban">Пригород</option></select></div>
+     <button class="btn btn--block" id="g-save">${UI.icon('check')} Добавить</button>`,
+    (close) => {
+      document.getElementById('g-save').onclick = async () => {
+        const city = document.getElementById('g-city').value.trim();
+        const region = document.getElementById('g-region').value.trim();
+        if (!city || !region) { UI.toast('Заполните город и регион'); return; }
+        try {
+          await API.createGeo({ city_name: city, region, market_type: document.getElementById('g-type').value });
+          close(); UI.toast('Город добавлен'); loadGeos();
+        } catch (e) {
+          UI.toast(e.message.indexOf('409') >= 0 ? 'Город защищён другим агентством' : 'Ошибка: ' + e.message);
+        }
+      };
+    });
+}
+
+function partnerSheet() {
+  UI.sheet('Добавить партнёра',
+    `<div class="field"><label>Название</label><input id="p-name" placeholder="Агентство-партнёр"></div>
+     <div class="field"><label>Город</label><input id="p-city" placeholder="напр. Краснодар"></div>
+     <div class="field"><label>Telegram (chat id или @)</label><input id="p-tg" placeholder="напр. 123456789"></div>
+     <div class="field"><label>Комиссия, %</label><input id="p-com" type="number" inputmode="decimal" placeholder="напр. 30"></div>
+     <button class="btn btn--block" id="p-save">${UI.icon('check')} Добавить</button>`,
+    (close) => {
+      document.getElementById('p-save').onclick = async () => {
+        const name = document.getElementById('p-name').value.trim();
+        const city = document.getElementById('p-city').value.trim();
+        if (!name || !city) { UI.toast('Заполните название и город'); return; }
+        const com = parseFloat(document.getElementById('p-com').value);
+        try {
+          await API.createPartner({
+            partner_name: name, partner_city: city,
+            contact_telegram: document.getElementById('p-tg').value.trim() || null,
+            commission_percent: isNaN(com) ? null : com,
+          });
+          close(); UI.toast('Партнёр добавлен'); loadPartners();
+        } catch (e) { UI.toast('Ошибка: ' + e.message); }
+      };
+    });
+}
