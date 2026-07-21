@@ -41,7 +41,7 @@ html, body { height: 100%; }
 body {
   margin: 0 auto;
   max-width: var(--max-width);
-  padding: 0 0 calc(var(--nav-h) + var(--nav-inset) + 24px + env(safe-area-inset-bottom, 0px));
+  padding: 0;
   font-family: -apple-system, "Inter", "Segoe UI", Roboto, sans-serif;
   font-size: 15px;
   line-height: 1.45;
@@ -84,7 +84,7 @@ body {
 }
 .header__btn:active { background: var(--press); }
 
-#view { padding: 14px 16px 24px; }
+#view { padding: 14px 16px calc(var(--nav-h) + var(--nav-inset) + 40px + env(safe-area-inset-bottom, 0px)); }
 .section-title { font-size: 13px; font-weight: 600; color: var(--muted); margin: 18px 2px 8px;
   text-transform: uppercase; letter-spacing: .04em; }
 .section-title:first-child { margin-top: 4px; }
