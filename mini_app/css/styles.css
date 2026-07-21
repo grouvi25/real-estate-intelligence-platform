@@ -31,7 +31,8 @@
   --sp: 4px;
   --shadow: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.06);
   --tap: 120ms ease;
-  --nav-h: 62px;
+  --nav-h: 60px;
+  --nav-inset: 14px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -40,7 +41,7 @@ html, body { height: 100%; }
 body {
   margin: 0 auto;
   max-width: var(--max-width);
-  padding: 0 0 calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  padding: 0 0 calc(var(--nav-h) + var(--nav-inset) + 24px + env(safe-area-inset-bottom, 0px));
   font-family: -apple-system, "Inter", "Segoe UI", Roboto, sans-serif;
   font-size: 15px;
   line-height: 1.45;
@@ -209,14 +210,20 @@ textarea { resize: vertical; min-height: 84px; }
 /* Divider */
 .divider { height: 1px; background: var(--hair); margin: 12px 0; border: 0; }
 
-/* Bottom nav */
+/* Bottom nav — floating pill, detached from edges */
 .nav {
-  position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-  width: 100%; max-width: var(--max-width); height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  display: flex; background: color-mix(in srgb, var(--bg) 90%, transparent);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid var(--hair); z-index: 30;
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--nav-inset) + env(safe-area-inset-bottom, 0px));
+  width: calc(100% - 28px); max-width: calc(var(--max-width) - 28px);
+  height: var(--nav-h);
+  display: flex;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(1.6) blur(16px); -webkit-backdrop-filter: saturate(1.6) blur(16px);
+  border: 1px solid var(--hair);
+  border-radius: 20px;
+  box-shadow: 0 8px 30px rgba(16,24,40,.20), 0 2px 8px rgba(16,24,40,.08);
+  z-index: 30; overflow: hidden;
 }
 .nav__item {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
@@ -240,6 +247,6 @@ textarea { resize: vertical; min-height: 84px; }
 .sheet__title { font-weight: 700; font-size: 16px; }
 .sheet__body { padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .sheet__body iframe { width: 100%; height: 68vh; border: 1px solid var(--hair); border-radius: var(--r-md); background: #fff; }
-.toast { position: fixed; left: 50%; bottom: calc(var(--nav-h) + 18px); transform: translateX(-50%);
+.toast { position: fixed; left: 50%; bottom: calc(var(--nav-h) + var(--nav-inset) + 28px); transform: translateX(-50%);
   background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 13.5px;
   font-weight: 600; z-index: 80; box-shadow: var(--shadow); max-width: 90%; text-align: center; }
