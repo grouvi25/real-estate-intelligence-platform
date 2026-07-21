@@ -64,12 +64,14 @@
     properties: (f) => api.request('/properties' + qs(f)),
     updateProperty: (id, body) => api.request(`/properties/${id}`, 'PATCH', body),
     propertyReportHtml: (id) => api.requestText(`/properties/${id}/report?format=html`),
+    generateListing: (id, body) => api.request(`/properties/${id}/generate-listing`, 'POST', body),
 
     // Analytics
     overview: () => api.request('/analytics/overview'),
     funnel: () => api.request('/analytics/funnel'),
     managers: () => api.request('/analytics/managers'),
     sourceRoi: () => api.request('/analytics/source-roi'),
+    marketEvent: (body) => api.request('/analytics/market-event', 'POST', body),
 
     // Partners & referrals
     partners: (f) => api.request('/partners' + qs(f)),

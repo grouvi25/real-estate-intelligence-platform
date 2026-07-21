@@ -9,6 +9,7 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import case, func, select
 
 from app.database import get_session
@@ -204,3 +205,31 @@ async def analytics_source_roi(
             "conversion_pct": round(deals / lead_count * 100, 1) if lead_count else 0.0,
         })
     return {"sources": sources}
+
+
+class MarketEventRequest(BaseModel):
+    city: str
+    event_type: str
+    event_data: str
+
+
+@router.post("/market-event")
+async def analyze_market_event(
+    req: MarketEventRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """AI-assess a market event's significance for the agency (TZ 27.1)."""
+    from app.prompts.market_analysis import SYSTEM_PROMPT_MARKET_EVENT, USER_PROMPT_MARKET
+    from app.services.ai_service import AIService, safe_ai_parse
+
+    ai = AIService()
+    try:
+        res = await ai.complete(
+            SYSTEM_PROMPT_MARKET_EVENT,
+            USER_PROMPT_MARKET.format(
+                city=req.city, event_type=req.event_type, event_data=req.event_data),
+            "market_analysis", agency_id=current.agency_id)
+    finally:
+        await ai.close()
+    return {"analysis": safe_ai_parse(res, {"summary": res})}

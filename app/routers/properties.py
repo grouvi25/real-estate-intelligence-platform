@@ -140,3 +140,42 @@ async def property_report(
         pdf = render_pdf("object_report", context)
         return Response(content=pdf, media_type="application/pdf")
     return HTMLResponse(content=render_html("object_report", context))
+
+
+class GenerateListingRequest(BaseModel):
+    platform: str = "avito"
+    target_segment: Optional[str] = None
+    tone: str = "professional"
+
+
+@router.post("/{property_id}/generate-listing")
+async def generate_listing(
+    property_id: uuid.UUID,
+    req: GenerateListingRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """AI-generate a sales listing text for a property (TZ 27 listing_generator)."""
+    from app.prompts.listing_generator import SYSTEM_PROMPT_LISTING, USER_PROMPT_LISTING
+    from app.services.ai_service import AIService, safe_ai_parse
+
+    prop = await _get_scoped_property(property_id, current, session)
+    property_data = (
+        f"{prop.title}; {prop.rooms or '—'}-комн.; {prop.area_total or '—'} м²; "
+        f"район {prop.district or '—'}; цена {prop.price or '—'} ₽; "
+        f"{prop.description_original or ''}"
+    )
+    seg = req.target_segment or (prop.target_segments[0] if prop.target_segments else "family")
+    advantages = ", ".join((prop.ai_analysis or {}).get("strengths", []) or [])
+
+    ai = AIService()
+    try:
+        res = await ai.complete(
+            SYSTEM_PROMPT_LISTING,
+            USER_PROMPT_LISTING.format(
+                platform=req.platform, property_data=property_data, target_segment=seg,
+                key_advantages=advantages or "—", tone_preference=req.tone),
+            "listing_generator", agency_id=current.agency_id)
+    finally:
+        await ai.close()
+    return {"listing": safe_ai_parse(res, {"text": res})}

@@ -34,8 +34,53 @@ Screens.analytics = async function () {
       </div>
     </div>
     <div class="section-title">Источники · ROI</div>
-    ${sources}`);
+    ${sources}
+    <button class="btn btn--secondary btn--block" id="mkt" style="margin-top:14px">${UI.icon('sparkles')} Анализ рыночного события</button>`,
+    () => { document.getElementById('mkt').onclick = marketEventSheet; });
 };
+
+function marketEventSheet() {
+  UI.sheet('Анализ рыночного события', `
+    <div class="field"><label>Город</label><input id="me-city" placeholder="напр. Геленджик"></div>
+    <div class="field"><label>Тип события</label>
+      <select id="me-type">
+        <option value="price_change">Изменение цен</option>
+        <option value="new_development">Новая застройка</option>
+        <option value="infrastructure">Инфраструктура</option>
+        <option value="regulation">Регулирование / законы</option>
+        <option value="mortgage_rate">Ипотечные ставки</option>
+      </select></div>
+    <div class="field"><label>Описание / данные</label>
+      <textarea id="me-data" rows="4" placeholder="Опишите событие: цифры, источник, детали"></textarea></div>
+    <button class="btn btn--block" id="me-go">${UI.icon('sparkles')} Проанализировать</button>
+    <div id="me-out" style="margin-top:12px"></div>`,
+    () => {
+      document.getElementById('me-go').onclick = async () => {
+        const city = document.getElementById('me-city').value.trim();
+        const data = document.getElementById('me-data').value.trim();
+        if (!city || !data) { UI.toast('Заполните город и описание'); return; }
+        const out = document.getElementById('me-out');
+        out.innerHTML = '<div class="skel skel-line lg"></div><div class="skel skel-line md"></div><div class="skel skel-line sm"></div>';
+        try {
+          const r = await API.marketEvent({
+            city, event_type: document.getElementById('me-type').value, event_data: data,
+          });
+          const a = r.analysis || {};
+          const sig = a.significance || '—';
+          const sigChip = sig === 'high' ? 'chip--hot' : sig === 'medium' ? 'chip--warm' : 'chip--accent';
+          out.innerHTML = `
+            <div class="card">
+              <div class="between"><span class="card__title">Значимость</span>
+                <span class="chip ${sigChip}">${UI.esc(sig)}</span></div>
+              ${a.summary ? `<div class="item__sub" style="margin-top:8px">${UI.esc(a.summary)}</div>` : ''}
+              ${a.impact_on_agency ? `<hr class="divider"><div class="item__sub"><b>Влияние:</b> ${UI.esc(a.impact_on_agency)}</div>` : ''}
+              ${a.recommended_action ? `<div class="item__sub" style="margin-top:6px"><b>Действие:</b> ${UI.esc(a.recommended_action)}</div>` : ''}
+              ${(a.affected_segments && a.affected_segments.length) ? `<div class="row" style="margin-top:8px">${a.affected_segments.map((s) => `<span class="chip">${UI.esc(UI.seg(s) || s)}</span>`).join('')}</div>` : ''}
+            </div>`;
+        } catch (e) { out.innerHTML = UI.errorState(e.message); }
+      };
+    });
+}
 
 Screens.settings = async function () {
   UI.setHeader('Профиль', '', { back: true });
