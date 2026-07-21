@@ -60,7 +60,7 @@ async def test_geo_create_and_list(monkeypatch):
 
     async with async_session() as s:
         res = await create_geo(
-            CreateGeoRequest(city_name="Новороссийск", region="Краснодарский край"),
+            CreateGeoRequest(city_name="Владивосток", region="Приморский край"),
             current=current, session=s)
         # dict (allowed) — not a partner_offer JSONResponse
         assert isinstance(res, dict) and res.get("geo_protected") is True
@@ -68,4 +68,4 @@ async def test_geo_create_and_list(monkeypatch):
     async with async_session() as s:
         listed = await list_geo(current=current, session=s)
         assert listed["count"] >= 1
-        assert any(g["city_name"] == "Новороссийск" for g in listed["geo"])
+        assert any(g["city_name"] == "Владивосток" for g in listed["geo"])
