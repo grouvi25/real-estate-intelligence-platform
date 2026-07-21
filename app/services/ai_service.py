@@ -79,7 +79,11 @@ class AIService:
         if self.provider == AIProvider.GIGACHAT:
             return bool(config.gigachat_client_id and config.gigachat_client_secret)
         if self.provider in (AIProvider.OPENAI, AIProvider.ANTHROPIC):
-            return bool(config.railway_proxy_url and config.railway_proxy_secret)
+            return bool(
+                config.railway_proxy_url
+                and config.railway_proxy_secret
+                and config.openai_api_key
+            )
         return False
 
     async def complete(self, system: str, user: str, module: str, agency_id: str = "global") -> str:
@@ -166,9 +170,12 @@ class AIService:
 
     async def _call_openai(self, system: str, user: str, model: str) -> AIResponse:
         # Foreign provider is called via the Railway proxy (152-FZ compliance).
+        # The proxy authenticates the client with X-Proxy-Secret and forwards the
+        # OpenAI key (Authorization: Bearer) upstream to OpenAI.
         url = f"{config.railway_proxy_url}/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {config.railway_proxy_secret}",
+            "Authorization": f"Bearer {config.openai_api_key}",
+            "X-Proxy-Secret": config.railway_proxy_secret or "",
             "Content-Type": "application/json",
         }
         payload = {
