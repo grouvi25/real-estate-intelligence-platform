@@ -107,6 +107,7 @@ Screens.settings = async function () {
       <span class="section-title" style="margin:0">Партнёры</span>
       <button class="btn btn--ghost btn--sm" id="add-partner">${UI.icon('plus')} Партнёр</button></div>
     <div id="partners">${UI.skelList(2)}</div>
+    <button class="btn btn--ghost btn--block" id="go-refs" style="margin-top:8px">${UI.icon('handshake')} Все рефералы</button>
 
     <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Команда</span></div>
@@ -120,6 +121,7 @@ Screens.settings = async function () {
       };
       document.getElementById('add-geo').onclick = geoSheet;
       document.getElementById('add-partner').onclick = partnerSheet;
+      document.getElementById('go-refs').onclick = () => Router.go('referrals');
       loadGeos(); loadPartners(); loadMgrs();
     });
 };
@@ -152,21 +154,16 @@ async function loadPartners() {
   try {
     const d = await API.partners({ active_only: false });
     document.getElementById('partners').innerHTML = UI.list(d.partners, (p) => `
-      <div class="card"><div class="between">
-        <span class="item__title">${UI.esc(p.partner_name)}</span>
-        <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выкл'}</span></div>
+      <div class="card card--tap" data-go="partners/${p.id}">
+        <div class="between">
+          <span class="item__title">${UI.esc(p.partner_name)}</span>
+          <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выкл'}</span></div>
         <div class="item__sub" style="margin-top:4px">${UI.esc(p.partner_city)}
-          ${p.commission_percent ? '· ' + p.commission_percent + '%' : ''}</div>
-        <button class="btn btn--ghost btn--sm" data-toggle="${p.id}" data-active="${p.is_active ? 1 : 0}"
-          style="margin-top:8px">${p.is_active ? 'Отключить' : 'Включить'}</button></div>`,
+          ${p.commission_percent ? '· ' + p.commission_percent + '%' : ''}
+          ${p.deals_count ? '· сделок: ' + p.deals_count : ''}</div>
+      </div>`,
       { icon: 'handshake', title: 'Партнёров нет', sub: 'Добавьте, чтобы передавать защищённые лиды' });
-    document.querySelectorAll('[data-toggle]').forEach((b) => b.onclick = async () => {
-      const active = b.getAttribute('data-active') === '1';
-      try {
-        await API.updatePartner(b.getAttribute('data-toggle'), { is_active: !active });
-        UI.toast(active ? 'Партнёр отключён' : 'Партнёр включён'); loadPartners();
-      } catch (e) { UI.toast('Ошибка: ' + e.message); }
-    });
+    if (window.bindGo) window.bindGo();
   } catch (e) { document.getElementById('partners').innerHTML = UI.errorState(e.message); }
 }
 
@@ -213,6 +210,154 @@ function partnerSheet() {
           });
           close(); UI.toast('Партнёр добавлен'); loadPartners();
         } catch (e) { UI.toast('Ошибка: ' + e.message); }
+      };
+    });
+}
+
+function REF_RU(s) {
+  return ({ pending: 'Ожидает', sent_to_partner: 'Отправлен', accepted: 'Принят',
+    rejected: 'Отклонён', expired: 'Истёк', deal: 'Сделка' })[s] || s || '—';
+}
+function REF_CHIP(s) {
+  return s === 'deal' ? 'chip--success' : s === 'accepted' ? 'chip--accent'
+    : (s === 'rejected' || s === 'expired') ? '' : 'chip--warm';
+}
+
+const PARTNER_TRUST = { standard: 'Базовый', verified: 'Проверенный', premium: 'Премиум' };
+
+Screens.partnerDetail = async function (params) {
+  UI.setHeader('Партнёр', '', { back: true });
+  UI.render(UI.skelCard() + UI.skelList(2));
+  let p;
+  try { p = await API.partner(params.id); }
+  catch (e) { UI.render(UI.errorState(e.message)); return; }
+
+  const s = p.stats || {};
+  const refs = UI.list(p.referrals, (r) => `
+    <div class="card">
+      <div class="between"><span class="item__title ellipsis">${UI.esc(r.lead_name || 'Лид')}</span>
+        <span class="chip ${REF_CHIP(r.status)}">${REF_RU(r.status)}</span></div>
+      <div class="item__sub" style="margin-top:4px">
+        ${r.commission_amount ? 'комиссия ' + UI.money(r.commission_amount)
+          : (r.commission_agreed_percent ? r.commission_agreed_percent + '%' : '')}</div>
+    </div>`, { icon: 'handshake', title: 'Рефералов пока нет' });
+
+  UI.render(`
+    <div class="card">
+      <div class="between"><span class="card__title ellipsis">${UI.esc(p.partner_name)}</span>
+        <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выкл'}</span></div>
+      <div class="item__sub" style="margin-top:4px">${UI.esc(p.partner_city)}${p.partner_region ? ', ' + UI.esc(p.partner_region) : ''}</div>
+      <hr class="divider">
+      <div class="item__sub">Комиссия: ${p.commission_percent != null ? p.commission_percent + '%'
+        : (p.commission_fixed ? UI.money(p.commission_fixed) : '—')} · ${UI.esc(p.commission_type)}</div>
+      <div class="row" style="margin-top:6px">Доверие: <span class="chip chip--accent">${PARTNER_TRUST[p.trust_level] || UI.esc(p.trust_level)}</span></div>
+      ${p.contact_telegram ? `<div class="item__sub" style="margin-top:6px">TG: ${UI.esc(p.contact_telegram)}</div>` : ''}
+      ${p.contact_phone ? `<div class="item__sub" style="margin-top:4px">Тел.: ${UI.esc(p.contact_phone)}</div>` : ''}
+      ${p.notes ? `<div class="item__sub" style="margin-top:4px">${UI.esc(p.notes)}</div>` : ''}
+    </div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><div class="stat__n">${s.total || 0}</div><div class="stat__l">Рефералов</div></div>
+      <div class="stat"><div class="stat__n">${p.deals_count || 0}</div><div class="stat__l">Сделок</div></div>
+      <div class="stat"><div class="stat__n">${s.pending || 0}</div><div class="stat__l">В ожидании</div></div>
+    </div>
+    <div class="card" style="margin-top:12px"><div class="between">
+      <span class="muted">Заработано комиссии</span>
+      <span class="price">${UI.money(p.total_commission_earned)}</span></div></div>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn btn--secondary btn--sm" id="p-edit">${UI.icon('edit')} Изменить</button>
+      <button class="btn btn--secondary btn--sm" id="p-toggle">${p.is_active ? 'Отключить' : 'Включить'}</button>
+      <button class="btn btn--danger btn--sm" id="p-del">Удалить</button>
+    </div>
+    <div class="section-title">Рефералы партнёру</div>
+    ${refs}`,
+    () => {
+      document.getElementById('p-edit').onclick = () => editPartnerSheet(p);
+      document.getElementById('p-toggle').onclick = async () => {
+        try { await API.updatePartner(p.id, { is_active: !p.is_active }); UI.toast('Готово'); Router.resolve(); }
+        catch (e) { UI.toast('Ошибка: ' + e.message); }
+      };
+      document.getElementById('p-del').onclick = async () => {
+        try { await API.deletePartner(p.id); UI.toast('Партнёр удалён'); Router.go('settings'); }
+        catch (e) { UI.toast(e.message.indexOf('409') >= 0 ? 'Есть рефералы — только отключение' : 'Ошибка: ' + e.message); }
+      };
+    });
+};
+
+function editPartnerSheet(p) {
+  UI.sheet('Изменить партнёра', `
+    <div class="field"><label>Название</label><input id="e-name" value="${UI.esc(p.partner_name)}"></div>
+    <div class="field"><label>Город</label><input id="e-city" value="${UI.esc(p.partner_city)}"></div>
+    <div class="field"><label>Регион</label><input id="e-region" value="${UI.esc(p.partner_region || '')}"></div>
+    <div class="field"><label>Контакт (имя)</label><input id="e-cname" value="${UI.esc(p.contact_name || '')}"></div>
+    <div class="field"><label>Telegram (chat id или @)</label><input id="e-tg" value="${UI.esc(p.contact_telegram || '')}"></div>
+    <div class="field"><label>Телефон</label><input id="e-phone" value="${UI.esc(p.contact_phone || '')}"></div>
+    <div class="field"><label>Комиссия, %</label><input id="e-com" type="number" inputmode="decimal" value="${p.commission_percent != null ? p.commission_percent : ''}"></div>
+    <div class="field"><label>Тип комиссии</label><select id="e-ctype">
+      <option value="percent">Процент</option><option value="fixed">Фиксированная</option><option value="hybrid">Гибрид</option></select></div>
+    <div class="field"><label>Уровень доверия</label><select id="e-trust">
+      <option value="standard">Базовый</option><option value="verified">Проверенный</option><option value="premium">Премиум</option></select></div>
+    <div class="field"><label>Заметки</label><textarea id="e-notes" rows="2">${UI.esc(p.notes || '')}</textarea></div>
+    <button class="btn btn--block" id="e-save">${UI.icon('check')} Сохранить</button>`,
+    (close) => {
+      document.getElementById('e-ctype').value = p.commission_type || 'percent';
+      document.getElementById('e-trust').value = p.trust_level || 'standard';
+      document.getElementById('e-save').onclick = async () => {
+        const name = document.getElementById('e-name').value.trim();
+        const city = document.getElementById('e-city').value.trim();
+        if (!name || !city) { UI.toast('Название и город обязательны'); return; }
+        const com = parseFloat(document.getElementById('e-com').value);
+        const body = {
+          partner_name: name,
+          partner_city: city,
+          partner_region: document.getElementById('e-region').value.trim() || null,
+          contact_name: document.getElementById('e-cname').value.trim() || null,
+          contact_telegram: document.getElementById('e-tg').value.trim() || null,
+          contact_phone: document.getElementById('e-phone').value.trim() || null,
+          commission_percent: isNaN(com) ? null : com,
+          commission_type: document.getElementById('e-ctype').value,
+          trust_level: document.getElementById('e-trust').value,
+          notes: document.getElementById('e-notes').value.trim() || null,
+        };
+        try { await API.updatePartner(p.id, body); close(); UI.toast('Сохранено'); Router.resolve(); }
+        catch (e) { UI.toast('Ошибка: ' + e.message); }
+      };
+    });
+}
+
+Screens.referrals = async function () {
+  UI.setHeader('Рефералы', 'Переданные лиды', { back: true });
+  UI.render(UI.skelList(3));
+  let data;
+  try { data = await API.referralsList({ limit: 100 }); }
+  catch (e) { UI.render(UI.errorState(e.message)); return; }
+  UI.render(UI.list(data.referrals, (r) => `
+    <div class="card">
+      <div class="between"><span class="item__title ellipsis">${UI.esc(r.lead_name || 'Лид')}</span>
+        <span class="chip ${REF_CHIP(r.status)}">${REF_RU(r.status)}</span></div>
+      <div class="item__sub" style="margin-top:4px">Партнёр: ${UI.esc(r.partner_name)}
+        ${r.commission_amount ? '· комиссия ' + UI.money(r.commission_amount)
+          : (r.commission_agreed_percent ? '· ' + r.commission_agreed_percent + '%' : '')}</div>
+      ${(r.status === 'pending' || r.status === 'accepted') ? `<button class="btn btn--sm" data-deal="${r.id}" style="margin-top:8px">${UI.icon('handshake')} Записать сделку</button>` : ''}
+    </div>`, { icon: 'handshake', title: 'Рефералов нет', sub: 'Передавайте лиды партнёрам из карточки лида' }),
+    () => {
+      document.querySelectorAll('[data-deal]').forEach((b) =>
+        b.onclick = () => refDealSheet(b.getAttribute('data-deal')));
+    });
+};
+
+function refDealSheet(id) {
+  UI.sheet('Сделка по рефералу', `
+    <div class="field"><label>Сумма сделки, ₽</label><input id="rd-amount" type="number" inputmode="numeric" placeholder="напр. 8500000"></div>
+    <div class="field"><label>Наша комиссия, ₽</label><input id="rd-com" type="number" inputmode="numeric" placeholder="напр. 150000"></div>
+    <button class="btn btn--block" id="rd-save">${UI.icon('check')} Записать</button>`,
+    (close) => {
+      document.getElementById('rd-save').onclick = async () => {
+        const amount = parseInt(document.getElementById('rd-amount').value, 10);
+        const com = parseInt(document.getElementById('rd-com').value, 10);
+        const body = { commission_amount: isNaN(com) ? 0 : com };
+        if (!isNaN(amount)) body.deal_amount = amount;
+        try { await API.recordReferralDeal(id, body); close(); UI.toast('Сделка записана'); Router.resolve(); }
+        catch (e) { UI.toast('Ошибка: ' + e.message); }
       };
     });
 }

@@ -11,6 +11,8 @@
     ['properties/:id', (p) => Screens.propertyDetail(p)],
     ['analytics', () => Screens.analytics()],
     ['settings', () => Screens.settings()],
+    ['partners/:id', (p) => Screens.partnerDetail(p)],
+    ['referrals', () => Screens.referrals()],
   ];
 
   const NAV = [

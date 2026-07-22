@@ -13,11 +13,13 @@ import structlog
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.config import config
 from app.database import get_session
 from app.dependencies import CurrentManager, get_current_manager
 from app.exceptions import AppException, NotFoundError
+from app.models.deal_outcome import DealOutcome
 from app.models.lead import Lead
 from app.models.manager import Manager
 from app.models.partner_agency import PartnerAgency
@@ -32,6 +34,14 @@ class CreateReferralRequest(BaseModel):
     lead_id: uuid.UUID
     partner_agency_id: uuid.UUID
     terms: Optional[str] = None
+
+
+class RecordReferralDealRequest(BaseModel):
+    deal_amount: Optional[int] = None
+    commission_amount: int = 0
+
+
+TRUST_PROMOTION = [(15, "premium"), (5, "verified")]  # deals_count threshold -> level
 
 
 async def _notify_partner(partner: PartnerAgency, lead: Lead, referral: PartnerReferral) -> None:
@@ -117,6 +127,111 @@ async def create_referral(
     await _notify_partner(partner, lead, referral)
 
     return {"referral_id": str(referral.id), "status": "sent_to_partner"}
+
+
+@router.get("")
+async def list_referrals(
+    status_filter: Optional[str] = None,
+    partner_agency_id: Optional[uuid.UUID] = None,
+    limit: int = 100,
+    offset: int = 0,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """List referrals for the current agency (newest first), with lead + partner."""
+    limit = min(max(limit, 1), 200)
+    offset = max(offset, 0)
+    stmt = (
+        select(PartnerReferral, Lead, PartnerAgency)
+        .join(Lead, PartnerReferral.lead_id == Lead.id)
+        .join(PartnerAgency, PartnerReferral.partner_agency_id == PartnerAgency.id)
+        .where(PartnerReferral.agency_id == uuid.UUID(current.agency_id))
+    )
+    if status_filter:
+        stmt = stmt.where(PartnerReferral.status == status_filter)
+    if partner_agency_id:
+        stmt = stmt.where(PartnerReferral.partner_agency_id == partner_agency_id)
+    stmt = stmt.order_by(PartnerReferral.created_at.desc()).limit(limit).offset(offset)
+
+    rows = (await session.execute(stmt)).all()
+    return {
+        "count": len(rows),
+        "referrals": [
+            {
+                "id": str(ref.id),
+                "lead_id": str(ref.lead_id),
+                "lead_name": lead.name,
+                "partner_agency_id": str(partner.id),
+                "partner_name": partner.partner_name,
+                "status": ref.status,
+                "commission_agreed_percent": ref.commission_agreed_percent,
+                "deal_amount": ref.deal_amount,
+                "commission_amount": ref.commission_amount,
+                "expires_at": ref.expires_at.isoformat() if ref.expires_at else None,
+                "created_at": ref.created_at.isoformat() if ref.created_at else None,
+            }
+            for ref, lead, partner in rows
+        ],
+    }
+
+
+@router.post("/{referral_id}/deal", status_code=status.HTTP_201_CREATED)
+async def record_referral_deal(
+    referral_id: uuid.UUID,
+    req: RecordReferralDealRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Close a referral as a completed deal: record the commission our agency
+    earned, bump the partner's stats + trust level, and log a referral_deal
+    outcome for the Knowledge Moat."""
+    agency_uuid = uuid.UUID(current.agency_id)
+    referral = await session.get(PartnerReferral, referral_id)
+    if referral is None or referral.agency_id != agency_uuid:
+        raise NotFoundError("Referral", str(referral_id))
+    if referral.status == "deal":
+        raise AppException(status_code=409, detail="Реферал уже закрыт сделкой", code="ALREADY_DEAL")
+
+    now = datetime.now(timezone.utc)
+    referral.status = "deal"
+    referral.deal_amount = req.deal_amount
+    referral.commission_amount = req.commission_amount
+    referral.deal_closed_at = now
+    referral.status_updated_at = now
+
+    partner = await session.get(PartnerAgency, referral.partner_agency_id)
+    if partner is not None:
+        partner.deals_count = (partner.deals_count or 0) + 1
+        partner.total_commission_earned = (partner.total_commission_earned or 0) + (req.commission_amount or 0)
+        for threshold, level in TRUST_PROMOTION:
+            if partner.deals_count >= threshold:
+                partner.trust_level = level
+                break
+
+    lead = await session.get(Lead, referral.lead_id)
+    session.add(
+        DealOutcome(
+            agency_id=agency_uuid,
+            lead_id=referral.lead_id,
+            manager_id=referral.referred_by_manager_id,
+            geo_location_id=referral.geo_location_id,
+            outcome="referral_deal",
+            deal_amount=req.deal_amount,
+            commission_amount=req.commission_amount,
+            deal_closed_at=now,
+            buyer_segment=lead.segment if lead else None,
+        )
+    )
+    await session.commit()
+
+    logger.info("Referral deal recorded", referral_id=str(referral_id),
+                commission=req.commission_amount)
+    return {
+        "referral_id": str(referral_id),
+        "status": referral.status,
+        "partner_deals_count": partner.deals_count if partner else None,
+        "partner_trust_level": partner.trust_level if partner else None,
+    }
 
 
 def _referral_page(title: str, message: str) -> HTMLResponse:

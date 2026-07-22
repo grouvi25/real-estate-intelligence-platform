@@ -1,5 +1,6 @@
 """Partner referrals tests (needs PostgreSQL): create + expiry. Bot is mocked."""
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -107,3 +108,91 @@ async def test_check_referral_expiry(monkeypatch):
         ref = await s.get(PartnerReferral, ref_id)
         assert ref.status == "expired"
     assert notified  # manager notified
+
+
+@pytest.mark.asyncio
+async def test_referral_deal_and_list(monkeypatch):
+    import app.services.bot_abstraction as ba
+    from app.database import async_session, run_migrations
+    from app.dependencies import CurrentManager
+    from app.models.deal_outcome import DealOutcome
+    from app.models.partner_agency import PartnerAgency
+    from app.routers.referrals import (
+        CreateReferralRequest,
+        RecordReferralDealRequest,
+        create_referral,
+        list_referrals,
+        record_referral_deal,
+    )
+
+    async def fake_send(user_id, platform, message):
+        return True
+
+    monkeypatch.setattr(ba.bot_layer, "send_message", fake_send)
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, manager, lead, partner = await _seed(s)
+        current = CurrentManager(manager_id=str(manager.id), agency_id=str(agency.id))
+        lead_id, partner_id = lead.id, partner.id
+
+    async with async_session() as s:
+        created = await create_referral(
+            CreateReferralRequest(lead_id=lead_id, partner_agency_id=partner_id),
+            current=current, session=s,
+        )
+        referral_id = created["referral_id"]
+
+    async with async_session() as s:
+        listed = await list_referrals(current=current, session=s)
+        assert listed["count"] == 1
+        assert listed["referrals"][0]["partner_name"] == "Сочи Партнёр"
+        assert listed["referrals"][0]["status"] == "pending"
+
+    async with async_session() as s:
+        res = await record_referral_deal(
+            uuid.UUID(referral_id),
+            RecordReferralDealRequest(deal_amount=8_000_000, commission_amount=150_000),
+            current=current, session=s,
+        )
+        assert res["status"] == "deal"
+        assert res["partner_deals_count"] == 1
+
+    async with async_session() as s:
+        partner = await s.get(PartnerAgency, partner_id)
+        assert partner.deals_count == 1
+        assert partner.total_commission_earned == 150_000
+        outcomes = (await s.execute(
+            select(DealOutcome).where(DealOutcome.lead_id == lead_id,
+                                      DealOutcome.outcome == "referral_deal"))).scalars().all()
+        assert len(outcomes) == 1 and outcomes[0].commission_amount == 150_000
+
+
+@pytest.mark.asyncio
+async def test_partner_detail_and_full_update():
+    from app.database import async_session, run_migrations
+    from app.dependencies import CurrentManager
+    from app.routers.partners import UpdatePartnerRequest, get_partner, update_partner
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, manager, lead, partner = await _seed(s)
+        current = CurrentManager(manager_id=str(manager.id), agency_id=str(agency.id))
+        partner_id = partner.id
+
+    async with async_session() as s:
+        updated = await update_partner(
+            partner_id,
+            UpdatePartnerRequest(partner_region="Краснодарский край", trust_level="verified",
+                                 commission_type="hybrid", notes="ключевой партнёр"),
+            current=current, session=s,
+        )
+        assert updated["partner_region"] == "Краснодарский край"
+        assert updated["trust_level"] == "verified"
+        assert updated["commission_type"] == "hybrid"
+
+    async with async_session() as s:
+        detail = await get_partner(partner_id, current=current, session=s)
+        assert detail["notes"] == "ключевой партнёр"
+        assert "stats" in detail and detail["stats"]["total"] == 0
+        assert detail["referrals"] == []

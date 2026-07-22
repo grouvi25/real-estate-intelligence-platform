@@ -83,9 +83,13 @@
 
     // Partners & referrals
     partners: (f) => api.request('/partners' + qs(f)),
+    partner: (id) => api.request(`/partners/${id}`),
     createPartner: (body) => api.request('/partners', 'POST', body),
     updatePartner: (id, body) => api.request(`/partners/${id}`, 'PATCH', body),
+    deletePartner: (id) => api.request(`/partners/${id}`, 'DELETE'),
+    referralsList: (f) => api.request('/referrals' + qs(f)),
     createReferral: (body) => api.request('/referrals', 'POST', body),
+    recordReferralDeal: (id, body) => api.request(`/referrals/${id}/deal`, 'POST', body),
 
     // Geo
     geoList: () => api.request('/geo'),
