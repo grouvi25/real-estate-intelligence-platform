@@ -25,9 +25,17 @@
 
   // Raw text (documents return HTML, not JSON).
   api.requestText = async function (endpoint) {
-    const headers = {};
-    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
-    const res = await fetch(`${API_BASE}/api${endpoint}`, { headers });
+    const build = () => {
+      const headers = {};
+      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      return fetch(`${API_BASE}/api${endpoint}`, { headers });
+    };
+    let res = await build();
+    if (res.status === 401 && typeof authenticate === 'function' && !endpoint.startsWith('/auth/')) {
+      try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
+      this.token = null;
+      try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
+    }
     if (!res.ok) throw new Error(`API ${res.status}`);
     return res.text();
   };
@@ -41,11 +49,11 @@
 
   window.API = {
     // Signals
-    signals: (f) => api.request('/signals' + qs(Object.assign({ agency_id: api.agencyId }, f))),
-    signalQueue: (f) => api.request('/signals/queue' + qs(Object.assign({ agency_id: api.agencyId }, f))),
+    signals: (f) => api.request('/signals' + qs(f)),
+    signalQueue: (f) => api.request('/signals/queue' + qs(f)),
     generateReply: (id) => api.request(`/signals/${id}/generate-reply`, 'POST'),
     setReplyDraft: (id, body) => api.request(`/signals/${id}/reply-draft`, 'PATCH', body),
-    sendReply: (id) => api.request(`/signals/${id}/send-reply` + qs({ manager_id: api.managerId }), 'POST'),
+    sendReply: (id) => api.request(`/signals/${id}/send-reply`, 'POST'),
     createLead: (id, body) => api.request(`/signals/${id}/create-lead`, 'POST', body),
 
     // Leads
@@ -76,6 +84,7 @@
     // Partners & referrals
     partners: (f) => api.request('/partners' + qs(f)),
     createPartner: (body) => api.request('/partners', 'POST', body),
+    updatePartner: (id, body) => api.request(`/partners/${id}`, 'PATCH', body),
     createReferral: (body) => api.request('/referrals', 'POST', body),
 
     // Geo

@@ -23,6 +23,7 @@ from sqlalchemy import select
 
 from app.config import config
 from app.database import get_session
+from app.dependencies import CurrentManager, get_current_manager
 from app.exceptions import NotFoundError
 from app.models.lead import Lead
 from app.models.signal import Signal
@@ -51,19 +52,19 @@ REPLY_QUEUE_STATUSES = ("draft", "pending")
 
 @router.get("")
 async def list_signals(
-    agency_id: uuid.UUID,
     geo_id: Optional[uuid.UUID] = None,
     status: Optional[str] = None,
     urgency: Optional[str] = None,
     min_intent_score: Optional[int] = None,
     limit: int = 50,
     offset: int = 0,
+    current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
     limit = min(max(limit, 1), MAX_PAGE)
     offset = max(offset, 0)
 
-    stmt = select(Signal).where(Signal.agency_id == agency_id)
+    stmt = select(Signal).where(Signal.agency_id == uuid.UUID(current.agency_id))
     if geo_id is not None:
         stmt = stmt.where(Signal.geo_location_id == geo_id)
     if status is not None:
@@ -95,10 +96,13 @@ async def list_signals(
 
 @router.post("/{signal_id}/create-lead", status_code=http_status.HTTP_201_CREATED)
 async def create_lead_from_signal(
-    signal_id: uuid.UUID, req: CreateLeadRequest, session=Depends(get_session)
+    signal_id: uuid.UUID,
+    req: CreateLeadRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
 ):
     signal = await session.get(Signal, signal_id)
-    if signal is None:
+    if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
 
     ai = signal.ai_analysis or {}
@@ -154,9 +158,13 @@ async def create_lead_from_signal(
 
 
 @router.post("/{signal_id}/generate-reply")
-async def generate_chat_reply(signal_id: uuid.UUID, session=Depends(get_session)):
+async def generate_chat_reply(
+    signal_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
     signal = await session.get(Signal, signal_id)
-    if signal is None:
+    if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
 
     from app.prompts.reply_generator import SYSTEM_PROMPT_REPLY
@@ -179,9 +187,9 @@ async def generate_chat_reply(signal_id: uuid.UUID, session=Depends(get_session)
 
 @router.get("/queue")
 async def signal_reply_queue(
-    agency_id: uuid.UUID,
     limit: int = 50,
     offset: int = 0,
+    current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
     """Signals awaiting a reply (draft/pending), hottest first."""
@@ -189,7 +197,8 @@ async def signal_reply_queue(
     offset = max(offset, 0)
     stmt = (
         select(Signal)
-        .where(Signal.agency_id == agency_id, Signal.reply_status.in_(REPLY_QUEUE_STATUSES))
+        .where(Signal.agency_id == uuid.UUID(current.agency_id),
+               Signal.reply_status.in_(REPLY_QUEUE_STATUSES))
         .order_by(Signal.intent_score.desc().nullslast(), Signal.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -216,11 +225,14 @@ async def signal_reply_queue(
 
 @router.patch("/{signal_id}/reply-draft")
 async def set_reply_draft(
-    signal_id: uuid.UUID, req: ReplyDraftRequest, session=Depends(get_session)
+    signal_id: uuid.UUID,
+    req: ReplyDraftRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
 ):
     """Save/update a reply draft for a signal (status -> draft)."""
     signal = await session.get(Signal, signal_id)
-    if signal is None:
+    if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
     signal.reply_draft = req.reply_draft
     if req.reply_channel is not None:
@@ -232,14 +244,17 @@ async def set_reply_draft(
 
 @router.post("/{signal_id}/send-reply")
 async def send_reply(
-    signal_id: uuid.UUID, manager_id: Optional[str] = None, session=Depends(get_session)
+    signal_id: uuid.UUID,
+    manager_id: Optional[str] = None,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
 ):
     """Deliver the saved reply draft on the originating channel."""
     signal = await session.get(Signal, signal_id)
-    if signal is None:
+    if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
 
     from app.services.signal_bus import send_signal_reply
 
-    result = await send_signal_reply(session, signal, manager_id=manager_id)
+    result = await send_signal_reply(session, signal, manager_id=manager_id or current.manager_id)
     return {"id": str(signal.id), "reply_status": signal.reply_status, "result": result}

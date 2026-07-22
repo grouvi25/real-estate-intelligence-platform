@@ -156,8 +156,17 @@ async function loadPartners() {
         <span class="item__title">${UI.esc(p.partner_name)}</span>
         <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выкл'}</span></div>
         <div class="item__sub" style="margin-top:4px">${UI.esc(p.partner_city)}
-          ${p.commission_percent ? '· ' + p.commission_percent + '%' : ''}</div></div>`,
+          ${p.commission_percent ? '· ' + p.commission_percent + '%' : ''}</div>
+        <button class="btn btn--ghost btn--sm" data-toggle="${p.id}" data-active="${p.is_active ? 1 : 0}"
+          style="margin-top:8px">${p.is_active ? 'Отключить' : 'Включить'}</button></div>`,
       { icon: 'handshake', title: 'Партнёров нет', sub: 'Добавьте, чтобы передавать защищённые лиды' });
+    document.querySelectorAll('[data-toggle]').forEach((b) => b.onclick = async () => {
+      const active = b.getAttribute('data-active') === '1';
+      try {
+        await API.updatePartner(b.getAttribute('data-toggle'), { is_active: !active });
+        UI.toast(active ? 'Партнёр отключён' : 'Партнёр включён'); loadPartners();
+      } catch (e) { UI.toast('Ошибка: ' + e.message); }
+    });
   } catch (e) { document.getElementById('partners').innerHTML = UI.errorState(e.message); }
 }
 

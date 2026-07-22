@@ -45,10 +45,14 @@ async def test_create_lead_from_signal(monkeypatch):
         s.add(signal)
         await s.commit()
         signal_id = signal.id
+        agency_id = agency.id
+
+    from app.dependencies import CurrentManager
 
     async with async_session() as s:
         resp = await create_lead_from_signal(
-            signal_id, CreateLeadRequest(consent_text="Согласие 152-ФЗ", consent_ip="1.2.3.4"), session=s
+            signal_id, CreateLeadRequest(consent_text="Согласие 152-ФЗ", consent_ip="1.2.3.4"),
+            current=CurrentManager(manager_id="m1", agency_id=str(agency_id)), session=s
         )
     assert resp["tasks_created"] == 1
     assert enqueued, "matching should be enqueued"
@@ -83,9 +87,14 @@ async def test_generate_reply(monkeypatch):
         s.add(signal)
         await s.commit()
         signal_id = signal.id
+        agency_id = agency.id
+
+    from app.dependencies import CurrentManager
 
     async with async_session() as s:
-        resp = await generate_chat_reply(signal_id, session=s)
+        resp = await generate_chat_reply(
+            signal_id, current=CurrentManager(manager_id="m1", agency_id=str(agency_id)), session=s
+        )
     assert "reply_text" in resp["reply"]
     assert "бюджет" in resp["reply"]["reply_text"]
 
@@ -105,10 +114,13 @@ async def test_list_signals_filters():
         await s.commit()
         agency_id = agency.id
 
+    from app.dependencies import CurrentManager
+
+    cur = CurrentManager(manager_id="m1", agency_id=str(agency_id))
     async with async_session() as s:
-        all_new = await list_signals(agency_id=agency_id, status="new", session=s)
+        all_new = await list_signals(status="new", current=cur, session=s)
         assert all_new["count"] == 2
 
-        hot = await list_signals(agency_id=agency_id, min_intent_score=70, session=s)
+        hot = await list_signals(min_intent_score=70, current=cur, session=s)
         assert hot["count"] == 1
         assert hot["signals"][0]["intent_score"] == 90

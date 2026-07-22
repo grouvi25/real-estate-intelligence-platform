@@ -57,13 +57,22 @@ const API_BASE = (window.REIP_CONFIG && window.REIP_CONFIG.apiUrl) || '';
 const api = {
   token: null,
   async request(endpoint, method = 'GET', body = null) {
-    const headers = { 'Content-Type': 'application/json' };
-    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
-    const res = await fetch(`${API_BASE}/api${endpoint}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : null
-    });
+    const build = () => {
+      const headers = { 'Content-Type': 'application/json' };
+      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      return fetch(`${API_BASE}/api${endpoint}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : null
+      });
+    };
+    let res = await build();
+    // JWT expired/invalid: drop the cached token, re-authenticate once, retry.
+    if (res.status === 401 && typeof authenticate === 'function' && !endpoint.startsWith('/auth/')) {
+      try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
+      this.token = null;
+      try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
+    }
     if (!res.ok) throw new Error(`API ${res.status}`);
     return res.json();
   }
