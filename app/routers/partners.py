@@ -136,7 +136,8 @@ async def get_partner(
     )
     rows = (await session.execute(stmt)).all()
     referrals = []
-    stats = {"total": 0, "pending": 0, "accepted": 0, "rejected": 0, "expired": 0, "deal": 0}
+    stats = {"total": 0, "pending": 0, "accepted": 0, "in_progress": 0,
+             "deal_done": 0, "rejected": 0, "expired": 0, "dispute": 0}
     for ref, lead in rows:
         stats["total"] += 1
         stats[ref.status] = stats.get(ref.status, 0) + 1

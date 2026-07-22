@@ -155,7 +155,7 @@ async def test_referral_deal_and_list(monkeypatch):
             RecordReferralDealRequest(deal_amount=8_000_000, commission_amount=150_000),
             current=current, session=s,
         )
-        assert res["status"] == "deal"
+        assert res["status"] == "deal_done"
         assert res["partner_deals_count"] == 1
 
     async with async_session() as s:

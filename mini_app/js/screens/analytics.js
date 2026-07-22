@@ -216,11 +216,12 @@ function partnerSheet() {
 
 function REF_RU(s) {
   return ({ pending: 'Ожидает', sent_to_partner: 'Отправлен', accepted: 'Принят',
-    rejected: 'Отклонён', expired: 'Истёк', deal: 'Сделка' })[s] || s || '—';
+    in_progress: 'В работе', rejected: 'Отклонён', expired: 'Истёк',
+    deal_done: 'Сделка', dispute: 'Спор' })[s] || s || '—';
 }
 function REF_CHIP(s) {
-  return s === 'deal' ? 'chip--success' : s === 'accepted' ? 'chip--accent'
-    : (s === 'rejected' || s === 'expired') ? '' : 'chip--warm';
+  return s === 'deal_done' ? 'chip--success' : (s === 'accepted' || s === 'in_progress') ? 'chip--accent'
+    : (s === 'rejected' || s === 'expired' || s === 'dispute') ? '' : 'chip--warm';
 }
 
 const PARTNER_TRUST = { standard: 'Базовый', verified: 'Проверенный', premium: 'Премиум' };
@@ -337,7 +338,7 @@ Screens.referrals = async function () {
       <div class="item__sub" style="margin-top:4px">Партнёр: ${UI.esc(r.partner_name)}
         ${r.commission_amount ? '· комиссия ' + UI.money(r.commission_amount)
           : (r.commission_agreed_percent ? '· ' + r.commission_agreed_percent + '%' : '')}</div>
-      ${(r.status === 'pending' || r.status === 'accepted') ? `<button class="btn btn--sm" data-deal="${r.id}" style="margin-top:8px">${UI.icon('handshake')} Записать сделку</button>` : ''}
+      ${(r.status === 'pending' || r.status === 'accepted' || r.status === 'in_progress') ? `<button class="btn btn--sm" data-deal="${r.id}" style="margin-top:8px">${UI.icon('handshake')} Записать сделку</button>` : ''}
     </div>`, { icon: 'handshake', title: 'Рефералов нет', sub: 'Передавайте лиды партнёрам из карточки лида' }),
     () => {
       document.querySelectorAll('[data-deal]').forEach((b) =>

@@ -189,11 +189,11 @@ async def record_referral_deal(
     referral = await session.get(PartnerReferral, referral_id)
     if referral is None or referral.agency_id != agency_uuid:
         raise NotFoundError("Referral", str(referral_id))
-    if referral.status == "deal":
+    if referral.status == "deal_done":
         raise AppException(status_code=409, detail="Реферал уже закрыт сделкой", code="ALREADY_DEAL")
 
     now = datetime.now(timezone.utc)
-    referral.status = "deal"
+    referral.status = "deal_done"
     referral.deal_amount = req.deal_amount
     referral.commission_amount = req.commission_amount
     referral.deal_closed_at = now
@@ -262,7 +262,8 @@ async def _transition_referral(referral_id: uuid.UUID, new_status: str, session)
     now = datetime.now(timezone.utc)
     if referral.status != "pending":
         labels = {"accepted": "уже принят", "rejected": "уже отклонён",
-                  "expired": "истёк", "deal": "завершён сделкой"}
+                  "expired": "истёк", "deal_done": "завершён сделкой",
+                  "in_progress": "в работе", "dispute": "в споре"}
         return ("Реферал обработан", f"Этот реферал {labels.get(referral.status, referral.status)}.")
 
     referral.status = new_status
