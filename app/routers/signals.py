@@ -139,11 +139,18 @@ async def create_lead_from_signal(
     signal.status = "qualified"
     await session.commit()
 
-    from worker.tasks.matching_tasks import run_matching_for_lead
+    # Matching runs off the request path. A broker hiccup must not fail lead
+    # creation (the lead is already committed); log and continue.
+    matching_queued = True
+    try:
+        from worker.tasks.matching_tasks import run_matching_for_lead
 
-    run_matching_for_lead.delay(str(lead.id))
+        run_matching_for_lead.delay(str(lead.id))
+    except Exception as exc:  # noqa: BLE001
+        matching_queued = False
+        logger.error("Failed to enqueue matching for lead", lead_id=str(lead.id), error=str(exc))
 
-    return {"lead_id": str(lead.id), "tasks_created": 1}
+    return {"lead_id": str(lead.id), "tasks_created": 1, "matching_queued": matching_queued}
 
 
 @router.post("/{signal_id}/generate-reply")

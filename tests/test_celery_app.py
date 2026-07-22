@@ -44,3 +44,15 @@ def test_beat_schedule_only_has_implemented_tasks():
     # Every scheduled task must be a registered task (no phantom entries).
     for entry in schedule.values():
         assert entry["task"] in celery_app.tasks
+
+
+def test_web_process_binds_shared_tasks_to_redis_broker():
+    """Regression: importing app.main must make our Redis-backed Celery app the
+    current one, so shared_task .delay() in the web process uses Redis and not
+    Celery's default amqp:// broker (which caused create-lead to 500)."""
+    import app.main  # noqa: F401  (import side effect: celery_app.set_default())
+    from worker.tasks.matching_tasks import run_matching_for_lead
+
+    broker = run_matching_for_lead.app.conf.broker_url or ""
+    assert broker.startswith("redis://"), broker
+    assert "amqp://" not in broker

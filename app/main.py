@@ -35,9 +35,17 @@ from app.routers import (
 )
 from app.services.ai_cost_tracker import init_cost_tracker
 from app.services.rate_limit import init_rate_limiter
+from worker.celery_app import celery_app
 
 setup_logging()
 logger = structlog.get_logger()
+
+# Bind Celery's shared_task proxies in THIS (web) process to the Redis-backed
+# app. Without it the web process has no configured Celery app, so shared_task
+# resolves to Celery's default amqp:// broker and .delay() fails with
+# "Connection refused" (only the worker process configures the broker otherwise).
+# Importing the app sets it as current; set_default() keeps it the process default.
+celery_app.set_default()
 
 
 @asynccontextmanager
