@@ -18,7 +18,7 @@ Screens.leads = async function () {
         <div class="item">
           <div class="avatar">${UI.esc(UI.initials(l.name))}</div>
           <div class="grow">
-            <div class="between"><span class="item__title ellipsis">${UI.esc(l.name || 'Без имени')}</span>
+            <div class="between"><span class="item__title ellipsis">${UI.esc(l.name || ('Лид #' + String(l.id).slice(0, 6)))}</span>
               ${UI.urgencyChip(l.urgency)}</div>
             <div class="item__sub">${l.segment ? UI.esc(UI.seg(l.segment)) + ' · ' : ''}${UI.statusChip(l.status)}
               &nbsp;${UI.money(l.budget_max)}</div>
@@ -64,7 +64,7 @@ Screens.leadDetail = async function (params) {
     <div class="card">
       <div class="item">
         <div class="avatar">${UI.esc(UI.initials(l.name))}</div>
-        <div class="grow"><div class="card__title ellipsis">${UI.esc(l.name || 'Без имени')}</div>
+        <div class="grow"><div class="card__title ellipsis">${UI.esc(l.name || ('Лид #' + String(l.id).slice(0, 6)))}</div>
           <div class="item__sub">${l.segment ? UI.esc(UI.seg(l.segment)) + ' · ' : ''}${UI.esc(l.purchase_goal || '')}</div></div>
         ${UI.urgencyChip(l.urgency)}
       </div>

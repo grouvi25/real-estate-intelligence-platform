@@ -34,16 +34,20 @@ Screens.signalDetail = async function (params) {
         ${UI.statusChip(s.status)}</div>
       <p style="margin:12px 0 0">${UI.esc(s.raw_text)}</p>
     </div>
-    <button class="btn btn--block" id="mk" style="margin-top:12px">${UI.icon('leads')} Квалифицировать в лид</button>
+    <button class="btn btn--block" id="mk" style="margin-top:12px">${UI.icon('leads')} ${s.status === 'qualified' ? 'Лид создан — открыть' : 'Квалифицировать в лид'}</button>
     <button class="btn btn--secondary btn--block" id="toq" style="margin-top:8px">${UI.icon('queue')} К очереди ответов</button>`,
     () => {
       document.getElementById('toq').onclick = () => Router.go('queue');
       const b = document.getElementById('mk');
+      if (s.status === 'qualified') {
+        b.onclick = () => Router.go('leads');
+        return;
+      }
       b.onclick = async () => {
         b.disabled = true;
         try {
-          await API.createLead(s.id, { consent_text: 'Согласие получено в чате (152-ФЗ)' });
-          UI.toast('Лид создан'); Router.go('leads');
+          const r = await API.createLead(s.id, { consent_text: 'Согласие получено в чате (152-ФЗ)' });
+          UI.toast(r && r.already_exists ? 'Лид уже был создан' : 'Лид создан'); Router.go('leads');
         } catch (e) { UI.toast('Ошибка: ' + e.message); b.disabled = false; }
       };
     });

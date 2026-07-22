@@ -105,6 +105,15 @@ async def create_lead_from_signal(
     if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
 
+    # Idempotency: a signal qualifies into at most one lead. If it was already
+    # qualified, return the existing lead instead of creating a duplicate.
+    existing = (
+        await session.execute(select(Lead).where(Lead.signal_id == signal.id))
+    ).scalars().first()
+    if existing is not None:
+        return {"lead_id": str(existing.id), "tasks_created": 0,
+                "matching_queued": False, "already_exists": True}
+
     ai = signal.ai_analysis or {}
     lead = Lead(
         agency_id=signal.agency_id,
@@ -127,6 +136,9 @@ async def create_lead_from_signal(
         consent_ip=req.consent_ip,
         consent_user_agent=req.consent_user_agent,
     )
+    # Carry the author's display name from the signal so the lead isn't nameless.
+    if signal.author_display_name:
+        lead.name = signal.author_display_name
     session.add(lead)
     await session.flush()
 
@@ -154,7 +166,8 @@ async def create_lead_from_signal(
         matching_queued = False
         logger.error("Failed to enqueue matching for lead", lead_id=str(lead.id), error=str(exc))
 
-    return {"lead_id": str(lead.id), "tasks_created": 1, "matching_queued": matching_queued}
+    return {"lead_id": str(lead.id), "tasks_created": 1,
+            "matching_queued": matching_queued, "already_exists": False}
 
 
 @router.post("/{signal_id}/generate-reply")

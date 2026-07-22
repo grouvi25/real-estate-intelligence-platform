@@ -39,6 +39,7 @@ async def test_create_lead_from_signal(monkeypatch):
         agency, geo = await _make_agency_geo(s)
         signal = Signal(
             agency_id=agency.id, geo_location_id=geo.id, raw_text="ищу 2к у моря до 8 млн",
+            author_display_name="Иван (Telegram)",
             segment="family", intent_score=82, budget_min=5_000_000, budget_max=8_000_000,
             urgency="hot", status="new",
         )
@@ -49,23 +50,36 @@ async def test_create_lead_from_signal(monkeypatch):
 
     from app.dependencies import CurrentManager
 
+    cur = CurrentManager(manager_id="m1", agency_id=str(agency_id))
     async with async_session() as s:
         resp = await create_lead_from_signal(
             signal_id, CreateLeadRequest(consent_text="Согласие 152-ФЗ", consent_ip="1.2.3.4"),
-            current=CurrentManager(manager_id="m1", agency_id=str(agency_id)), session=s
+            current=cur, session=s
         )
     assert resp["tasks_created"] == 1
+    assert resp["already_exists"] is False
     assert enqueued, "matching should be enqueued"
 
     async with async_session() as s:
         lead = (await s.execute(select(Lead).where(Lead.signal_id == signal_id))).scalar_one()
         assert lead.consent_given is True
         assert lead.consent_text == "Согласие 152-ФЗ"
+        assert lead.name == "Иван (Telegram)"  # name carried from the signal
         assert lead.segment == "family" and lead.intent_score == 82
         tasks = (await s.execute(select(Task).where(Task.lead_id == lead.id))).scalars().all()
         assert len(tasks) == 1 and tasks[0].task_type == "contact"
         sig = await s.get(Signal, signal_id)
         assert sig.status == "qualified"
+
+    # Re-qualifying the same signal is idempotent (no duplicate lead).
+    async with async_session() as s:
+        again = await create_lead_from_signal(
+            signal_id, CreateLeadRequest(consent_text="повтор"), current=cur, session=s
+        )
+        assert again["already_exists"] is True
+    async with async_session() as s:
+        leads = (await s.execute(select(Lead).where(Lead.signal_id == signal_id))).scalars().all()
+        assert len(leads) == 1
 
 
 @pytest.mark.asyncio
