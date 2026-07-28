@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
-# Messages that indicate the author is NOT a buyer (selling / renting out / jobs).
+# Baseline for authors who are NOT buyers (selling / renting out / jobs). Kept as
+# the floor for a geo whose own vocabulary is missing or thin.
 NEGATIVE_KEYWORDS = ["продаю", "сдаю", "сдам", "аренда от", "вакансия", "работа"]
 
 
@@ -24,7 +25,12 @@ def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
     property_signal = _any("property_terms")
 
     passes = city_mentioned and (intent_signal or financial_signal or property_signal)
-    is_negative = any(p in text for p in NEGATIVE_KEYWORDS)
+    # TZ 16.1 hardcodes the negative list and never reads the geo's own
+    # negative_keywords, so the per-geo vocabulary the keyword builder generates
+    # and stores was dead data. It cost real precision: the baseline has "продаю"
+    # but not "продам", so "Продам дом в Геленджике" -- a seller -- passed stage 1
+    # on the live geo and would have burned an AI call. Union the two.
+    is_negative = any(p in text for p in NEGATIVE_KEYWORDS) or _any("negative_keywords")
     return passes and not is_negative
 
 

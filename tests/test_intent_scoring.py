@@ -31,6 +31,21 @@ def test_quick_filter_empty():
     assert quick_filter("", GEO) is False
 
 
+def test_quick_filter_uses_geo_negative_keywords():
+    """The per-geo vocabulary must apply, not just the module baseline.
+
+    The baseline has "продаю" but not "продам", so this seller slipped through on
+    the live Геленджик geo even though its generated negative_keywords listed it.
+    """
+    geo = {**GEO, "negative_keywords": ["продам", "посуточно"]}
+
+    assert quick_filter("Продам дом в Геленджике, срочно", GEO) is True  # baseline misses it
+    assert quick_filter("Продам дом в Геленджике, срочно", geo) is False
+    assert quick_filter("Сдам квартиру в Геленджике посуточно", geo) is False
+    # A real buyer is unaffected.
+    assert quick_filter("Ищу квартиру в Геленджике до 8 млн", geo) is True
+
+
 @pytest.mark.asyncio
 async def test_full_intent_analysis_parses_ai(monkeypatch):
     from app.services.ai_service import AIService
