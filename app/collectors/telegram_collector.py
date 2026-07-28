@@ -73,12 +73,23 @@ class TelegramCollector:
 
     @staticmethod
     def _username(source) -> Optional[str]:
-        if source.external_id:
-            return str(source.external_id).lstrip("@")
+        """Resolve a source to a Telegram username.
+
+        Source Discovery stores the numeric chat id in external_id and the
+        username in source_url (see discovery/source_finder.py). A bare numeric
+        id cannot be resolved without its access_hash, so preferring external_id
+        made every auto-found source fail with "Cannot find any entity
+        corresponding to <id>" and the collector produced zero signals. A
+        non-numeric external_id is still honoured -- that is a username for
+        manually added sources.
+        """
+        external = str(source.external_id or "").lstrip("@").strip()
+        if external and not external.isdigit():
+            return external
         url = source.source_url or ""
         if "t.me/" in url:
-            return url.split("t.me/")[-1].strip("/")
-        return None
+            return url.split("t.me/")[-1].strip("/") or None
+        return external or None
 
     async def search_sources(self, queries: list[str], limit: int = 10) -> list[dict]:
         """Search public chats/channels matching queries. Returns candidate dicts."""

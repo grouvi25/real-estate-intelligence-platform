@@ -63,6 +63,20 @@ def test_username_parsing():
         SimpleNamespace(external_id=None, source_url="https://example.com")) is None
 
 
+def test_username_prefers_url_over_numeric_external_id():
+    """Discovery stores the numeric chat id in external_id and the username in
+    source_url; Telethon cannot resolve a bare numeric id, so the URL wins."""
+    source = SimpleNamespace(
+        external_id="1221707220", source_url="https://t.me/barahoolka_gelendzhik"
+    )
+    assert TelegramCollector._username(source) == "barahoolka_gelendzhik"
+
+
+def test_username_numeric_id_without_url():
+    assert TelegramCollector._username(
+        SimpleNamespace(external_id="1221707220", source_url=None)) == "1221707220"
+
+
 @pytest.mark.asyncio
 async def test_search_sources_noop_without_creds():
     c = TelegramCollector()
