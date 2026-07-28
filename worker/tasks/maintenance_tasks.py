@@ -1,16 +1,16 @@
 """Maintenance Celery tasks. TZ section 27.0 (reset_daily_ai_cost).
 
 The logic is split into a plain async function (``_reset_daily_ai_cost``) for
-testability and a thin @shared_task wrapper that runs it via asyncio.run().
+testability and a thin @shared_task wrapper that runs it via run_async().
 """
 from __future__ import annotations
-
-import asyncio
 
 import structlog
 from celery import shared_task
 
 from app.config import config
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -40,7 +40,7 @@ async def _reset_daily_ai_cost() -> int:
 
 @shared_task(name="worker.tasks.maintenance_tasks.reset_daily_ai_cost")
 def reset_daily_ai_cost() -> int:
-    return asyncio.run(_reset_daily_ai_cost())
+    return run_async(_reset_daily_ai_cost())
 
 
 # --- Lead urgency decay (TZ 32.2) ------------------------------------------
@@ -87,7 +87,7 @@ async def _decay_lead_scores() -> int:
 
 @shared_task(name="worker.tasks.maintenance_tasks.decay_lead_scores")
 def decay_lead_scores() -> int:
-    return asyncio.run(_decay_lead_scores())
+    return run_async(_decay_lead_scores())
 
 
 # --- Overdue lead escalation (TZ 32.3) -------------------------------------
@@ -152,7 +152,7 @@ async def _escalate_overdue_leads() -> int:
 
 @shared_task(name="worker.tasks.maintenance_tasks.escalate_overdue_leads")
 def escalate_overdue_leads() -> int:
-    return asyncio.run(_escalate_overdue_leads())
+    return run_async(_escalate_overdue_leads())
 
 
 # --- Dead source detection (TZ 32.10) --------------------------------------
@@ -205,7 +205,7 @@ async def _check_dead_sources() -> int:
 
 @shared_task(name="worker.tasks.maintenance_tasks.check_dead_sources")
 def check_dead_sources() -> int:
-    return asyncio.run(_check_dead_sources())
+    return run_async(_check_dead_sources())
 
 
 # --- Celery queue depth alert (TZ 24) --------------------------------------
@@ -232,4 +232,4 @@ async def _check_queue_depth() -> int:
 
 @shared_task(name="worker.tasks.maintenance_tasks.check_queue_depth")
 def check_queue_depth() -> int:
-    return asyncio.run(_check_queue_depth())
+    return run_async(_check_queue_depth())

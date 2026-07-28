@@ -1,10 +1,10 @@
 """Source discovery Celery tasks. TZ section 15.3."""
 from __future__ import annotations
 
-import asyncio
-
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -39,4 +39,4 @@ async def _geo_discovery_cron() -> int:
 
 @shared_task(name="worker.tasks.source_tasks.geo_discovery_cron")
 def geo_discovery_cron() -> int:
-    return asyncio.run(_geo_discovery_cron())
+    return run_async(_geo_discovery_cron())

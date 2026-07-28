@@ -8,11 +8,12 @@ No-op when no AI provider is configured (keeps the stand safe without keys).
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Optional
 
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -95,4 +96,4 @@ async def _score_intent_batch(limit: Optional[int] = None) -> int:
 
 @shared_task(name="worker.tasks.signal_tasks.score_intent_batch")
 def score_intent_batch(limit: Optional[int] = None) -> int:
-    return asyncio.run(_score_intent_batch(limit))
+    return run_async(_score_intent_batch(limit))

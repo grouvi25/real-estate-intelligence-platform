@@ -6,10 +6,10 @@ isolated so one bad agency doesn't abort the whole run.
 """
 from __future__ import annotations
 
-import asyncio
-
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -48,4 +48,4 @@ async def _generate_daily_report() -> int:
 
 @shared_task(name="worker.tasks.report_tasks.generate_daily_report")
 def generate_daily_report() -> int:
-    return asyncio.run(_generate_daily_report())
+    return run_async(_generate_daily_report())
