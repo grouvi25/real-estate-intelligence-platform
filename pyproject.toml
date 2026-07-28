@@ -49,6 +49,14 @@ storage = [
 line-length = 120
 target-version = "py311"
 
+[tool.ruff.lint]
+# Declared explicitly rather than inherited. Through ruff 0.15 the project ran on
+# ruff's defaults (E4/E7/E9/F); 0.16 widened those defaults, so an unpinned
+# linter upgrade turned CI red on 451 pre-existing findings in untouched files —
+# including B008 on FastAPI's `Depends()`, which is the intended pattern. Pinning
+# the set keeps lint reproducible across ruff versions.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
