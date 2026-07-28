@@ -5,6 +5,7 @@ platform specifics. Adding a platform means adding a private _send_<platform>.
 """
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Optional
 
@@ -15,6 +16,20 @@ from pydantic import BaseModel
 from app.config import config
 
 logger = structlog.get_logger()
+
+# The bot token sits in the Telegram API path, and httpx puts the failing URL in
+# the exception text -- so every send failure wrote the token into the logs
+# verbatim. Observed in production while testing the /start handler.
+_TOKEN_IN_URL = re.compile(r"(https://api\.telegram\.org/bot)[^/\s]+")
+
+
+def _redact(text: str) -> str:
+    """Strip bot tokens out of anything headed for the logs."""
+    redacted = _TOKEN_IN_URL.sub(r"\1***", text)
+    for secret in (config.telegram_bot_token, config.max_bot_token):
+        if secret and len(secret) > 6:
+            redacted = redacted.replace(secret, "***")
+    return redacted
 
 
 class BotPlatform(str, Enum):
@@ -66,7 +81,7 @@ class BotAbstractionLayer:
         except Exception as e:  # noqa: BLE001
             logger.error(
                 "Failed to send message", platform=getattr(platform, "value", platform),
-                user_id=user_id, error=str(e),
+                user_id=user_id, error=_redact(str(e)),
             )
             return False
 
