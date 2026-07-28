@@ -50,6 +50,20 @@ class ReplyDraftRequest(BaseModel):
 REPLY_QUEUE_STATUSES = ("draft", "pending")
 
 
+def _signal_dto(s: Signal) -> dict:
+    """Shared shape for the list and the single-signal endpoints."""
+    return {
+        "id": str(s.id),
+        "raw_text": s.raw_text,
+        "intent_score": s.intent_score,
+        "segment": s.segment,
+        "urgency": s.urgency,
+        "status": s.status,
+        "geo_location_id": str(s.geo_location_id) if s.geo_location_id else None,
+        "created_at": s.created_at.isoformat(),
+    }
+
+
 @router.get("")
 async def list_signals(
     geo_id: Optional[uuid.UUID] = None,
@@ -76,22 +90,7 @@ async def list_signals(
     stmt = stmt.order_by(Signal.created_at.desc()).limit(limit).offset(offset)
 
     rows = (await session.execute(stmt)).scalars().all()
-    return {
-        "count": len(rows),
-        "signals": [
-            {
-                "id": str(s.id),
-                "raw_text": s.raw_text,
-                "intent_score": s.intent_score,
-                "segment": s.segment,
-                "urgency": s.urgency,
-                "status": s.status,
-                "geo_location_id": str(s.geo_location_id) if s.geo_location_id else None,
-                "created_at": s.created_at.isoformat(),
-            }
-            for s in rows
-        ],
-    }
+    return {"count": len(rows), "signals": [_signal_dto(s) for s in rows]}
 
 
 @router.post("/{signal_id}/create-lead", status_code=http_status.HTTP_201_CREATED)
@@ -271,3 +270,18 @@ async def send_reply(
 
     result = await send_signal_reply(session, signal, manager_id=manager_id or current.manager_id)
     return {"id": str(signal.id), "reply_status": signal.reply_status, "result": result}
+
+
+# Registered last on purpose: a UUID path param would reject "/queue" with a 422
+# before FastAPI could reach the literal route, so it must come after it.
+@router.get("/{signal_id}")
+async def get_signal(
+    signal_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Fetch one signal. The Mini App used to pull the whole list and search it."""
+    signal = await session.get(Signal, signal_id)
+    if signal is None or str(signal.agency_id) != current.agency_id:
+        raise NotFoundError("Signal", str(signal_id))
+    return _signal_dto(signal)
