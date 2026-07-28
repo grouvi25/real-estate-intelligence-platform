@@ -24,9 +24,13 @@ Screens.dashboard = async function () {
      <div class="section-title">Быстрые действия</div>
      <button class="btn btn--block" id="q-queue">${UI.icon('queue')} Очередь ответов на сигналы</button>
      <div style="height:8px"></div>
+     <div style="height:8px"></div>
+     <button class="btn btn--secondary btn--block" id="q-tasks">${UI.icon('check')} Мои задачи</button>
+     <div style="height:8px"></div>
      <button class="btn btn--secondary btn--block" id="q-an">${UI.icon('analytics')} Открыть аналитику</button>`,
     () => {
       document.getElementById('q-queue').onclick = () => Router.go('queue');
+      document.getElementById('q-tasks').onclick = () => Router.go('tasks');
       document.getElementById('q-an').onclick = () => Router.go('analytics');
     }
   );

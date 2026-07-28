@@ -94,5 +94,16 @@
     // Geo
     geoList: () => api.request('/geo'),
     createGeo: (body) => api.request('/geo', 'POST', body),
+
+    // Manager tasks (TZ 30 /tasks)
+    tasks: (f) => api.request('/tasks' + qs(f)),
+    tasksSummary: () => api.request('/tasks/summary'),
+    updateTask: (id, body) => api.request(`/tasks/${id}`, 'PATCH', body),
+
+    // Monitoring sources (TZ 30 /admin/sources)
+    sources: (f) => api.request('/sources' + qs(f)),
+    createSource: (body) => api.request('/sources', 'POST', body),
+    updateSource: (id, body) => api.request(`/sources/${id}`, 'PATCH', body),
+    deleteSource: (id) => api.request(`/sources/${id}`, 'DELETE'),
   };
 })();
