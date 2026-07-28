@@ -242,7 +242,11 @@ class MatchingEngine:
             ).replace(",", " ")
 
             for lead in leads:
-                if str(prop.id) in profile_excluded_ids(lead):
+                # all_excluded_ids, not profile_excluded_ids: rejections made from
+                # the UI land in the match_exclusions table (migration 005), so
+                # checking only buyer_profile re-offered a property the manager had
+                # already turned down as soon as its price dropped.
+                if str(prop.id) in await all_excluded_ids(session, lead):
                     continue
                 existing = (await session.execute(
                     select(LeadPropertyMatch).where(

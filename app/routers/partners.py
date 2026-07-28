@@ -40,6 +40,15 @@ class CreatePartnerRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class AcceptPartnerGeoRequest(BaseModel):
+    """Accept the referral offer returned by POST /api/geo for a covered city."""
+
+    partner_id: uuid.UUID
+    city_name: str
+    region: Optional[str] = None
+    market_type: str = "urban"
+
+
 class UpdatePartnerRequest(BaseModel):
     partner_name: Optional[str] = None
     partner_city: Optional[str] = None
@@ -87,6 +96,77 @@ async def list_partners(
     stmt = stmt.order_by(PartnerAgency.partner_name)
     rows = (await session.execute(stmt)).scalars().all()
     return {"count": len(rows), "partners": [_partner_dto(p) for p in rows]}
+
+
+@router.post("/accept", status_code=status.HTTP_201_CREATED)
+async def accept_partner_geo(
+    req: AcceptPartnerGeoRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Open a partner-served city in referral mode. TZ 28.1.
+
+    Adding a city another agency's partner covers returns 202 partner_offer with
+    `"action": "POST /api/partners/accept"` (app/routers/geo.py) -- and that
+    endpoint did not exist, so the offer was a dead end and the city could never
+    be opened at all.
+
+    Accepting creates the geo with geo_type='partner' and the partner attached,
+    so discovery and signal collection run for the agency while deals are handed
+    over through the referral flow.
+    """
+    from app.models.geo_location import GeoLocation
+
+    agency_id = uuid.UUID(current.agency_id)
+    partner = await session.get(PartnerAgency, req.partner_id)
+    if partner is None or str(partner.agency_id) != current.agency_id:
+        raise NotFoundError("Partner", str(req.partner_id))
+    if not partner.is_active:
+        raise ValidationError("partner_id", "партнёр отключён")
+
+    existing = await session.scalar(
+        select(GeoLocation.id).where(
+            GeoLocation.agency_id == agency_id,
+            GeoLocation.city_name == req.city_name,
+            GeoLocation.region == req.region,
+        )
+    )
+    if existing:
+        raise ValidationError("city_name", "город уже добавлен")
+
+    geo = GeoLocation(
+        agency_id=agency_id,
+        city_name=req.city_name,
+        region=req.region,
+        geo_type="partner",
+        partner_agency_id=partner.id,
+        market_profile={"type": req.market_type, "via_partner": partner.partner_name},
+        auto_discovery_enabled=True,
+    )
+    session.add(geo)
+    await session.commit()
+
+    # Same follow-up as a normal geo: without keywords quick_filter has no city
+    # to match on and the city yields nothing.
+    from worker.tasks.geo_tasks import generate_keywords_for_geo
+
+    generate_keywords_for_geo.delay(
+        str(geo.id),
+        {"city_name": req.city_name, "region": req.region, "market_type": req.market_type,
+         "agency_id": str(agency_id)},
+    )
+
+    logger.info("Partner geo accepted", geo_id=str(geo.id), partner_id=str(partner.id))
+    return {
+        "geo_id": str(geo.id),
+        "status": "partner_mode",
+        "partner_id": str(partner.id),
+        "partner_name": partner.partner_name,
+        "message": (
+            f"Город {req.city_name} открыт через партнёра {partner.partner_name}. "
+            "Сделки передаются партнёру через рефералы."
+        ),
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

@@ -50,6 +50,7 @@
   window.API = {
     // Signals
     signals: (f) => api.request('/signals' + qs(f)),
+    signal: (id) => api.request(`/signals/${id}`),
     signalQueue: (f) => api.request('/signals/queue' + qs(f)),
     generateReply: (id) => api.request(`/signals/${id}/generate-reply`, 'POST'),
     setReplyDraft: (id, body) => api.request(`/signals/${id}/reply-draft`, 'PATCH', body),
@@ -70,6 +71,7 @@
 
     // Properties
     properties: (f) => api.request('/properties' + qs(f)),
+    property: (id) => api.request(`/properties/${id}`),
     updateProperty: (id, body) => api.request(`/properties/${id}`, 'PATCH', body),
     propertyReportHtml: (id) => api.requestText(`/properties/${id}/report?format=html`),
     generateListing: (id, body) => api.request(`/properties/${id}/generate-listing`, 'POST', body),
@@ -83,6 +85,7 @@
 
     // Partners & referrals
     partners: (f) => api.request('/partners' + qs(f)),
+    acceptPartnerGeo: (body) => api.request('/partners/accept', 'POST', body),
     partner: (id) => api.request(`/partners/${id}`),
     createPartner: (body) => api.request('/partners', 'POST', body),
     updatePartner: (id, body) => api.request(`/partners/${id}`, 'PATCH', body),

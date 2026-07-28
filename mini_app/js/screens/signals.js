@@ -23,9 +23,9 @@ Screens.signals = async function () {
 Screens.signalDetail = async function (params) {
   UI.setHeader('Сигнал', '', { back: true });
   UI.render(UI.skelCard());
-  const data = await API.signals({ limit: 200 });
-  const s = (data.signals || []).find((x) => x.id === params.id);
-  if (!s) { UI.render(UI.empty({ icon: 'signals', title: 'Сигнал не найден' })); return; }
+  let s;
+  try { s = await API.signal(params.id); }
+  catch (e) { UI.render(UI.empty({ icon: 'signals', title: 'Сигнал не найден' })); return; }
 
   UI.render(`
     <div class="card">

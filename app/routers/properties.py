@@ -179,3 +179,13 @@ async def generate_listing(
     finally:
         await ai.close()
     return {"listing": safe_ai_parse(res, {"text": res})}
+
+
+@router.get("/{property_id}")
+async def get_property(
+    property_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Fetch one object. The Mini App used to pull the whole list and search it."""
+    return _property_summary(await _get_scoped_property(property_id, current, session))

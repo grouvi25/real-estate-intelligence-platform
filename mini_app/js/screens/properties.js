@@ -21,9 +21,9 @@ Screens.properties = async function () {
 Screens.propertyDetail = async function (params) {
   UI.setHeader('Объект', '', { back: true });
   UI.render(UI.skelCard());
-  const data = await API.properties({ limit: 200 });
-  const p = (data.properties || []).find((x) => x.id === params.id);
-  if (!p) { UI.render(UI.empty({ icon: 'properties', title: 'Объект не найден' })); return; }
+  let p;
+  try { p = await API.property(params.id); }
+  catch (e) { UI.render(UI.empty({ icon: 'properties', title: 'Объект не найден' })); return; }
 
   UI.render(`
     <div class="card">
