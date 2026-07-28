@@ -43,6 +43,16 @@ def test_geo_keywords_user_prompt_formats():
     assert "resort" in s
 
 
+def test_geo_keywords_prompt_pins_city_level_output():
+    """quick_filter ANDs city_variations against the text, so region-level output
+    silently zeroes out the whole signal intake. The prompt must say so."""
+    from app.prompts.geo_keywords import SYSTEM_PROMPT_GEO_KEYWORDS, USER_PROMPT_GEO_KEYWORDS
+
+    assert "НИКОГДА не включай сюда название региона" in SYSTEM_PROMPT_GEO_KEYWORDS
+    assert "вхождение подстроки" in SYSTEM_PROMPT_GEO_KEYWORDS
+    assert "НЕ включай его в city_variations" in USER_PROMPT_GEO_KEYWORDS
+
+
 def test_pitch_user_prompt_formats():
     from app.prompts.pitch_generator import USER_PROMPT_PITCH
 
