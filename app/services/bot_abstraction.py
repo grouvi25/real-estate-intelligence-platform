@@ -35,6 +35,22 @@ class BotMessage(BaseModel):
     parse_mode: str = "HTML"
 
 
+def _telegram_button(btn: BotButton) -> dict:
+    """Map a BotButton to Telegram's inline keyboard shape.
+
+    mini_app_url was part of the model from the start but never rendered, so a
+    button that opens the Mini App could not actually be sent -- which is the one
+    button the bot needs, since the Mini App is the whole interface.
+    """
+    if btn.mini_app_url:
+        return {"text": btn.text, "web_app": {"url": btn.mini_app_url}}
+    return {
+        k: v
+        for k, v in (("text", btn.text), ("url", btn.url), ("callback_data", btn.callback_data))
+        if v is not None
+    }
+
+
 class BotAbstractionLayer:
     def __init__(self):
         self.http = httpx.AsyncClient(timeout=15.0)
@@ -65,18 +81,7 @@ class BotAbstractionLayer:
         if message.buttons:
             payload["reply_markup"] = {
                 "inline_keyboard": [
-                    [
-                        {
-                            k: v
-                            for k, v in (
-                                ("text", btn.text),
-                                ("url", btn.url),
-                                ("callback_data", btn.callback_data),
-                            )
-                            if v is not None
-                        }
-                        for btn in message.buttons
-                    ]
+                    [_telegram_button(btn) for btn in message.buttons]
                 ]
             }
         response = await self.http.post(url, json=payload)

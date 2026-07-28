@@ -22,16 +22,26 @@ function memoryStorage() {
 }
 
 /** Load platform_init.js + api_client.js into a fresh context. */
-function load({ cloudStorage = null, localSeed = null } = {}) {
+function load({ cloudStorage = null, localSeed = null, search = '', startParam = '' } = {}) {
   const sessionStorage = memoryStorage();
   const localStorage = memoryStorage();
   if (localSeed) localStorage.setItem('jwt_token', localSeed);
 
   const window = { REIP_CONFIG: { apiUrl: '' } };
-  if (cloudStorage) window.Telegram = { WebApp: { ready() {}, expand() {}, CloudStorage: cloudStorage } };
+  if (cloudStorage || startParam) {
+    window.Telegram = {
+      WebApp: {
+        ready() {}, expand() {},
+        CloudStorage: cloudStorage || undefined,
+        initDataUnsafe: startParam ? { start_param: startParam } : {},
+      },
+    };
+  }
 
   const ctx = vm.createContext({
     window, sessionStorage, localStorage, console,
+    location: { search },
+    URLSearchParams,
     fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     escape, unescape, decodeURIComponent, JSON, Promise, Buffer, String,
@@ -120,4 +130,33 @@ test('setToken decodes claims and persists; loadToken restores them', async () =
 test('loadToken returns null when nothing is stored', async () => {
   const { evaluate } = load();
   assert.strictEqual(await evaluate('api').loadToken(), null);
+});
+
+
+// --- TZ 32.6: deeplink attribution captured by the Mini App ------------------
+
+test('a bot deeplink marks the session as coming from the bot', async () => {
+  const { evaluate } = load({ startParam: 'vk_promo' });
+  assert.deepStrictEqual({ ...evaluate('window._utm') }, {
+    utm_source: 'telegram_bot',
+    utm_medium: 'bot_deeplink',
+    utm_campaign: 'vk_promo',
+  });
+});
+
+test('explicit query params win over the deeplink defaults', async () => {
+  const { evaluate } = load({
+    startParam: 'vk_promo',
+    search: '?utm_source=vk&utm_medium=cpc&utm_campaign=spring',
+  });
+  assert.deepStrictEqual({ ...evaluate('window._utm') }, {
+    utm_source: 'vk', utm_medium: 'cpc', utm_campaign: 'spring',
+  });
+});
+
+test('a plain open carries no attribution', async () => {
+  const { evaluate } = load();
+  assert.deepStrictEqual({ ...evaluate('window._utm') }, {
+    utm_source: null, utm_medium: null, utm_campaign: null,
+  });
 });
