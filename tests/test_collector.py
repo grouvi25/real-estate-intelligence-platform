@@ -15,6 +15,46 @@ def test_collector_unavailable_without_creds():
     assert c.is_available() is False
 
 
+class _FakeSession:
+    """Minimal stand-in for a Telethon session (records DC assignments)."""
+
+    def __init__(self):
+        self.dc_id = 2
+        self.server_address = "149.154.167.51"
+        self.calls = []
+
+    def set_dc(self, dc_id, ip, port):
+        self.calls.append((dc_id, ip, port))
+        self.dc_id, self.server_address = dc_id, ip
+
+
+class _FakeClient:
+    def __init__(self):
+        self.session = _FakeSession()
+
+
+def test_force_dc_port_pins_the_current_dc():
+    from app.collectors.telegram_collector import force_dc_port
+
+    client = _FakeClient()
+    force_dc_port(client, 5222)
+
+    assert client.session.calls[-1] == (2, "149.154.167.51", 5222)
+
+
+def test_force_dc_port_survives_a_dc_migration():
+    """Telethon re-reads DC options from the server on migration, and those
+    always name 443 -- the port must stay pinned across that."""
+    from app.collectors.telegram_collector import force_dc_port
+
+    client = _FakeClient()
+    force_dc_port(client, 5222)
+    client.session.set_dc(4, "149.154.167.91", 443)  # as the server would
+
+    assert client.session.calls[-1] == (4, "149.154.167.91", 5222)
+    assert all(port == 5222 for _, _, port in client.session.calls)
+
+
 def test_username_parsing():
     assert TelegramCollector._username(SimpleNamespace(external_id="@foo", source_url=None)) == "foo"
     assert TelegramCollector._username(
