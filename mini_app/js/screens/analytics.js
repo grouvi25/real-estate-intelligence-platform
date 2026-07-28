@@ -110,6 +110,12 @@ Screens.settings = async function () {
     <button class="btn btn--ghost btn--block" id="go-refs" style="margin-top:8px">${UI.icon('handshake')} Все рефералы</button>
 
     <div class="between" style="margin:18px 2px 8px">
+      <span class="section-title" style="margin:0">Мониторинг</span></div>
+    <button class="btn btn--ghost btn--block" id="go-sources">${UI.icon('settings')} Источники сигналов</button>
+    <div style="height:8px"></div>
+    <button class="btn btn--ghost btn--block" id="go-tasks">${UI.icon('check')} Задачи команды</button>
+
+    <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Команда</span></div>
     <div id="mgrs">${UI.skelList(2)}</div>
 
@@ -122,6 +128,8 @@ Screens.settings = async function () {
       document.getElementById('add-geo').onclick = geoSheet;
       document.getElementById('add-partner').onclick = partnerSheet;
       document.getElementById('go-refs').onclick = () => Router.go('referrals');
+      document.getElementById('go-sources').onclick = () => Router.go('sources');
+      document.getElementById('go-tasks').onclick = () => Router.go('tasks');
       loadGeos(); loadPartners(); loadMgrs();
     });
 };

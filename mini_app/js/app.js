@@ -13,6 +13,8 @@
     ['settings', () => Screens.settings()],
     ['partners/:id', (p) => Screens.partnerDetail(p)],
     ['referrals', () => Screens.referrals()],
+    ['tasks', () => Screens.tasks()],
+    ['sources', () => Screens.sources()],
   ];
 
   const NAV = [

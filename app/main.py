@@ -31,6 +31,8 @@ from app.routers import (
     properties,
     referrals,
     signals,
+    sources,
+    tasks,
     webhooks,
 )
 from app.services.ai_cost_tracker import init_cost_tracker
@@ -138,6 +140,8 @@ app.include_router(referrals.router, prefix="/api/referrals", tags=["Referrals"]
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 app.include_router(deals.router, prefix="/api/deals", tags=["Deals"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
+app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
 
