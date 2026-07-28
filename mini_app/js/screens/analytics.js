@@ -121,8 +121,9 @@ Screens.settings = async function () {
 
     <button class="btn btn--danger btn--block" id="logout" style="margin-top:16px">${UI.icon('logout')} Выйти</button>`,
     () => {
-      document.getElementById('logout').onclick = () => {
-        try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
+      document.getElementById('logout').onclick = async () => {
+        await StorageAdapter.remove('jwt_token');
+        api.token = null;
         location.reload();
       };
       document.getElementById('add-geo').onclick = geoSheet;

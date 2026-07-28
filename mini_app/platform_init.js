@@ -54,6 +54,41 @@ const PlatformSDK = (() => {
 
 const API_BASE = (window.REIP_CONFIG && window.REIP_CONFIG.apiUrl) || '';
 
+// TZ 33.1 / 35.8: the JWT must live in Telegram CloudStorage, falling back to
+// sessionStorage — not localStorage, which persists the token on the device
+// indefinitely and survives closing the app. Async because CloudStorage is
+// callback-based.
+const StorageAdapter = (() => {
+  const cloud = () => {
+    const tg = window.Telegram && window.Telegram.WebApp;
+    return tg && tg.CloudStorage && typeof tg.CloudStorage.getItem === 'function'
+      ? tg.CloudStorage : null;
+  };
+  return {
+    async get(key) {
+      const cs = cloud();
+      if (cs) return new Promise((r) => cs.getItem(key, (e, v) => r(e ? null : (v || null))));
+      try { return sessionStorage.getItem(key); } catch (e) { return null; }
+    },
+    async set(key, value) {
+      const cs = cloud();
+      if (cs) return new Promise((r) => cs.setItem(key, value, () => r()));
+      try { sessionStorage.setItem(key, value); } catch (e) { /* ignore */ }
+    },
+    async remove(key) {
+      const cs = cloud();
+      if (cs && typeof cs.removeItem === 'function') {
+        return new Promise((r) => cs.removeItem(key, () => r()));
+      }
+      try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
+    },
+  };
+})();
+
+// One-off cleanup: earlier builds kept the JWT in localStorage, so it is still
+// sitting on devices that opened the app before this change. Drop it.
+try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
+
 const api = {
   token: null,
   async request(endpoint, method = 'GET', body = null) {
@@ -69,7 +104,7 @@ const api = {
     let res = await build();
     // JWT expired/invalid: drop the cached token, re-authenticate once, retry.
     if (res.status === 401 && typeof authenticate === 'function' && !endpoint.startsWith('/auth/')) {
-      try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
+      await StorageAdapter.remove('jwt_token');
       this.token = null;
       try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
     }

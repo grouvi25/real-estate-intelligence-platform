@@ -8,17 +8,17 @@
     } catch (e) { return {}; }
   }
 
+  // Claims are decoded synchronously; persisting is async (CloudStorage) and
+  // deliberately not awaited here — callers never need the write to land first.
   api.setToken = function (token) {
     this.token = token;
-    try { localStorage.setItem('jwt_token', token); } catch (e) { /* ignore */ }
     const c = decodeJwt(token);
     this.agencyId = c.agency_id || null;
     this.managerId = c.sub || null;
+    StorageAdapter.set('jwt_token', token);
   };
-  api.loadToken = function () {
-    const t = this.token || (function () {
-      try { return localStorage.getItem('jwt_token'); } catch (e) { return null; }
-    })();
+  api.loadToken = async function () {
+    const t = this.token || (await StorageAdapter.get('jwt_token'));
     if (t) this.setToken(t);
     return t;
   };
@@ -32,7 +32,7 @@
     };
     let res = await build();
     if (res.status === 401 && typeof authenticate === 'function' && !endpoint.startsWith('/auth/')) {
-      try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
+      await StorageAdapter.remove('jwt_token');
       this.token = null;
       try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
     }

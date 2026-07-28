@@ -93,6 +93,13 @@ jobs:
         run: |
           for f in $(find mini_app -name '*.js'); do echo "check $f"; node --check "$f"; done
 
+      # The front end had no behavioural tests at all -- only a syntax check --
+      # so regressions in auth/token handling could only surface in production.
+      # Explicit glob rather than a directory: passing a directory to --test is
+      # resolved as a module by newer Node versions and fails.
+      - name: Run Mini App tests
+        run: node --test mini_app/tests/*.test.js
+
   deploy:
     needs: [test, frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
