@@ -5,10 +5,10 @@ CRM never blocks lead qualification.
 """
 from __future__ import annotations
 
-import asyncio
-
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -27,4 +27,4 @@ async def _export_lead(lead_id: str) -> dict:
 
 @shared_task(name="worker.tasks.crm_tasks.export_lead_to_crm")
 def export_lead_to_crm(lead_id: str) -> dict:
-    return asyncio.run(_export_lead(lead_id))
+    return run_async(_export_lead(lead_id))

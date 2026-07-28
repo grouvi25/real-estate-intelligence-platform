@@ -1,11 +1,12 @@
 """Partner Celery tasks. TZ section 20.2 (check_referral_expiry)."""
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -42,4 +43,4 @@ async def _check_referral_expiry() -> int:
 
 @shared_task(name="worker.tasks.partner_tasks.check_referral_expiry")
 def check_referral_expiry() -> int:
-    return asyncio.run(_check_referral_expiry())
+    return run_async(_check_referral_expiry())

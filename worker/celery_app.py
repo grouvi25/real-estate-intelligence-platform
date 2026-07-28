@@ -1,8 +1,11 @@
 """Celery application + beat schedule. TZ section 11.1.
 
-Celery has no native async task support in the stable branch, so tasks use
-asyncio.run() internally (see worker/tasks/*). For production the gevent pool is
-used (see docker-compose command).
+Celery has no native async task support in the stable branch, so tasks hand
+their coroutines to worker.async_runner.run_async(), which owns a single
+long-lived event loop per worker process. The worker runs on the threads pool
+(see docker-compose command): the previous gevent pool ran every greenlet in one
+OS thread, where overlapping asyncio.run() calls raised "cannot be called from a
+running event loop" and killed ~2 of every 3 scheduled tasks.
 
 Beat schedule note: only tasks that are actually implemented are scheduled here.
 The remaining entries from TZ 11.1 are listed below and enabled as their task

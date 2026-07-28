@@ -6,10 +6,10 @@ Telethon session is configured.
 """
 from __future__ import annotations
 
-import asyncio
-
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -51,4 +51,4 @@ async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
 
 @shared_task(name="worker.tasks.collector_tasks.collect_telegram_sources")
 def collect_telegram_sources(limit_per_source: int = 50) -> int:
-    return asyncio.run(_collect_telegram_sources(limit_per_source))
+    return run_async(_collect_telegram_sources(limit_per_source))

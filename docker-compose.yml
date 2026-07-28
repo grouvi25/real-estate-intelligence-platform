@@ -8,7 +8,9 @@ services:
     image: postgres:15
     environment:
       POSTGRES_USER: re_app
-      POSTGRES_PASSWORD: dev_password
+      # Comes from .env (same file compose already reads). The literal fallback
+      # is for local dev only — production must set POSTGRES_PASSWORD.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
       POSTGRES_DB: realestate
     expose:
       - "5432"
@@ -37,6 +39,12 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     env_file: .env
+    volumes:
+      # Shared with the worker: the interactive Telethon login runs here.
+      - telethon:/app/telethon
+      # LocalStorage fallback for generated documents (used whenever Yandex
+      # Object Storage is not configured) — must outlive a container rebuild.
+      - storage:/app/storage_data
     depends_on:
       db:
         condition: service_healthy
@@ -46,8 +54,16 @@ services:
 
   worker:
     build: .
-    command: celery -A worker.celery_app worker -l info -c 4 --pool=gevent
+    # Threads pool, not gevent: tasks run async code on a shared event loop
+    # (worker/async_runner.py), and gevent's single-OS-thread greenlets made
+    # concurrent tasks collide on that loop.
+    command: celery -A worker.celery_app worker -l info -c 4 --pool=threads
     env_file: .env
+    volumes:
+      # Telethon session file: without a volume the one-off interactive login
+      # would be wiped on every redeploy.
+      - telethon:/app/telethon
+      - storage:/app/storage_data
     # The image HEALTHCHECK targets the HTTP app; disable it for the worker.
     healthcheck:
       disable: true
@@ -67,3 +83,5 @@ services:
 
 volumes:
   pgdata:
+  telethon:
+  storage:

@@ -5,12 +5,13 @@ AI-derived matching weights saved into agency.settings (best-effort).
 """
 from __future__ import annotations
 
-import asyncio
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import structlog
 from celery import shared_task
+
+from worker.async_runner import run_async
 
 logger = structlog.get_logger()
 
@@ -75,4 +76,4 @@ async def _update_knowledge_moat() -> dict:
 
 @shared_task(name="worker.tasks.knowledge_tasks.update_knowledge_moat")
 def update_knowledge_moat() -> dict:
-    return asyncio.run(_update_knowledge_moat())
+    return run_async(_update_knowledge_moat())

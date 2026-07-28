@@ -98,12 +98,14 @@ jobs:
             if [ ! -f /opt/reip/.env ]; then
               ENC=$(openssl rand -base64 32 | tr '+/' '-_')
               SEC=$(openssl rand -hex 32)
+              PGP=$(openssl rand -hex 24)
               cat > /opt/reip/.env <<EOF
-            DATABASE_URL=postgresql+asyncpg://re_app:dev_password@db:5432/realestate
+            POSTGRES_PASSWORD=${PGP}
+            DATABASE_URL=postgresql+asyncpg://re_app:${PGP}@db:5432/realestate
             REDIS_URL=redis://redis:6379/0
             ENCRYPTION_KEY=${ENC}
             SECRET_KEY=${SEC}
-            NODE_ENV=development
+            NODE_ENV=production
             BASE_URL=https://reip.grouvi.online
             YC_SERVICE_ACCOUNT_KEY_FILE=/app/secrets/sa-key.json
             YC_FOLDER_ID=dev
