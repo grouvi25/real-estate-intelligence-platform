@@ -7,9 +7,23 @@ from __future__ import annotations
 
 from typing import Any
 
-# Baseline for authors who are NOT buyers (selling / renting out / jobs). Kept as
-# the floor for a geo whose own vocabulary is missing or thin.
-NEGATIVE_KEYWORDS = ["продаю", "сдаю", "сдам", "аренда от", "вакансия", "работа"]
+# Baseline for authors who are NOT buyers. Kept as the floor for a geo whose own
+# vocabulary is missing or thin. The renter-side terms were added after the first
+# live run: a long-term rental chat produced 22 "signals" from people looking to
+# rent ("#ищу жильё", "#сниму", "на год", "БЮДЖЕТ до 25.000₽" per month).
+NEGATIVE_KEYWORDS = [
+    "продаю", "сдаю", "сдам", "аренда от", "вакансия", "работа",
+    "сниму", "ищу жильё", "ищу жилье", "сниме", "в аренду", "посуточно",
+]
+
+# Baseline purchase intent. quick_filter unions this with the geo's own
+# intent_phrases so recall does not depend on what the AI happened to generate
+# for a given city.
+BUY_INTENT_KEYWORDS = [
+    "куплю", "купить", "покупк", "приобрет", "ищу квартир", "ищу дом",
+    "ищу участок", "присматрива", "рассматрива покупк", "хочу купить",
+    "переезжа", "инвестир", "подскажите район",
+]
 
 
 def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
@@ -20,11 +34,17 @@ def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
         return any(str(v).lower() in text for v in geo_keywords.get(key, []))
 
     city_mentioned = _any("city_variations")
-    intent_signal = _any("intent_phrases")
+    intent_signal = _any("intent_phrases") or any(p in text for p in BUY_INTENT_KEYWORDS)
     financial_signal = _any("financial_terms")
     property_signal = _any("property_terms")
 
-    passes = city_mentioned and (intent_signal or financial_signal or property_signal)
+    # TZ 16.1 accepts city AND (intent OR financial OR property), i.e. a property
+    # word alone is enough. On the first live run that let a furniture shop advert
+    # and a houseplant listing through: both name "Геленджикский" and contain the
+    # stem "дома" (inside "домашняя"). Of 25 collected messages, 25 were noise.
+    # Purchase intent is now required -- it is what the whole pipeline is looking
+    # for, and TZ 35.4 expects this stage to drop >80% before any AI spend.
+    passes = city_mentioned and intent_signal and (financial_signal or property_signal)
     # TZ 16.1 hardcodes the negative list and never reads the geo's own
     # negative_keywords, so the per-geo vocabulary the keyword builder generates
     # and stores was dead data. It cost real precision: the baseline has "продаю"
