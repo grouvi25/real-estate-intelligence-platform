@@ -30,7 +30,7 @@ async def main() -> int:
         return 1
 
     try:
-        from telethon import TelegramClient
+        from app.collectors.telegram_collector import build_client
     except ImportError:
         print("Telethon is not installed in this image (pip install telethon).")
         return 1
@@ -42,10 +42,14 @@ async def main() -> int:
 
     print(f"Session file: {session}.session")
     print(f"api_id: {config.telethon_api_id}")
+    if config.telethon_dc_port:
+        print(f"MTProto port: {config.telethon_dc_port} (pinned via TELETHON_DC_PORT)")
     print("\nTelegram will ask for the phone number of the COLLECTOR account,")
     print("then for the login code, and for the 2FA password if you have one.\n")
 
-    client = TelegramClient(session, config.telethon_api_id, config.telethon_api_hash)
+    # Same connection settings as the collector, so a session created here works
+    # unchanged in the worker.
+    client = build_client(session)
     # start() prompts on stdin for phone / code / password as needed.
     await client.start(phone=config.telethon_phone or None)
 

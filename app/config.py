@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     telethon_api_id: Optional[int] = Field(default=None, alias="TELETHON_API_ID")
     telethon_api_hash: Optional[str] = Field(default=None, alias="TELETHON_API_HASH")
     telethon_phone: Optional[str] = Field(default=None, alias="TELETHON_PHONE")
+    # Pin MTProto to an alternative Telegram port (443 / 80 / 5222) when the host
+    # cannot reach a DC on the default one. 0/None keeps Telethon's own choice.
+    telethon_dc_port: Optional[int] = Field(default=None, alias="TELETHON_DC_PORT")
 
     # === EXTERNAL INTEGRATIONS ===
     vk_service_token: Optional[str] = Field(default=None, alias="VK_SERVICE_TOKEN")

@@ -20,6 +20,40 @@ from app.services.signal_bus import ingest_content
 
 logger = structlog.get_logger()
 
+# Telegram serves MTProto on 443, 80 and 5222. The production host cannot reach
+# 149.154.167.0/24 (DC2 + DC4) on 443 or 80 -- those connections time out -- while
+# 5222 completes the handshake, and the other DCs answer on 443 normally. Telethon
+# starts on DC2, so it hung on "Attempt N at connecting failed: TimeoutError".
+# TELETHON_DC_PORT pins an alternative port; the default keeps Telethon's own.
+def force_dc_port(client, port: int) -> None:
+    """Pin every DC connection to ``port``, including after a DC migration.
+
+    Telethon re-reads addresses from the server's DC options on migration, which
+    always name 443, so overriding the session once is not enough.
+    """
+    session = client.session
+    original_set_dc = session.set_dc
+
+    def set_dc(dc_id, ip, _port_from_server):
+        original_set_dc(dc_id, ip, port)
+
+    session.set_dc = set_dc
+    session.set_dc(session.dc_id, session.server_address, port)
+
+
+def build_client(session_name: str | None = None):
+    """Create a Telethon client with the project's connection settings applied."""
+    from telethon import TelegramClient  # noqa: PLC0415
+
+    client = TelegramClient(
+        session_name or config.telethon_session_name,
+        config.telethon_api_id,
+        config.telethon_api_hash,
+    )
+    if config.telethon_dc_port:
+        force_dc_port(client, config.telethon_dc_port)
+    return client
+
 
 class TelegramCollector:
     def __init__(self):
@@ -32,10 +66,8 @@ class TelegramCollector:
         return bool(self.api_id and self.api_hash)
 
     async def _get_client(self):
-        from telethon import TelegramClient  # noqa: PLC0415
-
         if self._client is None:
-            self._client = TelegramClient(self.session_name, self.api_id, self.api_hash)
+            self._client = build_client(self.session_name)
             await self._client.connect()
         return self._client
 
