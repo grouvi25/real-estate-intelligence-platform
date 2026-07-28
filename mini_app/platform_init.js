@@ -89,6 +89,21 @@ const StorageAdapter = (() => {
 // sitting on devices that opened the app before this change. Drop it.
 try { localStorage.removeItem('jwt_token'); } catch (e) { /* ignore */ }
 
+// TZ 32.6: attribution for a session opened through a bot deeplink
+// (t.me/<bot>?start=<campaign>). Explicit query params win; otherwise the
+// presence of start_param marks the session as coming from the bot.
+window._utm = (() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const sp = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '';
+  let qp;
+  try { qp = new URLSearchParams(location.search); } catch (e) { qp = new URLSearchParams(); }
+  return {
+    utm_source: qp.get('utm_source') || (sp ? 'telegram_bot' : null),
+    utm_medium: qp.get('utm_medium') || (sp ? 'bot_deeplink' : null),
+    utm_campaign: qp.get('utm_campaign') || sp || null,
+  };
+})();
+
 const api = {
   token: null,
   async request(endpoint, method = 'GET', body = null) {

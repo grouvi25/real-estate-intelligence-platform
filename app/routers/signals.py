@@ -40,6 +40,12 @@ class CreateLeadRequest(BaseModel):
     consent_ip: Optional[str] = None
     consent_user_agent: Optional[str] = None
     purchase_goal: str = "own"
+    # TZ 32.6 / 35.7: the Mini App forwards the deeplink campaign it was opened
+    # with, so a lead qualified in that session is attributable to the campaign.
+    # Lead magnets already carried these; a signal-born lead had no way to.
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
 
 
 class ReplyDraftRequest(BaseModel):
@@ -135,6 +141,11 @@ async def create_lead_from_signal(
         consent_ip=req.consent_ip,
         consent_user_agent=req.consent_user_agent,
     )
+    if req.utm_source or req.utm_medium or req.utm_campaign:
+        lead.utm_source = req.utm_source
+        lead.utm_medium = req.utm_medium
+        lead.utm_campaign = req.utm_campaign
+
     # Carry the author's display name from the signal so the lead isn't nameless.
     if signal.author_display_name:
         lead.name = signal.author_display_name

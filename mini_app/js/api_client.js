@@ -55,7 +55,8 @@
     generateReply: (id) => api.request(`/signals/${id}/generate-reply`, 'POST'),
     setReplyDraft: (id, body) => api.request(`/signals/${id}/reply-draft`, 'PATCH', body),
     sendReply: (id) => api.request(`/signals/${id}/send-reply`, 'POST'),
-    createLead: (id, body) => api.request(`/signals/${id}/create-lead`, 'POST', body),
+    createLead: (id, body) =>
+      api.request(`/signals/${id}/create-lead`, 'POST', { ...body, ...(window._utm || {}) }),
 
     // Leads
     leads: (f) => api.request('/leads' + qs(f)),

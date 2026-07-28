@@ -138,3 +138,72 @@ async def test_list_signals_filters():
         hot = await list_signals(min_intent_score=70, current=cur, session=s)
         assert hot["count"] == 1
         assert hot["signals"][0]["intent_score"] == 90
+
+
+@pytest.mark.asyncio
+async def test_create_lead_records_deeplink_attribution(monkeypatch):
+    """TZ 32.6 / 35.7: a lead qualified in a session opened through a bot
+    deeplink must carry that campaign. Lead magnets already did; a signal-born
+    lead had nowhere to put it."""
+    from app.database import async_session, run_migrations
+    from app.dependencies import CurrentManager
+    from app.models.lead import Lead
+    from app.models.signal import Signal
+    from app.routers.signals import CreateLeadRequest, create_lead_from_signal
+
+    import worker.tasks.matching_tasks as mt
+    monkeypatch.setattr(mt.run_matching_for_lead, "delay", lambda *a, **k: None)
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, geo = await _make_agency_geo(s)
+        signal = Signal(agency_id=agency.id, geo_location_id=geo.id,
+                        raw_text="Куплю квартиру в Геленджике", status="new")
+        s.add(signal)
+        await s.commit()
+        cur = CurrentManager(manager_id="m1", agency_id=str(agency.id))
+        signal_id = signal.id
+
+    async with async_session() as s:
+        res = await create_lead_from_signal(
+            signal_id,
+            CreateLeadRequest(consent_text="согласие", utm_source="telegram_bot",
+                              utm_medium="bot_deeplink", utm_campaign="vk_promo"),
+            current=cur, session=s)
+
+    async with async_session() as s:
+        lead = await s.get(Lead, __import__("uuid").UUID(res["lead_id"]))
+    assert lead.utm_source == "telegram_bot"
+    assert lead.utm_medium == "bot_deeplink"
+    assert lead.utm_campaign == "vk_promo"
+
+
+@pytest.mark.asyncio
+async def test_create_lead_without_utm_leaves_attribution_empty(monkeypatch):
+    from app.database import async_session, run_migrations
+    from app.dependencies import CurrentManager
+    from app.models.lead import Lead
+    from app.models.signal import Signal
+    from app.routers.signals import CreateLeadRequest, create_lead_from_signal
+
+    import worker.tasks.matching_tasks as mt
+    monkeypatch.setattr(mt.run_matching_for_lead, "delay", lambda *a, **k: None)
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, geo = await _make_agency_geo(s)
+        signal = Signal(agency_id=agency.id, geo_location_id=geo.id,
+                        raw_text="Ищу дом", status="new")
+        s.add(signal)
+        await s.commit()
+        cur = CurrentManager(manager_id="m1", agency_id=str(agency.id))
+        signal_id = signal.id
+
+    async with async_session() as s:
+        res = await create_lead_from_signal(
+            signal_id, CreateLeadRequest(consent_text="согласие"), current=cur, session=s)
+
+    async with async_session() as s:
+        lead = await s.get(Lead, __import__("uuid").UUID(res["lead_id"]))
+    assert lead.utm_source is None
+    assert lead.utm_campaign is None
