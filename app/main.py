@@ -23,6 +23,7 @@ from app.routers import (
     analytics,
     auth,
     deals,
+    documents,
     geo,
     health,
     lead_magnets,
@@ -141,6 +142,7 @@ app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 app.include_router(deals.router, prefix="/api/deals", tags=["Deals"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
+app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
