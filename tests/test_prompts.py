@@ -64,3 +64,24 @@ def test_pitch_user_prompt_formats():
         strengths="вид", weaknesses="этаж", amenities="школа",
     )
     assert "family" in s and "квартира" in s
+
+
+def test_intent_prompt_scores_the_author_not_the_topic():
+    """TZ 27.1 said "определить признаки намерения купить" without saying whose.
+    On the live feed a Спортмастер opening advert -- which mentions local
+    development and property -- came back as intent 60, segment "investor". A
+    manager would have been handed an advert as a warm lead."""
+    from app.prompts.intent_scoring import SYSTEM_PROMPT_INTENT_SCORING as P
+
+    assert "намерение автора, а не тема текста" in P
+    assert "реклама" in P and "анонсы" in P
+    assert "не от первого лица" in P
+
+
+def test_intent_prompt_separates_renting_from_buying():
+    """A concrete "сниму квартиру ... семья" scored 80 as a family buyer until
+    the prompt said outright that renting is not a purchase."""
+    from app.prompts.intent_scoring import SYSTEM_PROMPT_INTENT_SCORING as P
+
+    assert "СНЯТЬ жильё — это НЕ покупка" in P
+    assert "покупка в собственность" in P
