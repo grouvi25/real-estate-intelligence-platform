@@ -103,3 +103,31 @@ def test_mini_app_button_renders_as_web_app():
 
     cb = _telegram_button(BotButton(text="Да", callback_data="yes"))
     assert cb == {"text": "Да", "callback_data": "yes"}
+
+
+# --- Bot token must never reach the logs -------------------------------------
+
+def test_send_failure_does_not_log_the_bot_token():
+    """httpx puts the failing URL in the exception text, and the Telegram token
+    lives in that URL -- so every failed send used to write it out verbatim.
+    Seen in production while testing /start."""
+    from app.config import config
+    from app.services.bot_abstraction import _redact
+
+    err = (
+        "Client error '400 Bad Request' for url "
+        f"'https://api.telegram.org/bot{config.telegram_bot_token}/sendMessage'"
+    )
+    safe = _redact(err)
+
+    assert config.telegram_bot_token not in safe
+    assert "https://api.telegram.org/bot***" in safe
+    # Still useful for debugging.
+    assert "400 Bad Request" in safe
+
+
+def test_redact_handles_text_without_secrets():
+    from app.services.bot_abstraction import _redact
+
+    assert _redact("connection timed out") == "connection timed out"
+    assert _redact("") == ""
