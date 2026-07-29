@@ -62,10 +62,12 @@ def test_verify_telegram_wrong_token():
     assert verify_telegram_init_data(init_data) is None
 
 
-def test_verify_max_dev_returns_user():
-    # conftest sets NODE_ENV=development.
+def test_verify_max_rejects_unsigned_init_data():
+    """MAX used to accept a bare user dict in development and refuse everything in
+    production. Now the signature is checked on both -- see tests/test_max_platform.py
+    for the full contract."""
     user = verify_max_init_data(urlencode({"user": json.dumps({"id": 77, "first_name": "M"})}))
-    assert user["id"] == 77
+    assert user is None
 
 
 # --- integration test (needs PostgreSQL) ---

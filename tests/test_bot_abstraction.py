@@ -55,6 +55,9 @@ async def test_send_telegram_http_error_returns_false():
 
 @pytest.mark.asyncio
 async def test_send_max_ok():
+    """This test used to assert `Authorization: Bearer <token>` and a bare
+    /messages URL -- both wrong for the MAX Bot API, so it pinned the bug in
+    place. MAX wants the raw token and the recipient as a query parameter."""
     captured = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -67,5 +70,6 @@ async def test_send_max_ok():
     await layer.close()
 
     assert ok is True
-    assert captured["url"].endswith("/messages")
-    assert captured["auth"].startswith("Bearer")
+    assert "/messages" in captured["url"]
+    assert "user_id=999" in captured["url"]
+    assert not captured["auth"].startswith("Bearer")

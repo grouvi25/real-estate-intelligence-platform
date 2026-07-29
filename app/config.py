@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     max_bot_username: Optional[str] = Field(default=None, alias="MAX_BOT_USERNAME")
     max_webhook_path: str = Field(default="/max/webhook", alias="MAX_WEBHOOK_PATH")
     max_base_url: str = Field(default="https://botapi.max.ru", alias="MAX_BASE_URL")
+    # Shared secret echoed back in X-Max-Bot-Api-Secret; set when subscribing the
+    # webhook (POST /subscriptions). Plain comparison, not an HMAC.
+    max_webhook_secret: Optional[str] = Field(default=None, alias="MAX_WEBHOOK_SECRET")
 
     # Telethon (separate account for reading chats)
     telethon_session_name: str = Field(default="monitor_session", alias="TELETHON_SESSION_NAME")
