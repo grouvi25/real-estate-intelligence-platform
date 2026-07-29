@@ -118,7 +118,31 @@ class TelegramCollector:
                     "description": "",
                     "samples": [],
                 }
+
+        await self._enrich_candidates(client, list(seen.values()))
         return list(seen.values())
+
+    async def _enrich_candidates(self, client, candidates: list[dict], samples: int = 3) -> None:
+        """Attach recent messages so the AI can judge a source by its content.
+
+        The evaluation prompt asks for a description and sample messages, but the
+        search only returns a title -- so scoring was done on the name alone and
+        came out unstable: two chats both called "Барахолка Геленджик" scored 40
+        and 0 in the same run. Mutates the candidates in place; a source that
+        cannot be read is simply left without samples.
+        """
+        for cand in candidates:
+            try:
+                texts = []
+                async for msg in client.iter_messages(cand["username"], limit=samples * 4):
+                    text = (getattr(msg, "message", None) or "").strip()
+                    if len(text) > 20:
+                        texts.append(text[:280])
+                    if len(texts) >= samples:
+                        break
+                cand["samples"] = texts
+            except Exception as e:  # noqa: BLE001 - private, deleted or rate-limited
+                logger.debug("Could not sample source", username=cand["username"], error=str(e))
 
     async def collect_from_source(
         self, session, source, geo_keywords: dict[str, Any], limit: int = 50
