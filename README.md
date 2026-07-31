@@ -8,7 +8,14 @@ AI-платформа разведки покупателей недвижимо
 ## Статус
 
 - **Версия ТЗ:** 2.0 FINAL + Дополнение v1.0 (Signal Bus & Attribution)
-- **Этап:** каркас проекта (Часть 1 — Фундамент)
+- **Разделы ТЗ 1–35:** реализованы, развёрнуты и проверены на живом стенде
+- **Прод:** https://reip.grouvi.online — деплой автоматический из `main`
+- **Тесты:** 393 Python + 14 Mini App, прогоняются в CI на живых Postgres и Redis
+
+Что система пока не делает: не находит живых покупателей. Конвейер исправен на
+каждом стыке, но в Telegram по Геленджику профильных чатов почти нет — это
+вопрос источников, а не кода. Подробности и полный перечень открытых пунктов —
+в [docs/audit.md](docs/audit.md).
 
 ## Технический стек
 
@@ -45,10 +52,31 @@ AI-платформа разведки покупателей недвижимо
 
 ```bash
 cp .env.example .env   # заполнить ключами
-docker-compose up
+docker compose up
 ```
 
 Проверка: `GET /health` → `{"status": "ok"}`
+
+Схема применяется автоматически при старте. Вручную — любым из двух путей,
+они дают одинаковый результат:
+
+```bash
+alembic upgrade head
+```
+
+## Эксплуатация
+
+| Задача | Как |
+|---|---|
+| Загрузить каталог объектов | Mini App → Объекты → «Загрузить каталог» (CSV/XLSX, сначала проверка) |
+| Добавить чат для мониторинга | Mini App → Профиль → Источники |
+| Вход аккаунта-коллектора | `docker compose exec app python scripts/telethon_login.py` |
+| Установить вебхук Telegram | `docker compose exec app python scripts/set_telegram_webhook.py --set` |
+| Нагрузочный тест | `python scripts/loadtest.py --url https://reip.grouvi.online --rps 50` |
+
+Ключи, без которых части системы работают в урезанном режиме и не падают:
+`YC_*` (логи в Cloud Logging и Object Storage → иначе локальный диск),
+`MAX_BOT_*` (кабинет в MAX), `TELETHON_*` (сбор из Telegram).
 
 ## Структура проекта
 
@@ -67,13 +95,18 @@ worker/         # Celery worker + фоновые задачи
 mini_app/       # Telegram/MAX Mini App (единый код)
 railway_proxy/  # прокси для зарубежных AI
 migrations/     # SQL-миграции
+alembic/        # Alembic поверх тех же файлов (ТЗ 35.1)
 tests/          # pytest
 ```
 
-## Роадмап реализации
+## Реализация
 
-- [ ] **Часть 1 — Фундамент:** config, database, security, base models, auth, health, bot abstraction, AI service, encryption, миграция 001, Docker.
-- [ ] **Часть 2:** ORM-модели, 152-ФЗ шифрование, Bot Abstraction, AI-роутинг, Celery-ядро.
-- [ ] **Часть 3:** API-роутеры, Source Discovery, Intent Scoring, Matching, Lead Magnets, Mini App.
-- [ ] **Часть 4:** Партнёрская сеть, Knowledge Moat, альтернативщики, деплой, мониторинг.
-- [ ] **Дополнение v1.0:** Signal Bus, адаптеры каналов/CRM, сквозная атрибуция (миграции 040–044).
+- [x] **Часть 1 — Фундамент:** config, database, security, base models, auth, health, bot abstraction, AI service, encryption, миграции, Docker.
+- [x] **Часть 2:** ORM-модели, 152-ФЗ шифрование, Bot Abstraction, AI-роутинг, Celery-ядро.
+- [x] **Часть 3:** API-роутеры, Source Discovery, Intent Scoring, Matching, Lead Magnets, Mini App.
+- [x] **Часть 4:** Партнёрская сеть, Knowledge Moat, альтернативщики, деплой, мониторинг.
+- [x] **Дополнение v1.0:** Signal Bus, адаптеры каналов/CRM, сквозная атрибуция (миграции 040–044).
+
+Развёрнуто сверх ТЗ по результатам работы на живых данных: экраны «Задачи» и
+«Источники», импорт каталога, договор и чек-лист в PDF, отправка логов в
+Yandex Cloud Logging, обработка `/start` в Telegram и MAX.
