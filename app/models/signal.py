@@ -27,6 +27,8 @@ class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
         UUID(as_uuid=True), ForeignKey("geo_locations.id", ondelete="SET NULL")
     )
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Migration 045: repost dedup, see intent_scoring.content_fingerprint.
+    content_fingerprint: Mapped[Optional[str]] = mapped_column(Text)
     author_hash: Mapped[Optional[str]] = mapped_column(Text)
     author_display_name: Mapped[Optional[str]] = mapped_column(Text)
     signal_url: Mapped[Optional[str]] = mapped_column(Text)
