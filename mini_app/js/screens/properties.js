@@ -15,7 +15,9 @@ Screens.properties = async function () {
         </div>
         <span class="item__chev">${UI.icon('chevron')}</span>
       </div>
-    </div>`, { icon: 'properties', title: 'Объектов нет' }), bindGo);
+    </div>`, { icon: 'properties', title: 'Объектов нет', sub: 'Загрузите каталог агентства' })
+    + `<button class="btn btn--ghost btn--block" data-go="properties/import" style="margin-top:12px">
+         ${UI.icon('plus')} Загрузить каталог</button>`, bindGo);
 };
 
 Screens.propertyDetail = async function (params) {
@@ -103,4 +105,78 @@ Screens.propertyDetail = async function (params) {
           });
       };
     });
+};
+
+// Catalogue import. Matching, pitches and offers all read from properties, so
+// an agency that cannot load its inventory gets nothing out of the system --
+// and until now loading it meant asking a developer to run INSERTs.
+Screens.propertyImport = async function () {
+  UI.setHeader('Загрузка каталога', 'CSV или Excel', { back: true });
+
+  UI.render(`
+    <div class="card">
+      <p class="muted" style="margin:0 0 10px">
+        Выгрузите каталог из CRM или Excel. Заголовки понимаются русские:
+        «Название», «Цена», «Общая площадь», «Комнат», «Район», «Новостройка».
+      </p>
+      <div class="field">
+        <label>Файл</label>
+        <input type="file" id="imp-file" accept=".csv,.xlsx,.xlsm">
+      </div>
+      <button class="btn btn--block" id="imp-check">${UI.icon('file')} Проверить файл</button>
+      <p class="muted" style="margin:10px 0 0;font-size:13px">
+        Сначала проверка — она ничего не записывает и показывает, что получится.
+      </p>
+    </div>
+    <div id="imp-report"></div>`);
+
+  const fileInput = document.getElementById('imp-file');
+  const report = document.getElementById('imp-report');
+
+  const renderReport = (res, checked) => {
+    const errors = res.errors || [];
+    const unmapped = res.unmapped_columns || [];
+    report.innerHTML = `
+      <div class="card" style="margin-top:12px">
+        <div class="between"><b>${checked ? 'Результат проверки' : 'Загружено'}</b></div>
+        <div class="item__sub" style="margin-top:8px">
+          Новых: <b>${res.created}</b> · Обновится: <b>${res.updated}</b> ·
+          Пропущено: <b>${res.skipped}</b>
+        </div>
+        ${unmapped.length ? `<p class="muted" style="margin:10px 0 0">
+          Не распознаны колонки: ${unmapped.map(UI.esc).join(', ')}. Данные из них не загрузятся.
+        </p>` : ''}
+        ${errors.length ? `<div style="margin-top:10px">
+          <div class="muted" style="margin-bottom:6px">Проблемные строки:</div>
+          ${errors.slice(0, 15).map((e) =>
+            `<div class="item__sub">строка ${e.row}: ${UI.esc(e.message)}</div>`).join('')}
+          ${errors.length > 15 ? `<div class="muted">…и ещё ${errors.length - 15}</div>` : ''}
+        </div>` : ''}
+        ${checked && (res.created + res.updated) > 0
+          ? `<button class="btn btn--block" id="imp-go" style="margin-top:14px">
+               ${UI.icon('check')} Загрузить ${res.created + res.updated} объектов</button>`
+          : ''}
+      </div>`;
+
+    const go = document.getElementById('imp-go');
+    if (go) go.onclick = () => run(false);
+  };
+
+  const run = async (dryRun) => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) { UI.toast('Выберите файл'); return; }
+
+    const button = document.getElementById(dryRun ? 'imp-check' : 'imp-go');
+    if (button) { button.disabled = true; button.textContent = 'Обработка…'; }
+    try {
+      const res = await API.importProperties(file, dryRun);
+      renderReport(res, dryRun);
+      if (!dryRun) UI.toast(`Готово: ${res.created} новых, ${res.updated} обновлено`);
+    } catch (e) {
+      UI.toast(e.message || 'Не удалось обработать файл');
+      if (button) { button.disabled = false; button.textContent = 'Проверить файл'; }
+    }
+  };
+
+  document.getElementById('imp-check').onclick = () => run(true);
 };
