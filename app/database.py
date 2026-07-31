@@ -7,7 +7,6 @@ a corrected, working implementation.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import structlog
 from sqlalchemy import text
@@ -20,6 +19,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from app.config import config
+from app.sql_migrations import MIGRATIONS_DIR, marker_table, migration_files, split_sql
 
 logger = structlog.get_logger()
 
@@ -64,18 +64,10 @@ async def get_session():
     finally:
         await session.close()
 
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
-def _split_sql(raw_sql: str) -> list[str]:
-    """Split a SQL script into individual statements.
-
-    Strips full-line ``--`` comments (our migrations only use line comments) and
-    splits on ``;``. Robust enough for the project's DDL-only migrations.
-    """
-    lines = [ln for ln in raw_sql.splitlines() if not ln.strip().startswith("--")]
-    cleaned = "\n".join(lines)
-    return [stmt.strip() for stmt in cleaned.split(";") if stmt.strip()]
+# Kept as an alias: tests and the Alembic baseline import the shared helper.
+_split_sql = split_sql
 
 
 async def run_migrations() -> None:
@@ -88,14 +80,14 @@ async def run_migrations() -> None:
         logger.warning("Migrations directory not found", path=str(MIGRATIONS_DIR))
         return
 
-    for migration_file in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        marker_table = f"_migration_{migration_file.stem}"
+    for migration_file in migration_files():
+        marker = marker_table(migration_file)
         async with engine.begin() as conn:
             already = await conn.execute(
                 text(
                     "SELECT 1 FROM information_schema.tables WHERE table_name = :name"
                 ),
-                {"name": marker_table},
+                {"name": marker},
             )
             if already.scalar():
                 logger.info("Migration already applied", file=migration_file.name)
@@ -106,7 +98,7 @@ async def run_migrations() -> None:
                 await conn.execute(text(stmt))
 
             await conn.execute(
-                text(f'CREATE TABLE "{marker_table}" (applied_at TIMESTAMPTZ DEFAULT NOW())')
+                text(f'CREATE TABLE "{marker}" (applied_at TIMESTAMPTZ DEFAULT NOW())')
             )
             logger.info("Migration applied successfully", file=migration_file.name)
 

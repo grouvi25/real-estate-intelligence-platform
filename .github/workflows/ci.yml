@@ -82,6 +82,16 @@ jobs:
       - name: Run tests
         run: pytest -v
 
+      # TZ 35.1: "alembic upgrade head применяет все миграции без ошибок".
+      # Run against a database the test suite already migrated through the SQL
+      # runner, so this also proves the two paths agree instead of colliding.
+      - name: Alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/reip_test
+        run: |
+          alembic upgrade head
+          alembic current
+
   frontend:
     runs-on: ubuntu-latest
     steps:
