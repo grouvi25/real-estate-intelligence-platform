@@ -23,6 +23,31 @@
     return t;
   };
 
+  // Multipart upload. The browser must set Content-Type itself so the
+  // multipart boundary is correct, hence a separate path from api.request.
+  api.upload = async function (endpoint, formData) {
+    const build = () => {
+      const headers = {};
+      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      return fetch(`${API_BASE}/api${endpoint}`, { method: 'POST', headers, body: formData });
+    };
+    let res = await build();
+    if (res.status === 401 && typeof authenticate === 'function') {
+      await StorageAdapter.remove('jwt_token');
+      this.token = null;
+      try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
+    }
+    if (!res.ok) {
+      // The import reports per-row problems in the body; surface them instead
+      // of a bare status code.
+      let detail = `API ${res.status}`;
+      try { const body = await res.json(); detail = body.detail || body.message || detail; }
+      catch (e) { /* keep the status */ }
+      throw new Error(detail);
+    }
+    return res.json();
+  };
+
   // Raw text (documents return HTML, not JSON).
   api.requestText = async function (endpoint) {
     const build = () => {
@@ -73,6 +98,13 @@
     // Properties
     properties: (f) => api.request('/properties' + qs(f)),
     property: (id) => api.request(`/properties/${id}`),
+    importProperties: (file, dryRun, geoId) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('dry_run', dryRun ? 'true' : 'false');
+      if (geoId) fd.append('geo_location_id', geoId);
+      return api.upload('/properties/import', fd);
+    },
     updateProperty: (id, body) => api.request(`/properties/${id}`, 'PATCH', body),
     propertyReportHtml: (id) => api.requestText(`/properties/${id}/report?format=html`),
     generateListing: (id, body) => api.request(`/properties/${id}/generate-listing`, 'POST', body),

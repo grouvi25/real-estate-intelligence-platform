@@ -8,6 +8,7 @@
     ['leads', () => Screens.leads()],
     ['leads/:id', (p) => Screens.leadDetail(p)],
     ['properties', () => Screens.properties()],
+    ['properties/import', () => Screens.propertyImport()],
     ['properties/:id', (p) => Screens.propertyDetail(p)],
     ['analytics', () => Screens.analytics()],
     ['settings', () => Screens.settings()],
