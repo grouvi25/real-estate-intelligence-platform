@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 import structlog
+from sqlalchemy import select
 
 logger = structlog.get_logger()
 
@@ -69,12 +70,29 @@ async def evaluate_and_save_sources(
 
             status = "active" if score >= ACTIVE_THRESHOLD else "sandbox"
             username = cand.get("username", "")
+            url = cand.get("url") or f"https://t.me/{username}"
+
+            # Discovery runs weekly over the same city and re-finds the same
+            # chats, so without this every run added another copy of each source
+            # -- and a source the agency had paused came back as a fresh active
+            # row. Only the score is refreshed; the status is the manager's.
+            existing = (await session.execute(
+                select(Source).where(
+                    Source.agency_id == geo_profile["agency_id"],
+                    Source.source_url == url,
+                )
+            )).scalars().first()
+            if existing is not None:
+                existing.score = score
+                existing.source_name = cand.get("name") or existing.source_name
+                continue
+
             session.add(
                 Source(
                     agency_id=geo_profile["agency_id"],
                     geo_location_id=geo_id,
                     source_type="telegram_chat",
-                    source_url=cand.get("url") or f"https://t.me/{username}",
+                    source_url=url,
                     source_name=cand.get("name"),
                     external_id=cand.get("id"),
                     status=status,
