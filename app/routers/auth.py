@@ -1,5 +1,8 @@
 """Unified platform auth (Telegram + MAX). TZ section 13.1.
 
+Both platforms use the same construction; see verify_max_init_data for the one
+difference (MAX signs URL-decoded values).
+
 Security fix vs. the illustrative TZ: Telegram Mini App (WebApp) initData must be
 verified with the WebApp algorithm:
 
@@ -16,7 +19,7 @@ import hmac
 import json
 import time
 from typing import Optional
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -70,22 +73,46 @@ def verify_telegram_init_data(init_data: str) -> Optional[dict]:
 
 
 def verify_max_init_data(init_data: str) -> Optional[dict]:
-    """Validate MAX WebApp initData.
+    """Validate MAX Mini App initData. https://dev.max.ru/docs/webapps/validation
 
-    MAX's signature scheme is not finalized in the public SDK docs yet. To avoid
-    an insecure fallback in production, real validation is required there; in
-    development we accept a parsed user for testing only.
+    Same construction as Telegram -- secret_key = HMAC_SHA256("WebAppData",
+    bot_token), then HMAC_SHA256(secret_key, sorted launch params) -- with one
+    difference that matters: MAX signs the *decoded* values, so each value is
+    unquoted before the check string is assembled. Telegram signs what arrives.
+
+    Until this landed, production rejected every MAX login outright rather than
+    fall back to trusting unsigned initData, which would have let anyone sign in
+    as any manager of any agency.
     """
-    if config.node_env != "development":
-        logger.warning("MAX initData validation is not implemented for production")
+    if not init_data or not config.max_bot_token:
         return None
-    pairs = dict(parse_qsl(init_data, strict_parsing=False))
-    if "user" in pairs:
-        try:
-            return json.loads(pairs["user"])
-        except json.JSONDecodeError:
-            pass
-    return {"id": 99999, "first_name": "MAX_Test_User"}
+    try:
+        pairs = [p.split("=", 1) for p in init_data.split("&") if "=" in p]
+        hashes = [v for k, v in pairs if k == "hash"]
+        if len(hashes) != 1:
+            return None
+        received_hash = hashes[0]
+
+        decoded = [(k, unquote(v)) for k, v in pairs]
+
+        auth_date = next((v for k, v in decoded if k == "auth_date"), None)
+        if auth_date is not None:
+            if time.time() - int(auth_date) > INIT_DATA_MAX_AGE_SECONDS:
+                return None
+
+        launch_params = "\n".join(
+            f"{k}={v}" for k, v in sorted(((k, v) for k, v in decoded if k != "hash"),
+                                          key=lambda kv: kv[0])
+        )
+        secret_key = hmac.new(b"WebAppData", config.max_bot_token.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret_key, launch_params.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, received_hash):
+            return None
+
+        user_raw = next((v for k, v in decoded if k == "user"), None)
+        return json.loads(user_raw) if user_raw else None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
 
 
 @router.post("/platform")

@@ -28,6 +28,7 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
+MAX_SECRET_HEADER = "X-Max-Bot-Api-Secret"
 
 WELCOME_TEXT = (
     "Это рабочий кабинет агентства.\n\n"
@@ -108,11 +109,65 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 
+async def handle_max_event(update: dict[str, Any]) -> Optional[str]:
+    """Reply to a MAX bot event. Returns the update_type handled, or None.
+
+    MAX events are shaped `update_type` + `message.{sender,recipient,body}`, so
+    the sender id and text sit in different places than Telegram's.
+    """
+    from app.services.bot_abstraction import BotButton, BotMessage, BotPlatform, bot_layer
+
+    event_type = update.get("update_type")
+    if event_type not in ("message_created", "bot_started"):
+        return None
+
+    message = update.get("message") or {}
+    user_id = (message.get("sender") or {}).get("user_id") or update.get("user_id")
+    text = ((message.get("body") or {}).get("text") or "").strip()
+    if not user_id:
+        return None
+
+    # bot_started has no text; treat it as /start.
+    if event_type == "bot_started" or text.split()[0:1] == ["/start"]:
+        payload = start_payload(text) if text else None
+        await bot_layer.send_message(
+            int(user_id),
+            BotPlatform.MAX,
+            BotMessage(
+                text=WELCOME_TEXT,
+                buttons=[BotButton(text="Открыть кабинет", mini_app_url=mini_app_url(payload))],
+            ),
+        )
+        logger.info("MAX start handled", user_id=user_id, payload=payload)
+        return event_type
+
+    if text.startswith("/"):
+        await bot_layer.send_message(int(user_id), BotPlatform.MAX, BotMessage(text=UNKNOWN_TEXT))
+        return event_type
+    return None
+
+
 @router.post("/max")
 async def max_webhook(request: Request):
+    """MAX echoes the secret given at subscription time; it is not an HMAC.
+
+    The endpoint used to accept anything that reached the URL, so a stranger
+    could feed the bot arbitrary events.
+    """
+    secret = request.headers.get(MAX_SECRET_HEADER)
+    if config.max_webhook_secret and secret != config.max_webhook_secret:
+        logger.warning("MAX webhook secret mismatch")
+        raise ForbiddenError("Invalid webhook secret")
+
     try:
         update = await request.json()
     except Exception:  # noqa: BLE001
         update = {}
-    logger.info("MAX update received", keys=list(update.keys()))
+    logger.info("MAX update received", update_type=update.get("update_type"))
+
+    try:
+        await handle_max_event(update)
+    except Exception as e:  # noqa: BLE001 - never bounce an update back to MAX
+        logger.error("MAX update handling failed", error=str(e))
+
     return {"ok": True}

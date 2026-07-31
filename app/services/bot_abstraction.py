@@ -66,6 +66,21 @@ def _telegram_button(btn: BotButton) -> dict:
     }
 
 
+def _max_button(btn: BotButton) -> dict:
+    """Map a BotButton to a MAX inline_keyboard button.
+
+    MAX opens a Mini App with an "open_app" button naming the bot, not a URL, so
+    the deeplink payload travels in `payload` rather than the query string.
+    """
+    if btn.mini_app_url and config.max_bot_username:
+        out = {"type": "open_app", "text": btn.text, "web_app": config.max_bot_username}
+        campaign = btn.mini_app_url.split("utm_campaign=")[-1] if "utm_campaign=" in btn.mini_app_url else None
+        if campaign:
+            out["payload"] = campaign
+        return out
+    return {"type": "link", "text": btn.text, "url": btn.url or btn.mini_app_url or config.base_url}
+
+
 class BotAbstractionLayer:
     def __init__(self):
         self.http = httpx.AsyncClient(timeout=15.0)
@@ -104,18 +119,27 @@ class BotAbstractionLayer:
         return bool(response.json().get("ok", False))
 
     async def _send_max(self, user_id: int, message: BotMessage) -> bool:
-        url = f"{config.max_base_url}/messages"
-        headers = {"Authorization": f"Bearer {config.max_bot_token}"}
-        payload: dict = {
-            "user_id": user_id,
-            "text": message.text,
-            "parse_mode": message.parse_mode,
-        }
+        """Send through the MAX Bot API. https://dev.max.ru/docs-api
+
+        Three things differ from Telegram and were all wrong here before: the
+        token goes in Authorization *without* a "Bearer" prefix, the recipient is
+        a query parameter rather than a body field, and buttons are an
+        inline_keyboard attachment instead of a flat list. Every MAX send would
+        have failed.
+        """
+        payload: dict = {"text": message.text[:4000]}
         if message.buttons:
-            payload["buttons"] = [
-                {"text": b.text, "url": b.url} for b in message.buttons
-            ]
-        response = await self.http.post(url, json=payload, headers=headers)
+            payload["attachments"] = [{
+                "type": "inline_keyboard",
+                "payload": {"buttons": [[_max_button(b) for b in message.buttons]]},
+            }]
+        response = await self.http.post(
+            f"{config.max_base_url.rstrip('/')}/messages",
+            params={"user_id": int(user_id)},
+            headers={"Authorization": config.max_bot_token or "",
+                     "Content-Type": "application/json"},
+            json=payload,
+        )
         response.raise_for_status()
         return response.status_code < 400
 
