@@ -36,12 +36,23 @@ _LIST_FIELDS = ("intent_phrases", "financial_terms", "property_terms", "negative
 # while rejecting a different toponym that merely shares a first letter.
 _CITY_PREFIX_LEN = 5
 
+# Telegram's public search matches on chat titles, so each template is a
+# different way a local chat might name itself. The first live run over
+# Геленджик surfaced 18 candidates from five queries and only one of them was
+# about buying property -- narrow phrasing was part of why.
 _QUERY_TEMPLATES = (
+    "{city} недвижимость",
     "{city} недвижимость чат",
     "{city} купить квартиру",
+    "{city} куплю квартиру",
     "{city} новостройки",
+    "{city} ЖК",
+    "{city} квартиры",
+    "{city} объявления",
     "{city} барахолка",
     "{city} чат",
+    "{city} переезд",
+    "Недвижимость {city}",
 )
 
 
@@ -84,9 +95,19 @@ def _search_queries(raw: Any, city_name: str) -> dict[str, list[str]]:
     raw = raw if isinstance(raw, dict) else {}
     result: dict[str, list[str]] = {}
     for channel in ("telegram", "vk_groups"):
+        # Keep whatever the AI produced that actually names the city, then top up
+        # with the templates. Using templates only as a fallback meant that one
+        # usable AI query crowded out eleven good ones -- and on the live geo the
+        # AI's queries were region-level and dropped entirely, so the search ran
+        # on the fallback alone.
         queries = [q for q in _clean_list(raw.get(channel)) if city.lower() in q.lower()]
-        if not queries and city:
-            queries = [t.format(city=city) for t in _QUERY_TEMPLATES]
+        if city:
+            seen = {q.lower() for q in queries}
+            for template in _QUERY_TEMPLATES:
+                candidate = template.format(city=city)
+                if candidate.lower() not in seen:
+                    queries.append(candidate)
+                    seen.add(candidate.lower())
         result[channel] = queries
     return result
 

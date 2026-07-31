@@ -91,6 +91,11 @@ class TelegramCollector:
             return url.split("t.me/")[-1].strip("/") or None
         return external or None
 
+    # Each query is one API call and results dedupe by username, so a wider
+    # sweep costs little and is the main lever on how many candidates exist
+    # at all.
+    MAX_QUERIES = 12
+
     async def search_sources(self, queries: list[str], limit: int = 10) -> list[dict]:
         """Search public chats/channels matching queries. Returns candidate dicts."""
         if not self.is_available():
@@ -99,7 +104,7 @@ class TelegramCollector:
 
         client = await self._get_client()
         seen: dict[str, dict] = {}
-        for q in queries[:5]:
+        for q in queries[:self.MAX_QUERIES]:
             try:
                 res = await client(SearchRequest(q=q, limit=limit))
             except Exception as e:  # noqa: BLE001

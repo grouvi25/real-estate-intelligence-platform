@@ -92,13 +92,17 @@ def test_sanitize_replaces_queries_that_omit_the_city():
 
 
 def test_sanitize_keeps_queries_that_name_the_city():
+    """The AI's city query is kept and a foreign-city one dropped. Templates are
+    appended on top -- see test_search_queries_combine_ai_output_with_templates."""
     from app.discovery.keyword_builder import _sanitize
 
-    kw = _sanitize(
+    queries = _sanitize(
         {"search_queries": {"telegram": ["Геленджик недвижимость чат", "Сочи чат"]}},
         "Геленджик",
-    )
-    assert kw["search_queries"]["telegram"] == ["Геленджик недвижимость чат"]
+    )["search_queries"]["telegram"]
+
+    assert queries[0] == "Геленджик недвижимость чат"
+    assert "Сочи чат" not in queries
 
 
 def test_sanitize_output_passes_quick_filter():
@@ -147,3 +151,53 @@ async def test_geo_task_persists_keywords(monkeypatch):
     async with async_session() as s:
         geo = await s.get(GeoLocation, geo_id)
         assert "Геленджик" in geo.keywords["city_variations"]
+
+
+def test_search_queries_combine_ai_output_with_templates():
+    """Templates used to be a fallback only, so a single usable AI query crowded
+    out a dozen good ones -- and on the live geo the AI's queries were
+    region-level and dropped entirely, leaving the search on the fallback alone."""
+    from app.discovery.keyword_builder import _QUERY_TEMPLATES, _sanitize
+
+    kw = _sanitize(
+        {"search_queries": {"telegram": ["Геленджик недвижимость чат",
+                                         "недвижимость Краснодарский край"]}},
+        "Геленджик")
+    queries = kw["search_queries"]["telegram"]
+
+    # The city-naming AI query survives; the region-only one is dropped.
+    assert "Геленджик недвижимость чат" in queries
+    assert not any("краснодарский" in q.lower() for q in queries)
+    # And the templates top it up rather than being skipped.
+    assert len(queries) == len(_QUERY_TEMPLATES)
+    assert all("геленджик" in q.lower() for q in queries)
+
+
+def test_search_queries_do_not_duplicate_a_template_the_ai_already_produced():
+    from app.discovery.keyword_builder import _sanitize
+
+    queries = _sanitize(
+        {"search_queries": {"telegram": ["геленджик новостройки"]}},
+        "Геленджик")["search_queries"]["telegram"]
+
+    lowered = [q.lower() for q in queries]
+    assert len(lowered) == len(set(lowered))
+
+
+def test_search_queries_cover_several_angles():
+    """Telegram search matches chat titles, so the templates have to guess the
+    different ways a local chat names itself."""
+    from app.discovery.keyword_builder import _QUERY_TEMPLATES
+
+    joined = " ".join(_QUERY_TEMPLATES).lower()
+    for angle in ("недвижимость", "куплю квартиру", "новостройки", "жк", "объявления"):
+        assert angle in joined
+    assert len(_QUERY_TEMPLATES) >= 10
+
+
+def test_collector_uses_more_than_a_handful_of_queries():
+    """The cap was 5, which was the binding limit on how many candidates could
+    exist at all: widening it took a live sweep from 18 candidates to 50."""
+    from app.collectors.telegram_collector import TelegramCollector
+
+    assert TelegramCollector.MAX_QUERIES >= 12
