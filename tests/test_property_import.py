@@ -217,3 +217,32 @@ def test_read_xlsx_roundtrip():
 def test_parse_int_rounds():
     assert parse_int("56,7") == 57
     assert parse_int(None) is None
+
+
+@pytest.mark.parametrize("header,field", [
+    # Real export headers carry units and qualifiers; exact matching missed them
+    # and a live dry-run reported "нет цены" for every row.
+    ("Цена, руб.", "price"),
+    ("Цена, ₽", "price"),
+    ("Цена руб", "price"),
+    ("Общая площадь, м2", "area_total"),
+    ("Комнат, шт", "rooms"),
+    ("Этажей в доме", "floors_total"),
+    ("Название объекта", "title"),
+    # Longest-first, so the more specific key wins over its own prefix.
+    ("Цена за м2", "price_per_sqm"),
+    ("Этаж", "floor"),
+    ("Этажей", "floors_total"),
+])
+def test_match_column_tolerates_units_and_qualifiers(header, field):
+    from app.services.property_import import match_column
+
+    assert match_column(header) == field
+
+
+def test_match_column_rejects_unrelated_headers():
+    from app.services.property_import import match_column
+
+    assert match_column("Риелтор") is None
+    assert match_column("") is None
+    assert match_column(None) is None

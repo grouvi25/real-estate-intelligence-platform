@@ -82,6 +82,31 @@ def normalize_header(name: str) -> str:
     return re.sub(r"[^a-zа-я0-9]", "", str(name or "").strip().lower())
 
 
+# Longest first, so "ценазам2" resolves to price_per_sqm rather than price, and
+# "этажей" to floors_total rather than floor.
+_HEADER_KEYS = sorted(COLUMN_MAP, key=len, reverse=True)
+
+
+def match_column(header: str) -> Optional[str]:
+    """Resolve a spreadsheet header to a model field.
+
+    Exact matching was too strict for real exports: "Цена, руб." normalises to
+    "ценаруб", which is not the key "цена", so a live dry-run reported "нет цены"
+    for every row of a perfectly good file. Headers carry units and qualifiers
+    ("Цена, руб.", "Общая площадь, м2"), so a known key appearing at the start of
+    the header is enough.
+    """
+    normalized = normalize_header(header)
+    if not normalized:
+        return None
+    if normalized in COLUMN_MAP:
+        return COLUMN_MAP[normalized]
+    for key in _HEADER_KEYS:
+        if normalized.startswith(key):
+            return COLUMN_MAP[key]
+    return None
+
+
 def parse_number(value: Any) -> Optional[float]:
     """Read a human-written number: "8 500 000 ₽", "8,5 млн", "56,3", "1 200"."""
     if value is None or isinstance(value, bool):
@@ -254,7 +279,7 @@ def map_row(row: dict, headers: list[str]) -> dict:
     """Map one spreadsheet row onto Property fields (unvalidated)."""
     values: dict[str, Any] = {}
     for raw_key, raw_value in row.items():
-        field_name = COLUMN_MAP.get(normalize_header(raw_key))
+        field_name = match_column(raw_key)
         if field_name and (raw_value is not None and str(raw_value).strip() != ""):
             values[field_name] = raw_value
 
@@ -314,4 +339,4 @@ def validate_row(mapped: dict) -> Optional[str]:
 
 
 def unmapped_columns(headers: Iterable[str]) -> list[str]:
-    return [h for h in headers if h and normalize_header(h) not in COLUMN_MAP]
+    return [h for h in headers if h and match_column(h) is None]
