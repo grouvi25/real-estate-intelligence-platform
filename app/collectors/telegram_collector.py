@@ -15,7 +15,7 @@ import structlog
 
 from app.config import config
 from app.services.channels import get_channel_adapter
-from app.services.intent_scoring import quick_filter
+from app.services.intent_scoring import content_fingerprint, quick_filter
 from app.services.signal_bus import ingest_content
 
 logger = structlog.get_logger()
@@ -195,6 +195,18 @@ class TelegramCollector:
                     continue
                 if not quick_filter(text, geo_keywords):
                     continue
+                # ...and one per distinct body: the same listing gets reposted
+                # across chats and days with a new message id each time, which
+                # put one advert into the live queue five times over.
+                fingerprint = content_fingerprint(text)
+                duplicate = await session.scalar(
+                    select(Signal.id).where(
+                        Signal.agency_id == source.agency_id,
+                        Signal.content_fingerprint == fingerprint,
+                    )
+                )
+                if duplicate:
+                    continue
                 norm = adapter.normalize(raw)
                 session.add(Signal(
                     agency_id=source.agency_id,
@@ -202,6 +214,7 @@ class TelegramCollector:
                     geo_location_id=source.geo_location_id,
                     content_unit_id=cu.id,
                     raw_text=text,
+                    content_fingerprint=fingerprint,
                     author_hash=norm.author_hash,
                     author_display_name=norm.author_display_name,
                     signal_url=raw["url"],

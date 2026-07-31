@@ -11,18 +11,33 @@ from typing import Any
 # vocabulary is missing or thin. The renter-side terms were added after the first
 # live run: a long-term rental chat produced 22 "signals" from people looking to
 # rent ("#ищу жильё", "#сниму", "на год", "БЮДЖЕТ до 25.000₽" per month).
+# Seller-side markers matter as much as renter-side ones, and cannot be left to
+# the per-geo vocabulary: the AI regenerates it each time and dropped "продам"
+# between two runs, after which "СОБСТВЕННИК! Срочно продам участок" sailed
+# through stage 1 on the live feed.
 NEGATIVE_KEYWORDS = [
-    "продаю", "сдаю", "сдам", "аренда от", "вакансия", "работа",
+    "продаю", "продам", "продаётся", "продается", "продаж",
+    "собственник", "без посредников", "торг уместен",
+    "сдаю", "сдам", "аренда от", "вакансия", "работа",
     "сниму", "ищу жильё", "ищу жилье", "сниме", "в аренду", "посуточно",
 ]
 
 # Baseline purchase intent. quick_filter unions this with the geo's own
 # intent_phrases so recall does not depend on what the AI happened to generate
 # for a given city.
+#
+# Bare "покупк" and "купить" are deliberately absent: they match seller and
+# advertising language just as well ("встречная покупка", "покупателю",
+# "купить квартиру в ЖК Черноморский"), and on the live feed they were what let
+# adverts and owner listings through.
 BUY_INTENT_KEYWORDS = [
-    "куплю", "купить", "покупк", "приобрет", "ищу квартир", "ищу дом",
-    "ищу участок", "присматрива", "рассматрива покупк", "хочу купить",
-    "переезжа", "инвестир", "подскажите район",
+    "куплю", "хочу купить", "приобрет",
+    "ищу квартир", "ищу дом", "ищу участок",
+    # First-person deliberation. "рассматрива"/"планиру" carry the intent on
+    # their own -- "рассматриваем покупку дома" does not contain the literal
+    # "рассматрива покупк" -- and sellers do not write them about themselves.
+    "присматрива", "рассматрива", "планиру",
+    "переезжа", "подскажите район",
 ]
 
 
@@ -75,3 +90,18 @@ async def full_intent_analysis(message: dict[str, Any], geo_profile: dict[str, A
         return safe_ai_parse(res, {"intent_score": 0, "segment": "not_buyer"})
     finally:
         await ai.close()
+
+
+def content_fingerprint(text: str) -> str:
+    """Stable fingerprint of a message body, for spotting reposted content.
+
+    Agencies repost the same listing verbatim across chats and days, only the
+    message id changing -- one advert reached the live signal queue five times.
+    Whitespace, case and decoration are normalised so cosmetic edits still
+    collapse onto the same fingerprint.
+    """
+    import hashlib
+    import re
+
+    normalized = re.sub(r"[^\w]+", " ", (text or "").lower(), flags=re.UNICODE).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
