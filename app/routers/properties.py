@@ -10,7 +10,7 @@ import uuid
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -25,6 +25,9 @@ router = APIRouter()
 
 PROPERTY_STATUSES = {"active", "reserved", "sold", "archived", "draft"}
 MAX_PAGE = 200
+MAX_IMPORT_BYTES = 10_000_000
+# Enough to show the pattern of what went wrong without returning a novel.
+MAX_IMPORT_ERRORS = 50
 
 
 class UpdatePropertyRequest(BaseModel):
@@ -189,3 +192,89 @@ async def get_property(
 ):
     """Fetch one object. The Mini App used to pull the whole list and search it."""
     return _property_summary(await _get_scoped_property(property_id, current, session))
+
+
+@router.post("/import")
+async def import_properties(
+    file: UploadFile = File(...),
+    dry_run: bool = Form(default=False),
+    geo_location_id: Optional[uuid.UUID] = Form(default=None),
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Bulk-load the agency catalogue from CSV or XLSX.
+
+    Matching, pitches, offers and the funnel all read from properties, so an
+    empty catalogue leaves the buyer half of the system with nothing to offer.
+    Agencies keep their inventory in spreadsheets, and this is how it gets in
+    without a developer.
+
+    `dry_run` reports exactly what would happen without writing, so a bad column
+    mapping is visible before it reaches the database. Rows are matched on
+    source_url when present, otherwise on (title, address), which makes
+    re-uploading a corrected file an update rather than a duplicate.
+    """
+    from app.services.property_import import (
+        ImportResult, RowError, map_row, read_rows, unmapped_columns, validate_row,
+    )
+
+    raw = await file.read()
+    if not raw:
+        raise ValidationError("file", "файл пуст")
+    if len(raw) > MAX_IMPORT_BYTES:
+        raise ValidationError("file", f"файл больше {MAX_IMPORT_BYTES // 1_000_000} МБ")
+
+    try:
+        rows, headers = read_rows(raw, file.filename or "catalogue.csv")
+    except ValueError as e:
+        raise ValidationError("file", str(e)) from e
+    if not rows:
+        raise ValidationError("file", "в файле нет строк с данными")
+
+    agency_id = uuid.UUID(current.agency_id)
+    result = ImportResult(unmapped_columns=unmapped_columns(headers))
+
+    for offset, row in enumerate(rows):
+        row_number = offset + 2  # 1-based, and the header occupies row 1
+        mapped = map_row(row, headers)
+        problem = validate_row(mapped)
+        if problem:
+            result.skipped += 1
+            if len(result.errors) < MAX_IMPORT_ERRORS:
+                result.errors.append(RowError(row=row_number, message=problem))
+            continue
+
+        existing = None
+        if mapped.get("source_url"):
+            existing = await session.scalar(
+                select(Property).where(Property.agency_id == agency_id,
+                                       Property.source_url == mapped["source_url"])
+            )
+        else:
+            existing = await session.scalar(
+                select(Property).where(Property.agency_id == agency_id,
+                                       Property.title == mapped["title"],
+                                       Property.address == mapped.get("address"))
+            )
+
+        if existing is not None:
+            result.updated += 1
+            if not dry_run:
+                for key, value in mapped.items():
+                    setattr(existing, key, value)
+                if geo_location_id:
+                    existing.geo_location_id = geo_location_id
+        else:
+            result.created += 1
+            if not dry_run:
+                session.add(Property(agency_id=agency_id, geo_location_id=geo_location_id,
+                                     **mapped))
+
+    if dry_run:
+        await session.rollback()
+    else:
+        await session.commit()
+
+    logger.info("Property import", agency_id=str(agency_id), dry_run=dry_run,
+                created=result.created, updated=result.updated, skipped=result.skipped)
+    return {"dry_run": dry_run, **result.as_dict()}
