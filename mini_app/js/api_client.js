@@ -91,6 +91,8 @@
       api.request(`/leads/${leadId}/matches/${propId}/feedback` + qs(f), 'POST'),
     processAlternative: (id) => api.request(`/leads/${id}/process-alternative`, 'POST'),
     leadDocumentHtml: (id) => api.requestText(`/leads/${id}/document?format=html`),
+    createContract: (body) => api.request('/documents/preliminary-contract', 'POST', body),
+    createChecklist: (propId) => api.request(`/documents/checklist/${propId}`, 'POST'),
 
     // Deals (Knowledge Moat)
     recordOutcome: (leadId, body) => api.request(`/deals/${leadId}/outcome`, 'POST', body),

@@ -39,7 +39,8 @@ Screens.propertyDetail = async function (params) {
       <div class="item__sub" style="margin-top:8px">Снижение цены ≥ 5% запускает переподбор для подходящих лидов.</div>
     </div>
     <button class="btn btn--secondary btn--block" id="report" style="margin-top:12px">${UI.icon('file')} Отчёт по объекту</button>
-    <button class="btn btn--secondary btn--block" id="listing" style="margin-top:8px">${UI.icon('sparkles')} Сгенерировать объявление</button>`,
+    <button class="btn btn--secondary btn--block" id="listing" style="margin-top:8px">${UI.icon('sparkles')} Сгенерировать объявление</button>
+    <button class="btn btn--secondary btn--block" id="checklist" style="margin-top:8px">${UI.icon('check')} Чек-лист проверки документов</button>`,
     () => {
       document.getElementById('save').onclick = async () => {
         const price = parseInt(document.getElementById('price').value, 10);
@@ -60,6 +61,17 @@ Screens.propertyDetail = async function (params) {
               body.innerHTML = ''; body.appendChild(iframe); iframe.srcdoc = html;
             } catch (e) { document.querySelector('.sheet__body').innerHTML = UI.errorState(e.message); }
           });
+      };
+      document.getElementById('checklist').onclick = async () => {
+        const btn = document.getElementById('checklist');
+        btn.disabled = true;
+        try {
+          const doc = await API.createChecklist(p.id);
+          UI.sheet('Чек-лист готов',
+            `<p class="muted">${p.is_new_build ? 'Новостройка' : 'Вторичка'} · ${UI.esc(doc.format.toUpperCase())}</p>
+             <a class="btn btn--block" href="${UI.esc(doc.pdf_url)}" target="_blank" rel="noopener">Открыть документ</a>`);
+        } catch (e) { UI.toast('Ошибка: ' + e.message); }
+        btn.disabled = false;
       };
       document.getElementById('listing').onclick = () => {
         UI.sheet('Генерация объявления', `
