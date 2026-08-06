@@ -351,3 +351,50 @@ async def test_a_candidate_with_a_closed_wall_is_still_sampled():
     await c._enrich([cand])
 
     assert cand["samples"] == ["Куплю двушку в Геленджике до 8 млн, наличка"]
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limited_call_is_retried(monkeypatch):
+    """A service key gets 3 requests a second and one discovery pass over a city
+    makes ~70 back to back, so error 6 arrives in normal use. Dropping the call
+    would quietly cost a group its samples -- or the group itself."""
+    import app.collectors.vk_collector as vk
+
+    monkeypatch.setattr(vk, "RATE_LIMIT_PAUSE", 0)
+    c = _collector({})
+    replies = [
+        {"error": {"error_code": 6, "error_msg": "Too many requests per second"}},
+        {"response": {"items": [{"id": 1, "text": "Куплю квартиру в Геленджике"}]}},
+    ]
+
+    async def get(url, params=None):
+        c._client.calls.append((url.rsplit("/", 1)[-1], params))
+        payload = replies.pop(0)
+
+        class _Res:
+            def raise_for_status(self):
+                return None
+
+            @staticmethod
+            def json():
+                return payload
+
+        return _Res()
+
+    c._client.get = get
+
+    response = await c._call("wall.get", domain="gel_realty")
+
+    assert response["items"][0]["text"].startswith("Куплю")
+    assert len(c._client.calls) == 2, "первый ответ — лимит, второй — данные"
+
+
+@pytest.mark.asyncio
+async def test_a_call_that_keeps_being_throttled_gives_up(monkeypatch):
+    import app.collectors.vk_collector as vk
+
+    monkeypatch.setattr(vk, "RATE_LIMIT_PAUSE", 0)
+    c = _collector({"wall.get": {"error": {"error_code": 6, "error_msg": "Too many"}}})
+
+    assert await c._call("wall.get", domain="gel_realty") is None
+    assert len(c._client.calls) == vk.RATE_LIMIT_RETRIES + 1

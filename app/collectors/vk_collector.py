@@ -32,6 +32,7 @@ every method is a no-op, so dev and CI are unaffected.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 import structlog
@@ -47,6 +48,11 @@ API_BASE = "https://api.vk.com/method"
 # live API with a real service token: groups.search answers 15 "Access denied",
 # not the 28 the schema suggested -- so the list covers both.
 TOKEN_TOO_WEAK = (5, 15, 28)
+# "Too many requests per second" -- 3/s for a service key, and a discovery pass
+# makes them back to back.
+TOO_MANY_REQUESTS = 6
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_PAUSE = 0.4
 # VK rejects long bursts; discovery runs weekly and collection every 10 minutes,
 # so a small page size keeps well inside the service-token limits.
 SEARCH_LIMIT = 20
@@ -87,7 +93,7 @@ class VkCollector:
             self._client = httpx.AsyncClient(timeout=20.0)
         return self._client
 
-    async def _call(self, method: str, **params) -> Optional[dict]:
+    async def _call(self, method: str, attempt: int = 1, **params) -> Optional[dict]:
         """One API call. Returns the `response` payload, or None on any failure.
 
         VK reports errors with HTTP 200 and an `error` object, so the status code
@@ -110,6 +116,13 @@ class VkCollector:
         if "error" in body:
             err = body["error"]
             code = err.get("error_code")
+            if code == TOO_MANY_REQUESTS and attempt <= RATE_LIMIT_RETRIES:
+                # A service key gets 3 requests a second. One discovery pass over
+                # a city is ~70 calls back to back, so this is reached in normal
+                # use, and dropping the call would quietly cost a group its
+                # samples -- or lose the group altogether.
+                await asyncio.sleep(RATE_LIMIT_PAUSE * attempt)
+                return await self._call(method, attempt=attempt + 1, **params)
             if code in TOKEN_TOO_WEAK:
                 self.token_too_weak = True
                 # Worth saying outright: the difference between "VK is broken"
