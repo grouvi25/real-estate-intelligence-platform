@@ -5,7 +5,7 @@ const LEAD_TABS = [['', 'Все'], ['new', 'Новые'], ['in_progress', 'В р
   ['qualified', 'Квалиф.'], ['deal', 'Сделки']];
 
 Screens.leads = async function () {
-  UI.setHeader('Лиды', '');
+  UI.setHeader('Лиды', '', { actionIcon: 'plus', onAction: () => Router.go('leads/new') });
   let cur = Screens._leadTab || '';
   const seg = () => `<div class="segmented" style="margin-bottom:12px">${LEAD_TABS.map(([v, l]) =>
     `<div class="segmented__opt ${v === cur ? 'segmented__opt--active' : ''}" data-tab="${v}">${l}</div>`).join('')}</div>`;
@@ -25,7 +25,8 @@ Screens.leads = async function () {
           </div>
           <span class="item__chev">${UI.icon('chevron')}</span>
         </div>
-      </div>`, { icon: 'leads', title: 'Лидов нет', sub: 'Квалифицируйте сигнал, чтобы создать лид' });
+      </div>`, { icon: 'leads', title: 'Лидов нет',
+                 sub: 'Квалифицируйте сигнал или заведите лида вручную по кнопке «+»' });
     Router.bindGo();
   }
 
@@ -38,6 +39,88 @@ Screens.leads = async function () {
     });
     load();
   });
+};
+
+// TZ 30 screen /leads/new. Until this existed a lead could only arrive from a
+// Telegram signal or a lead magnet, so a manager who took a phone call had
+// nowhere to put that person.
+const LEAD_SOURCES = [['incoming_call', 'Входящий звонок'], ['manual', 'Вручную'],
+  ['referral', 'По рекомендации']];
+const LEAD_SEGMENTS = [['', 'Не указан'], ['family', 'Семья'], ['investor', 'Инвестор'],
+  ['relocant', 'Переезжающий'], ['remote_worker', 'Удалёнщик'], ['senior', 'Пенсионер'],
+  ['alternative', 'Альтернатива'], ['student_parent', 'Родитель студента']];
+const LEAD_GOALS = [['', 'Не указана'], ['own', 'Для себя'], ['invest', 'Инвестиция'],
+  ['rent_out', 'Под сдачу'], ['relocate', 'Переезд'], ['children', 'Детям']];
+const LEAD_URGENCY = [['hot', 'Горячий'], ['warm', 'Тёплый'], ['cold', 'Холодный']];
+
+const opts = (list, sel) => list.map(([v, l]) =>
+  `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
+
+Screens.leadNew = async function () {
+  UI.setHeader('Новый лид', 'Звонок, встреча, рекомендация', { back: true });
+  UI.render(`
+    <div class="card">
+      <div class="field"><label>Имя *</label><input id="ln-name" placeholder="Как зовут"></div>
+      <div class="field"><label>Телефон</label><input id="ln-phone" type="tel" placeholder="+7 ..."></div>
+      <div class="field"><label>Telegram</label><input id="ln-tg" placeholder="@username"></div>
+      <div class="item__sub">Нужен телефон или Telegram — иначе с лидом не связаться.</div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="field"><label>Откуда</label><select id="ln-src">${opts(LEAD_SOURCES, 'incoming_call')}</select></div>
+      <div class="field"><label>Сегмент</label><select id="ln-seg">${opts(LEAD_SEGMENTS, '')}</select></div>
+      <div class="field"><label>Цель покупки</label><select id="ln-goal">${opts(LEAD_GOALS, '')}</select></div>
+      <div class="field"><label>Срочность</label><select id="ln-urg">${opts(LEAD_URGENCY, 'warm')}</select></div>
+      <div class="row" style="gap:8px">
+        <div class="field grow"><label>Бюджет от, ₽</label><input id="ln-bmin" type="number" inputmode="numeric"></div>
+        <div class="field grow"><label>до, ₽</label><input id="ln-bmax" type="number" inputmode="numeric"></div>
+      </div>
+      <div class="field"><label>Заметка</label><input id="ln-note" placeholder="Что важно помнить"></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <label class="row" style="gap:10px;align-items:flex-start">
+        <input type="checkbox" id="ln-consent">
+        <span>Клиент дал согласие на обработку персональных данных (152-ФЗ)</span>
+      </label>
+    </div>
+
+    <button class="btn btn--block" id="ln-save" style="margin-top:14px">${UI.icon('check')} Создать лид</button>`,
+    () => {
+      document.getElementById('ln-save').onclick = async () => {
+        const val = (id) => document.getElementById(id).value.trim();
+        const num = (id) => { const n = parseInt(val(id), 10); return isNaN(n) ? null : n; };
+
+        if (!val('ln-name')) { UI.toast('Укажите имя'); return; }
+        if (!val('ln-phone') && !val('ln-tg')) { UI.toast('Нужен телефон или Telegram'); return; }
+        if (!document.getElementById('ln-consent').checked) {
+          UI.toast('Без согласия клиента лид создать нельзя'); return;
+        }
+        const bmin = num('ln-bmin'), bmax = num('ln-bmax');
+        if (bmin && bmax && bmin > bmax) { UI.toast('Бюджет «от» больше «до»'); return; }
+
+        const btn = document.getElementById('ln-save');
+        btn.disabled = true;
+        try {
+          const r = await API.createLeadManual({
+            name: val('ln-name'),
+            phone: val('ln-phone') || null,
+            telegram_username: val('ln-tg') || null,
+            source_type: val('ln-src'),
+            segment: val('ln-seg') || null,
+            purchase_goal: val('ln-goal') || null,
+            urgency: val('ln-urg'),
+            budget_min: bmin, budget_max: bmax,
+            note: val('ln-note') || null,
+            consent_text: 'Согласие получено менеджером при контакте (152-ФЗ)',
+          });
+          UI.toast(r.is_duplicate ? 'Такой лид уже был — открываю его' : 'Лид создан');
+          Router.go('leads/' + r.lead_id);
+        } catch (e) {
+          UI.toast('Ошибка: ' + e.message); btn.disabled = false;
+        }
+      };
+    });
 };
 
 Screens.leadDetail = async function (params) {

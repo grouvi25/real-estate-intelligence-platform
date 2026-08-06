@@ -104,6 +104,7 @@
 
     // Leads
     leads: (f) => api.request('/leads' + qs(f)),
+    createLeadManual: (body) => api.request('/leads', 'POST', body),
     lead: (id) => api.request(`/leads/${id}`),
     setLeadStatus: (id, body) => api.request(`/leads/${id}/status`, 'PATCH', body),
     matchFeedback: (leadId, propId, f) =>

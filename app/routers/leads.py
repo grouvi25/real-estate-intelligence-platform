@@ -34,6 +34,31 @@ REJECTION_CATEGORIES = {
 MAX_PAGE = 200
 
 
+# migrations/001_init.sql: leads.source_type / segment / purchase_goal / urgency
+MANUAL_SOURCES = {"manual", "incoming_call", "referral"}
+SEGMENTS = {"family", "investor", "relocant", "remote_worker", "senior",
+            "alternative", "student_parent"}
+PURCHASE_GOALS = {"own", "invest", "rent_out", "relocate", "children"}
+URGENCIES = {"hot", "warm", "cold"}
+
+
+class CreateLeadRequest(BaseModel):
+    """A buyer the agency met outside Telegram: a call, a walk-in, a referral."""
+
+    name: str
+    phone: Optional[str] = None
+    telegram_username: Optional[str] = None
+    consent_text: str
+    source_type: str = "incoming_call"
+    segment: Optional[str] = None
+    purchase_goal: Optional[str] = None
+    urgency: str = "warm"
+    budget_min: Optional[int] = None
+    budget_max: Optional[int] = None
+    geo_location_id: Optional[uuid.UUID] = None
+    note: Optional[str] = None
+
+
 class UpdateStatusRequest(BaseModel):
     status: str
     rejection_reason: Optional[str] = None
@@ -59,6 +84,89 @@ def _lead_summary(lead: Lead) -> dict:
         "urgency": lead.urgency,
         "created_at": lead.created_at.isoformat(),
     }
+
+
+@router.post("", status_code=201)
+async def create_lead(
+    req: CreateLeadRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Enter a lead by hand. TZ 30 screen `/leads/new`.
+
+    Leads could only arrive from a Telegram signal or a lead-magnet subscribe, so
+    a manager who took a phone call had no way to put that person into the system
+    at all -- even though leads.source_type has allowed 'manual' and
+    'incoming_call' since migration 001.
+
+    Consent is mandatory here exactly as it is on the public lead magnets: the
+    manager states how it was obtained, and it is stored with the version and
+    timestamp (152-FZ).
+    """
+    from datetime import datetime, timezone
+
+    from app.config import config
+    from app.services.dedup_service import check_and_mark_duplicate
+
+    if req.source_type not in MANUAL_SOURCES:
+        raise ValidationError("source_type", f"недопустимый источник: {req.source_type}")
+    if req.segment and req.segment not in SEGMENTS:
+        raise ValidationError("segment", f"недопустимый сегмент: {req.segment}")
+    if req.purchase_goal and req.purchase_goal not in PURCHASE_GOALS:
+        raise ValidationError("purchase_goal", f"недопустимая цель: {req.purchase_goal}")
+    if req.urgency not in URGENCIES:
+        raise ValidationError("urgency", f"недопустимая срочность: {req.urgency}")
+    if not req.name.strip():
+        raise ValidationError("name", "укажите имя")
+    if not (req.phone or req.telegram_username):
+        raise ValidationError("phone", "укажите телефон или telegram — иначе с лидом не связаться")
+    if not req.consent_text.strip():
+        raise ValidationError("consent_text", "зафиксируйте, как получено согласие")
+    if req.budget_min and req.budget_max and req.budget_min > req.budget_max:
+        raise ValidationError("budget_min", "минимальный бюджет больше максимального")
+
+    lead = Lead(
+        agency_id=uuid.UUID(current.agency_id),
+        geo_location_id=req.geo_location_id,
+        source_type=req.source_type,
+        source_platform="manual",
+        segment=req.segment,
+        purchase_goal=req.purchase_goal,
+        urgency=req.urgency,
+        budget_min=req.budget_min,
+        budget_max=req.budget_max,
+        status="new",
+        assigned_to=uuid.UUID(current.manager_id),
+        buyer_profile={"note": req.note} if req.note else {},
+        consent_given=True,
+        consent_given_at=datetime.now(timezone.utc),
+        consent_text=req.consent_text,
+        consent_version=config.consent_version,
+    )
+    # Setters encrypt and, for the phone, maintain the blind index used by dedup.
+    lead.name = req.name.strip()
+    if req.phone:
+        lead.phone = req.phone.strip()
+    if req.telegram_username:
+        lead.telegram_username = req.telegram_username.strip().lstrip("@")
+
+    # Checked before the insert: the helper merges the new source into the
+    # existing lead and expects the newcomer never to reach the table.
+    existing, is_duplicate = await check_and_mark_duplicate(session, lead, req.source_type)
+    if is_duplicate:
+        logger.info("Manual lead is a duplicate", lead_id=str(existing.id),
+                    source=req.source_type)
+        return {"lead_id": str(existing.id), "is_duplicate": True, "matching_queued": False}
+
+    session.add(lead)
+    await session.commit()
+
+    from worker.tasks.matching_tasks import run_matching_for_lead
+
+    run_matching_for_lead.delay(str(lead.id))
+    logger.info("Lead created manually", lead_id=str(lead.id), source=req.source_type)
+
+    return {"lead_id": str(lead.id), "is_duplicate": False, "matching_queued": True}
 
 
 @router.get("")
