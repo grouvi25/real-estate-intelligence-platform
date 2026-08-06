@@ -134,6 +134,15 @@ async def collect_findings(session, agency_id: Optional[str] = None) -> list[Fin
             "Yandex Cloud не настроен: логи только в контейнере, файлы на локальном диске",
             "Смонтируйте ключ сервисного аккаунта (роли logging.writer, storage.editor)",
         ))
+    # Without the key the VK collector is a no-op and the VK half of discovery
+    # returns nothing -- both quietly, in a log line no one reads. Half the
+    # channels being off is exactly what this screen exists to show.
+    if _is_placeholder(config.vk_service_token):
+        findings.append(Finding(
+            "vk", "warning",
+            "ВКонтакте не подключён — ищем и читаем только Telegram",
+            "Задайте VK_SERVICE_TOKEN (сервисный ключ мини-приложения на dev.vk.com)",
+        ))
     if _is_placeholder(config.max_bot_token):
         findings.append(Finding(
             "max", "warning",
