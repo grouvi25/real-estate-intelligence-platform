@@ -223,3 +223,38 @@ def test_real_buyer_phrasings_survive_stage_one(text):
 ])
 def test_broader_intent_does_not_let_renters_or_sellers_in(text):
     assert quick_filter(text, LIVE_GEO) is False
+
+
+# --- the score and the segment must not contradict each other ----------------
+
+def test_a_scored_buyer_is_not_labelled_not_buyer():
+    """Seen live: "Запрос: квартира в г.Геленджик бюджет до 5 млн" came back as
+    score 80, urgency hot, segment not_buyer -- the model scored the message but
+    left the segment at the schema's example value. Matching awards +25 for a
+    segment the property targets, so the stray label quietly costs a real buyer
+    those points."""
+    from app.services.intent_scoring import _reconcile
+
+    assert _reconcile({"intent_score": 80, "segment": "not_buyer"})["segment"] is None
+    assert _reconcile({"intent_score": 40, "segment": "not_buyer"})["segment"] is None
+
+
+def test_a_genuine_non_buyer_keeps_its_label():
+    from app.services.intent_scoring import _reconcile
+
+    assert _reconcile({"intent_score": 0, "segment": "not_buyer"})["segment"] == "not_buyer"
+    assert _reconcile({"intent_score": 19, "segment": "not_buyer"})["segment"] == "not_buyer"
+
+
+def test_a_real_segment_is_left_alone():
+    from app.services.intent_scoring import _reconcile
+
+    assert _reconcile({"intent_score": 85, "segment": "family"})["segment"] == "family"
+    assert _reconcile({"intent_score": 0, "segment": "investor"})["segment"] == "investor"
+
+
+def test_reconcile_survives_a_malformed_score():
+    from app.services.intent_scoring import _reconcile
+
+    assert _reconcile({"intent_score": None, "segment": "not_buyer"})["segment"] == "not_buyer"
+    assert _reconcile({"intent_score": "высокий", "segment": "not_buyer"})["segment"] == "not_buyer"

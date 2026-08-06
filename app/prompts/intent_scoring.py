@@ -40,6 +40,9 @@ SCORING (только когда автор пишет о себе):
 - текст не от первого лица: автор не пишет о собственной покупке;
 - продаю / сдаю / сдам / аренда от / сниму / ищу жильё в аренду / вакансия.
 
+СОГЛАСОВАННОСТЬ: segment "not_buyer" допустим ТОЛЬКО при intent_score 0-19.
+Если ставишь 40 и выше — выбери реальный сегмент из списка.
+
 ВОЗВРАЩАЙ СТРОГО JSON БЕЗ MARKDOWN:
 {"intent_score":0,"segment":"not_buyer","urgency":"cold","budget_min":null,"budget_max":null,
 "location_interest":null,"property_type":null,"rooms":null,"mortgage_mentioned":false,
