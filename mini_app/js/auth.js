@@ -16,6 +16,7 @@ function inviteToken() {
 }
 
 async function authenticate() {
+  try { window._agency = JSON.parse(sessionStorage.getItem('agency') || 'null'); } catch (e) { /* ignore */ }
   const cached = api.loadToken ? await api.loadToken() : null;
   if (cached) return cached;
   const res = await api.request('/auth/platform', 'POST', {
@@ -24,5 +25,11 @@ async function authenticate() {
     invite: inviteToken(),
   });
   api.setToken(res.token);
+  // Kept for the Профиль header: an agency has a name, and a person reading the
+  // screen should see it rather than its id.
+  if (res.agency) {
+    window._agency = res.agency;
+    try { sessionStorage.setItem('agency', JSON.stringify(res.agency)); } catch (e) { /* private mode */ }
+  }
   return res.token;
 }

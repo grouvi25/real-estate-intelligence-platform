@@ -1,4 +1,10 @@
 // Mini App UI helpers + primitives. Global `UI`. No bundler.
+//
+// Two rules the screens rely on:
+//   * a skeleton has the shape of the thing it stands in for, so the layout
+//     does not jump when the data lands;
+//   * anything that can fail renders a state that says what to do next —
+//     an empty with an action, an error with «Повторить».
 const UI = (() => {
   const esc = (s) => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -7,26 +13,84 @@ const UI = (() => {
   const money = (v) => (v == null || isNaN(v))
     ? '—' : Math.round(v).toLocaleString('ru-RU') + ' ₽';
 
+  // 7 900 000 ₽ is hard to scan in a list; 7,9 млн is not.
+  const moneyShort = (v) => {
+    if (v == null || isNaN(v)) return '—';
+    if (v >= 1e6) {
+      const m = v / 1e6;
+      return (m >= 10 ? Math.round(m) : Number(m.toFixed(1))).toLocaleString('ru-RU') + ' млн ₽';
+    }
+    if (v >= 1e3) return Math.round(v / 1e3).toLocaleString('ru-RU') + ' тыс ₽';
+    return money(v);
+  };
+
   const initials = (name) => {
     const p = String(name || '?').trim().split(/\s+/);
     return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase();
   };
 
+  // «2 часа назад» beats an ISO timestamp when you are scanning a feed.
+  const ago = (iso) => {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return '';
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return 'только что';
+    if (m < 60) return `${m} мин назад`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h} ч назад`;
+    const d = Math.round(h / 24);
+    if (d < 8) return `${d} дн назад`;
+    return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  };
+
+  const dateTime = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
+
+  // "1 срочная", "2 срочные", "5 срочных" — the app writes Russian, so it
+  // declines. plural(n, ['срочная', 'срочные', 'срочных'])
+  const plural = (n, forms) => {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a > 10 && a < 20) return forms[2];
+    if (b > 1 && b < 5) return forms[1];
+    if (b === 1) return forms[0];
+    return forms[2];
+  };
+  const count = (n, forms) => `${n} ${plural(n, forms)}`;
+
   const icon = (n, cls) => Icons.svg(n, cls);
 
   // Skeletons ----------------------------------------------------------------
+  const sk = (cls, style) => `<div class="skel ${cls || ''}"${style ? ` style="${style}"` : ''}></div>`;
   const skelCard = () =>
-    `<div class="card"><div class="skel skel-line lg"></div><div class="skel skel-line md"></div>` +
-    `<div class="skel skel-line sm"></div></div>`;
+    `<div class="card">${sk('skel-line lg')}${sk('skel-line md')}${sk('skel-line sm')}</div>`;
   const skelList = (n = 5) => Array.from({ length: n }, () =>
-    `<div class="card"><div class="row"><div class="skel" style="width:40px;height:40px;border-radius:12px"></div>` +
-    `<div class="grow"><div class="skel skel-line md"></div><div class="skel skel-line sm"></div></div></div></div>`
+    `<div class="card"><div class="row">${sk('skel-sq')}` +
+    `<div class="grow">${sk('skel-line md')}${sk('skel-line sm')}</div></div></div>`
+  ).join('');
+  // A signal card: chips on top, three lines of text.
+  const skelFeed = (n = 4) => Array.from({ length: n }, () =>
+    `<div class="card"><div class="row gap-2">${sk('skel-chip', 'width:58px')}${sk('skel-chip')}</div>` +
+    `<div class="mt-3">${sk('skel-line lg')}${sk('skel-line lg')}${sk('skel-line md')}</div></div>`
   ).join('');
   const skelStats = () =>
     `<div class="stats">${Array.from({ length: 4 }, () =>
-      `<div class="stat"><div class="skel" style="width:34px;height:34px;border-radius:10px"></div>` +
-      `<div class="skel skel-line md" style="margin-top:10px"></div><div class="skel skel-line sm"></div></div>`
+      `<div class="stat">${sk('skel-sq', 'width:36px;height:36px')}` +
+      `<div class="grow">${sk('skel-line md')}${sk('skel-line sm')}</div></div>`
     ).join('')}</div>`;
+  const skelTiles = (n = 4) =>
+    `<div class="tiles">${Array.from({ length: n }, () =>
+      `<div class="tile">${sk('skel-sq', 'width:34px;height:34px')}${sk('skel-line md')}${sk('skel-line sm')}</div>`
+    ).join('')}</div>`;
+  const skelForm = (n = 3) =>
+    `<div class="card">${Array.from({ length: n }, () =>
+      `<div class="field">${sk('skel-line sm')}${sk('', 'height:44px;border-radius:12px')}</div>`
+    ).join('')}${sk('skel-btn', 'margin-top:12px')}</div>`;
 
   // Chips --------------------------------------------------------------------
   const URG = { hot: ['hot', 'flame', 'Горячий'], warm: ['warm', 'clock', 'Тёплый'], cold: ['cold', 'clock', 'Холодный'] };
@@ -40,13 +104,40 @@ const UI = (() => {
     active: 'Активен', reserved: 'Бронь', sold: 'Продан', draft: 'Черновик',
     none: '—', draft_reply: 'Черновик', pending: 'В очереди', sent: 'Отправлен',
     failed: 'Ошибка', skipped: 'Пропущен', suggested: 'Предложен', accepted: 'Принят', presented: 'Показан',
+    sandbox: 'Песочница', paused: 'Остановлен', blocked: 'Заблокирован', dead: 'Мёртвый',
   };
   const SEG_RU = {
     family: 'Семья', investor: 'Инвестор', relocant: 'Переезд', remote_worker: 'Удалёнка',
     senior: 'Взрослые', alternative: 'Альтернатива', student_parent: 'Студ.+родители', not_buyer: 'Не покупатель',
   };
-  const statusChip = (s) => `<span class="chip">${esc(STATUS_RU[s] || s || '—')}</span>`;
+  const TASK_RU = {
+    call: 'Звонок', document: 'Документы', showing: 'Показ', follow_up: 'Напоминание',
+    escalation: 'Эскалация', meeting: 'Встреча', reply: 'Ответ', other: 'Задача',
+  };
+  const CHANNEL_RU = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX', forum: 'Форум' };
+  const GEO_RU = { base: 'основной', sales: 'продажи', partner: 'партнёрский', watch: 'наблюдение' };
+  // utm_source values as they are stored, in words a manager recognises.
+  const UTM_RU = {
+    telegram_bot: 'Телеграм-бот', bot_deeplink: 'Ссылка из бота', vk: 'ВКонтакте',
+    telegram: 'Telegram', max: 'MAX', manual: 'Вручную', incoming_call: 'Входящий звонок',
+    referral: 'Рекомендация', lm2_mortgage: 'Ипотечный калькулятор', lm6_roi: 'ROI-калькулятор',
+  };
+  const STATUS_TONE = {
+    deal: 'success', qualified: 'accent', active: 'success', sent: 'success', accepted: 'success',
+    rejected: 'danger', failed: 'danger', blocked: 'danger', dead: 'danger',
+  };
+  const statusChip = (s) => {
+    const tone = STATUS_TONE[s];
+    return `<span class="chip${tone ? ` chip--${tone}` : ''}">${esc(STATUS_RU[s] || s || '—')}</span>`;
+  };
   const seg = (s) => SEG_RU[s] || s || '';
+  const taskType = (t) => TASK_RU[t] || t || 'Задача';
+  const channel = (c) => CHANNEL_RU[c] || c || '';
+  const geoType = (t) => GEO_RU[t] || t || '';
+  const utmSource = (u) => UTM_RU[u] || u || 'Без метки';
+  const channelChip = (c) => c
+    ? `<span class="chip">${icon(c === 'vk' ? 'signals' : 'send')}${esc(channel(c))}</span>` : '';
+
   const scoreEl = (v) => {
     if (v == null) return '<span class="score score--lo"><b>—</b></span>';
     const k = v >= 70 ? 'hi' : v >= 45 ? 'mid' : 'lo';
@@ -56,14 +147,34 @@ const UI = (() => {
   const list = (items, tmpl, emptyOpts) =>
     (items && items.length) ? items.map(tmpl).join('') : empty(emptyOpts);
 
+  // An empty screen should say what to do about it, not just that it is empty.
   const empty = (o) => {
     o = o || {};
+    const action = o.actionLabel
+      ? `<button class="btn" id="${o.actionId || 'empty-action'}">${o.actionIcon ? icon(o.actionIcon) : ''}${esc(o.actionLabel)}</button>`
+      : '';
     return `<div class="empty">${icon(o.icon || 'file')}<div class="empty__t">${esc(o.title || 'Пусто')}</div>` +
-      (o.sub ? `<div class="empty__s">${esc(o.sub)}</div>` : '') + '</div>';
+      (o.sub ? `<div class="empty__s">${esc(o.sub)}</div>` : '') + action + '</div>';
   };
-  const errorState = (msg) =>
-    `<div class="empty">${icon('close')}<div class="empty__t err-text">Ошибка</div>` +
-    `<div class="empty__s">${esc(msg || 'Не удалось загрузить')}</div></div>`;
+  const errorState = (msg, retryId) =>
+    `<div class="empty">${icon('close')}<div class="empty__t err-text">Не удалось загрузить</div>` +
+    `<div class="empty__s">${esc(msg || 'Проверьте соединение')}</div>` +
+    `<button class="btn btn--secondary" id="${retryId || 'retry'}">${icon('refresh')} Повторить</button></div>`;
+
+  // Wraps a screen body: renders skeleton, awaits, renders, and turns a failure
+  // into a retry instead of a blank screen.
+  const load = async (skeleton, fetcher, renderer) => {
+    render(skeleton);
+    try {
+      const data = await fetcher();
+      renderer(data);
+    } catch (e) {
+      render(errorState(e && e.message), () => {
+        const b = document.getElementById('retry');
+        if (b) b.onclick = () => load(skeleton, fetcher, renderer);
+      });
+    }
+  };
 
   const render = (html, wire) => {
     const v = document.getElementById('view');
@@ -71,13 +182,30 @@ const UI = (() => {
     if (typeof wire === 'function') wire();
   };
 
+  // Disables a button for the duration of an action, so a double tap cannot
+  // send two requests, and restores it on failure.
+  const busy = async (btn, fn) => {
+    if (!btn) return fn();
+    const label = btn.innerHTML;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    try {
+      return await fn();
+    } finally {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      btn.innerHTML = label;
+    }
+  };
+
   const setHeader = (title, sub, opts) => {
     opts = opts || {};
     const h = document.getElementById('hdr');
     if (!h) return;
-    const back = opts.back ? `<button class="header__btn" id="hdr-back">${icon('back')}</button>` : '';
+    const back = opts.back
+      ? `<button class="header__btn" id="hdr-back" aria-label="Назад">${icon('back')}</button>` : '';
     const action = opts.actionIcon
-      ? `<button class="header__btn" id="hdr-action" aria-label="action">${icon(opts.actionIcon)}</button>` : '';
+      ? `<button class="header__btn" id="hdr-action" aria-label="${esc(opts.actionLabel || 'Действие')}">${icon(opts.actionIcon)}</button>` : '';
     h.innerHTML = `${back}<div class="header__l"><h1 class="header__title ellipsis">${esc(title)}</h1>` +
       (sub ? `<div class="header__sub ellipsis">${esc(sub)}</div>` : '') + `</div>${action}`;
     const b = document.getElementById('hdr-back');
@@ -90,8 +218,12 @@ const UI = (() => {
   const toast = (msg) => {
     let t = document.getElementById('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.appendChild(t); }
-    t.textContent = msg; t.classList.remove('hidden');
-    clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 2200);
+    t.textContent = msg;
+    t.setAttribute('role', 'status');
+    t.classList.remove('hidden');
+    // Re-run the entrance so a second toast is visibly a second toast.
+    t.style.animation = 'none'; void t.offsetWidth; t.style.animation = '';
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 2400);
   };
 
   // Overlay sheet ------------------------------------------------------------
@@ -99,11 +231,15 @@ const UI = (() => {
     let o = document.getElementById('overlay');
     if (!o) { o = document.createElement('div'); o.id = 'overlay'; o.className = 'overlay'; document.body.appendChild(o); }
     o.innerHTML =
-      `<div class="sheet"><div class="sheet__head"><div class="sheet__title">${esc(title)}</div>` +
-      `<button class="header__btn" id="sheet-close">${icon('close')}</button></div>` +
+      `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">` +
+      `<div class="sheet__grab"></div>` +
+      `<div class="sheet__head"><div class="sheet__title">${esc(title)}</div>` +
+      `<button class="header__btn" id="sheet-close" aria-label="Закрыть">${icon('close')}</button></div>` +
       `<div class="sheet__body">${bodyHtml}</div></div>`;
     o.classList.remove('hidden');
-    const close = () => o.classList.add('hidden');
+    const close = () => { o.classList.add('hidden'); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
     document.getElementById('sheet-close').onclick = close;
     o.onclick = (e) => { if (e.target === o) close(); };
     if (typeof wire === 'function') wire(close);
@@ -111,8 +247,10 @@ const UI = (() => {
   };
 
   return {
-    esc, money, initials, icon, skelCard, skelList, skelStats,
-    urgencyChip, statusChip, seg, scoreEl, list, empty, errorState,
+    esc, money, moneyShort, initials, ago, dateTime, icon, plural, count,
+    skelCard, skelList, skelFeed, skelStats, skelTiles, skelForm,
+    urgencyChip, statusChip, seg, taskType, channel, channelChip, geoType, utmSource, scoreEl,
+    list, empty, errorState, load, busy,
     render, setHeader, toast, sheet,
   };
 })();
@@ -120,15 +258,15 @@ const UI = (() => {
 UI.docLinkSheet = function (title, doc, subtitle) {
   // The stored document needs the JWT, so fetch it and hand the browser a blob
   // URL; a bare href to pdf_url would open a 401.
-  UI.sheet(title, `<p class="muted">${subtitle}</p><div class="skel skel-line md"></div>`,
+  UI.sheet(title, `<p class="muted">${UI.esc(subtitle)}</p>${UI.skelCard()}`,
     async () => {
       const body = document.querySelector('.sheet__body');
       try {
         const url = await API.documentBlob(doc.key);
         body.innerHTML =
-          `<p class="muted">${subtitle}</p>
+          `<p class="muted">${UI.esc(subtitle)}</p>
            <a class="btn btn--block" href="${url}" target="_blank" rel="noopener"
-              download="${UI.esc(doc.key.split('/').pop())}">Открыть документ</a>`;
+              download="${UI.esc(doc.key.split('/').pop())}">${UI.icon('file')} Открыть документ</a>`;
       } catch (e) {
         body.innerHTML = UI.errorState(e.message);
       }
