@@ -39,14 +39,20 @@ from app.services.intent_scoring import quick_filter
 logger = structlog.get_logger()
 
 API_BASE = "https://api.vk.com/method"
-# 28 = application authorization failed, 5 = user authorization failed. Both are
-# what a service key gets on a method VK marks "user only".
-TOKEN_TOO_WEAK = (5, 28)
+# What a service key gets on a method VK marks "user only". Verified against the
+# live API with a real service token: groups.search answers 15 "Access denied",
+# not the 28 the schema suggested -- so the list covers both.
+TOKEN_TOO_WEAK = (5, 15, 28)
 # VK rejects long bursts; discovery runs weekly and collection every 10 minutes,
 # so a small page size keeps well inside the service-token limits.
 SEARCH_LIMIT = 20
 WALL_LIMIT = 50
 COMMENTS_PER_POST = 20
+# Classified groups routinely disable the wall and run on обсуждения instead --
+# "Access denied: wall is disabled" is what both Геленджик boards returned. Board
+# topics take a service token too, so they are read as a fallback.
+TOPICS_TO_SCAN = 5
+COMMENTS_PER_TOPIC = 50
 # Buyers ask in the comments far more often than they post on a group wall.
 POSTS_TO_SCAN_FOR_COMMENTS = 10
 
@@ -174,8 +180,11 @@ class VkCollector:
         created = 0
         response = await self._call("wall.get", domain=domain, count=limit)
         posts = (response or {}).get("items", [])
+        entries = await self._entries(posts)
+        if not entries:
+            entries = await self._board_entries(source)
 
-        for entry in await self._entries(posts):
+        for entry in entries:
             text = entry.get("text") or ""
             cu = await ingest_content(session, source.agency_id, "vk", entry,
                                       source_id=source.id)
@@ -237,6 +246,51 @@ class VkCollector:
                     "author_name": None,
                 })
         return entries
+
+    async def _board_entries(self, source) -> list[dict]:
+        """Read обсуждения when the wall gives nothing.
+
+        A group with a disabled wall is not a dead group: on Геленджик boards the
+        wall is off and every listing sits in a topic.
+        """
+        group_id = await self._group_id(source)
+        if not group_id:
+            return []
+
+        topics = await self._call("board.getTopics", group_id=group_id, count=TOPICS_TO_SCAN)
+        entries: list[dict] = []
+        for topic in (topics or {}).get("items", []):
+            topic_id = topic.get("id")
+            if not topic_id:
+                continue
+            comments = await self._call(
+                "board.getComments", group_id=group_id, topic_id=topic_id,
+                count=COMMENTS_PER_TOPIC)
+            for c in (comments or {}).get("items", []):
+                entries.append({
+                    **c,
+                    "content_type": "comment",
+                    "owner_id": -int(group_id),
+                    "url": f"https://vk.com/topic-{group_id}_{topic_id}?post={c.get('id')}",
+                    "author_name": None,
+                })
+        return entries
+
+    async def _group_id(self, source) -> Optional[int]:
+        """Numeric group id, needed by the board methods."""
+        if source.meta and source.meta.get("vk_group_id"):
+            return int(source.meta["vk_group_id"])
+        domain = self._domain(source)
+        if not domain:
+            return None
+        response = await self._call("groups.getById", group_id=domain)
+        groups = (response or {}).get("groups") if isinstance(response, dict) else response
+        if not groups:
+            return None
+        try:
+            return int(groups[0]["id"])
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
 
     @staticmethod
     def _post_url(post: dict) -> Optional[str]:

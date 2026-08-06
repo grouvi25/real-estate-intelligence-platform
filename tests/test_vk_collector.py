@@ -196,8 +196,59 @@ async def test_a_service_key_can_read_walls_even_if_it_cannot_search():
     assert entries and entries[0]["content_type"] == "post"
 
 
-def test_the_weak_token_codes_are_the_documented_ones():
-    """5 = user authorization failed, 28 = application authorization failed."""
+@pytest.mark.parametrize("code", [5, 15, 28])
+def test_a_too_weak_token_is_recognised(code):
+    """Checked against the live API with a real service token: groups.search
+    answers 15 "Access denied", not the 28 the schema implied."""
     from app.collectors.vk_collector import TOKEN_TOO_WEAK
 
-    assert set(TOKEN_TOO_WEAK) == {5, 28}
+    assert code in TOKEN_TOO_WEAK
+
+
+# --- a disabled wall is not a dead group -------------------------------------
+
+class _Src:
+    def __init__(self, external_id="gel_baraholka", meta=None):
+        self.external_id, self.source_url, self.meta = external_id, "", meta or {}
+
+
+@pytest.mark.asyncio
+async def test_board_topics_are_read_when_the_wall_is_off():
+    """Both Геленджик classified groups answered wall.get with
+    "Access denied: wall is disabled" -- their listings live in обсуждения."""
+    c = _collector({
+        "wall.get": {"error": {"error_code": 15, "error_msg": "Access denied: wall is disabled"}},
+        "groups.getById": {"response": {"groups": [{"id": 57812686}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7, "title": "Куплю"}]}},
+        "board.getComments": {"response": {"items": [
+            {"id": 42, "from_id": 900, "text": "Куплю двушку в Геленджике до 8 млн"},
+        ]}},
+    })
+
+    entries = await c._board_entries(_Src())
+
+    assert len(entries) == 1
+    assert entries[0]["content_type"] == "comment"
+    assert entries[0]["url"] == "https://vk.com/topic-57812686_7?post=42"
+    assert entries[0]["owner_id"] == -57812686
+
+
+@pytest.mark.asyncio
+async def test_a_known_group_id_skips_the_lookup():
+    c = _collector({
+        "board.getTopics": {"response": {"items": []}},
+    })
+
+    assert await c._group_id(_Src(meta={"vk_group_id": 123})) == 123
+    assert "groups.getById" not in [m for m, _ in c._client.calls]
+
+
+@pytest.mark.asyncio
+async def test_a_group_with_neither_wall_nor_topics_yields_nothing():
+    c = _collector({
+        "wall.get": {"error": {"error_code": 15, "error_msg": "Access denied: wall is disabled"}},
+        "groups.getById": {"response": {"groups": [{"id": 1}]}},
+        "board.getTopics": {"response": {"items": []}},
+    })
+
+    assert await c._board_entries(_Src()) == []
