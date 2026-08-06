@@ -76,6 +76,30 @@ def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
     return passes and not is_negative
 
 
+# A lead the model scored as a buyer cannot also be segmented "not_buyer", but
+# that combination does come back: the schema example carries
+# "segment":"not_buyer" and a model that fills in the score sometimes leaves the
+# segment at the template default. Seen live on
+# "Запрос: квартира в г.Геленджик бюджет до 5 млн" -- score 80, urgency hot,
+# segment not_buyer. Matching awards +25 for a segment the property targets, so
+# the wrong label quietly costs a real buyer those points, and the manager reads
+# "не покупатель" on a hot card.
+_BUYER_SCORE_FLOOR = 40
+
+
+def _reconcile(analysis: dict[str, Any]) -> dict[str, Any]:
+    """Drop a segment that contradicts the score rather than trusting either."""
+    try:
+        score = int(analysis.get("intent_score") or 0)
+    except (TypeError, ValueError):
+        return analysis
+    if score >= _BUYER_SCORE_FLOOR and analysis.get("segment") == "not_buyer":
+        # None, not a guess: the segment is unknown, and matching treats it as
+        # such instead of scoring against a label the model did not really mean.
+        analysis["segment"] = None
+    return analysis
+
+
 async def full_intent_analysis(message: dict[str, Any], geo_profile: dict[str, Any]) -> dict:
     """Stage 2: AI scoring. Returns the parsed AI JSON (with safe fallback)."""
     from app.prompts.intent_scoring import SYSTEM_PROMPT_INTENT_SCORING, USER_PROMPT_INTENT
@@ -94,7 +118,7 @@ async def full_intent_analysis(message: dict[str, Any], geo_profile: dict[str, A
             "intent_scoring",
             agency_id=str(geo_profile.get("agency_id", "global")),
         )
-        return safe_ai_parse(res, {"intent_score": 0, "segment": "not_buyer"})
+        return _reconcile(safe_ai_parse(res, {"intent_score": 0, "segment": "not_buyer"}))
     finally:
         await ai.close()
 
