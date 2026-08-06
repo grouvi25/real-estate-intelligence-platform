@@ -321,6 +321,29 @@ def test_a_search_word_matches_the_declined_form():
     assert not any(s in "новости тольятти сегодня" for s in stems)
 
 
+def test_only_the_word_every_query_shares_counts():
+    """Matching any query word let «Барахолка Донецк» (133 905 members) through
+    on the strength of "барахолка" alone. The word all the queries share is the
+    city, and requiring it swapped Донецк for «Барахолка Геленджика» (18 001)."""
+    from app.collectors.vk_collector import VkCollector
+
+    stems = VkCollector._stems(["Геленджик барахолка", "Геленджик квартиры",
+                                "Недвижимость Геленджик"])
+
+    assert stems == {"геленд"}
+    assert not any(s in "барахолка донецк| куплю | продам | днр" for s in stems)
+
+
+def test_queries_with_nothing_in_common_still_filter():
+    """Two cities in one keyword set share no word; filtering on the empty
+    intersection would drop every candidate."""
+    from app.collectors.vk_collector import VkCollector
+
+    stems = VkCollector._stems(["Геленджик барахолка", "Новороссийск объявления"])
+
+    assert "геленд" in stems and "новоро" in stems
+
+
 @pytest.mark.asyncio
 async def test_a_group_with_neither_wall_nor_topics_yields_nothing():
     c = _collector({
