@@ -194,3 +194,32 @@ def test_fingerprint_is_stable_and_handles_empty_text():
     assert content_fingerprint("Куплю") == content_fingerprint("куплю!")
     assert content_fingerprint("") == content_fingerprint(None)
     assert len(content_fingerprint("x")) == 64
+
+
+# --- stage 1 must not lose the way people actually phrase a request -----------
+
+@pytest.mark.parametrize("text", [
+    # The canonical one, and the reason this exists: "ищу квартир" is not a
+    # substring of "Ищу 2-комнатную квартиру", so the compound dropped it.
+    "Ищу 2-комнатную квартиру в Геленджике у моря до 9 млн, ипотека одобрена",
+    "Ищу трёхкомнатную квартиру в Геленджике для семьи",
+    "Ищу дом в Геленджике с участком",
+    # Chat shorthand with no verb at all -- this is the first real buyer the
+    # live collector found.
+    "Запрос: квартира в г.Геленджик бюджет до 5 млн (наличка), предложения в лс",
+    "Куплю квартиру в Геленджике до 8 млн",
+    "Рассматриваем покупку квартиры в Геленджике",
+])
+def test_real_buyer_phrasings_survive_stage_one(text):
+    assert quick_filter(text, LIVE_GEO) is True
+
+
+@pytest.mark.parametrize("text", [
+    # A renter also starts with "ищу"; the negatives must still win.
+    "#ищу жильё ✅ Геленджик; ✅ Квартира/комната; ✅ Семья на год",
+    "Ищу квартиру в Геленджике в аренду на длительный срок",
+    # And a seller announcing himself.
+    "🔴 СОБСТВЕННИК! Срочно продам видовой участок 11.2 сот в Геленджике",
+])
+def test_broader_intent_does_not_let_renters_or_sellers_in(text):
+    assert quick_filter(text, LIVE_GEO) is False
