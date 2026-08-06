@@ -404,7 +404,12 @@ Screens.partnerDetail = async function (params) {
   UI.render(UI.skelCard() + UI.skelList(2));
   let p;
   try { p = await API.partner(params.id); }
-  catch (e) { UI.render(UI.errorState(e.message)); return; }
+  catch (e) {
+    UI.render(UI.errorState(e.message), () => {
+      document.getElementById('retry').onclick = () => Screens.referrals();
+    });
+    return;
+  }
 
   const s = p.stats || {};
   const refs = UI.list(p.referrals, (r) => `
@@ -418,21 +423,28 @@ Screens.partnerDetail = async function (params) {
 
   UI.render(`
     <div class="card">
-      <div class="between"><span class="card__title ellipsis">${UI.esc(p.partner_name)}</span>
-        <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выкл'}</span></div>
-      <div class="item__sub" style="margin-top:4px">${UI.esc(p.partner_city)}${p.partner_region ? ', ' + UI.esc(p.partner_region) : ''}</div>
+      <div class="between gap-2">
+        <span class="card__title ellipsis">${UI.esc(p.partner_name || 'Партнёр')}</span>
+        <span class="chip ${p.is_active ? 'chip--success' : ''}">${p.is_active ? 'активен' : 'выключен'}</span></div>
+      ${(p.partner_city || p.partner_region)
+        ? `<div class="meta-row mt-1">${UI.icon('location')}${UI.esc([p.partner_city, p.partner_region].filter(Boolean).join(', '))}</div>` : ''}
       <hr class="divider">
-      <div class="item__sub">Комиссия: ${p.commission_percent != null ? p.commission_percent + '%'
-        : (p.commission_fixed ? UI.money(p.commission_fixed) : '—')} · ${UI.esc(p.commission_type)}</div>
-      <div class="row" style="margin-top:6px">Доверие: <span class="chip chip--accent">${PARTNER_TRUST[p.trust_level] || UI.esc(p.trust_level)}</span></div>
-      ${p.contact_telegram ? `<div class="item__sub" style="margin-top:6px">TG: ${UI.esc(p.contact_telegram)}</div>` : ''}
-      ${p.contact_phone ? `<div class="item__sub" style="margin-top:4px">Тел.: ${UI.esc(p.contact_phone)}</div>` : ''}
+      <div class="between"><span class="muted">Комиссия</span>
+        <span class="price">${p.commission_percent != null ? p.commission_percent + '%'
+          : (p.commission_fixed ? UI.money(p.commission_fixed) : '—')}</span></div>
+      ${p.trust_level ? `<div class="between mt-2"><span class="muted">Доверие</span>
+        <span class="chip chip--accent">${PARTNER_TRUST[p.trust_level] || UI.esc(p.trust_level)}</span></div>` : ''}
+      ${p.contact_telegram ? `<div class="between mt-2"><span class="muted">Telegram</span>
+        <a href="https://t.me/${UI.esc(String(p.contact_telegram).replace(/^@/, ''))}" target="_blank" rel="noopener">${UI.esc(p.contact_telegram)}</a></div>` : ''}
+      ${p.contact_phone ? `<div class="between mt-2"><span class="muted">Телефон</span>
+        <a href="tel:${UI.esc(p.contact_phone)}">${UI.esc(p.contact_phone)}</a></div>` : ''}
       ${p.notes ? `<div class="item__sub" style="margin-top:4px">${UI.esc(p.notes)}</div>` : ''}
     </div>
     <div class="stats" style="margin-top:12px">
-      <div class="stat"><div class="stat__n">${s.total || 0}</div><div class="stat__l">Рефералов</div></div>
-      <div class="stat"><div class="stat__n">${p.deals_count || 0}</div><div class="stat__l">Сделок</div></div>
-      <div class="stat"><div class="stat__n">${s.pending || 0}</div><div class="stat__l">В ожидании</div></div>
+      <div class="stat"><div class="grow"><div class="stat__n">${s.total || 0}</div><div class="stat__l">Рефералов</div></div></div>
+      <div class="stat"><div class="grow"><div class="stat__n">${p.deals_count || 0}</div><div class="stat__l">Сделок</div></div></div>
+      <div class="stat"><div class="grow"><div class="stat__n">${s.pending || 0}</div><div class="stat__l">В ожидании</div></div></div>
+      <div class="stat"><div class="grow"><div class="stat__n">${s.accepted || 0}</div><div class="stat__l">Принято</div></div></div>
     </div>
     <div class="card" style="margin-top:12px"><div class="between">
       <span class="muted">Заработано комиссии</span>
@@ -503,15 +515,22 @@ Screens.referrals = async function () {
   UI.render(UI.skelList(3));
   let data;
   try { data = await API.referralsList({ limit: 100 }); }
-  catch (e) { UI.render(UI.errorState(e.message)); return; }
+  catch (e) {
+    UI.render(UI.errorState(e.message), () => {
+      document.getElementById('retry').onclick = () => Screens.referrals();
+    });
+    return;
+  }
   UI.render(UI.list(data.referrals, (r) => `
     <div class="card">
       <div class="between"><span class="item__title ellipsis">${UI.esc(r.lead_name || 'Лид')}</span>
         <span class="chip ${REF_CHIP(r.status)}">${REF_RU(r.status)}</span></div>
-      <div class="item__sub" style="margin-top:4px">Партнёр: ${UI.esc(r.partner_name)}
-        ${r.commission_amount ? '· комиссия ' + UI.money(r.commission_amount)
-          : (r.commission_agreed_percent ? '· ' + r.commission_agreed_percent + '%' : '')}</div>
-      ${(r.status === 'pending' || r.status === 'accepted' || r.status === 'in_progress') ? `<button class="btn btn--sm" data-deal="${r.id}" style="margin-top:8px">${UI.icon('handshake')} Записать сделку</button>` : ''}
+      <div class="meta-row mt-1">${UI.icon('handshake')}${UI.esc(r.partner_name || 'партнёр не указан')}
+        ${r.commission_amount ? `<span class="dot"></span>комиссия ${UI.moneyShort(r.commission_amount)}`
+          : (r.commission_agreed_percent ? `<span class="dot"></span>${r.commission_agreed_percent}%` : '')}</div>
+      ${r.created_at ? `<div class="item__meta mt-1">${UI.esc(UI.ago(r.created_at))}</div>` : ''}
+      ${(r.status === 'pending' || r.status === 'accepted' || r.status === 'in_progress')
+        ? `<button class="btn btn--block mt-3" data-deal="${r.id}">${UI.icon('handshake')} Записать сделку</button>` : ''}
     </div>`, { icon: 'handshake', title: 'Рефералов нет', sub: 'Передавайте лиды партнёрам из карточки лида' }),
     () => {
       document.querySelectorAll('[data-deal]').forEach((b) =>
