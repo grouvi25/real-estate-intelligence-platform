@@ -64,3 +64,6 @@ htmlcov/
 # === Docker ===
 .docker/
 docker-compose.override.yml
+
+# Local preview config for the Mini App harness (not part of the deploy).
+.claude/
