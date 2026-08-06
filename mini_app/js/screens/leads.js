@@ -77,6 +77,7 @@ Screens.leadDetail = async function (params) {
       <button class="btn btn--sm" id="qual">${UI.icon('check')} Квалиф.</button>
       <button class="btn btn--secondary btn--sm" id="deal">${UI.icon('handshake')} Исход</button>
       <button class="btn btn--secondary btn--sm" id="kp">${UI.icon('file')} КП</button>
+      <button class="btn btn--secondary btn--sm" id="contract">${UI.icon('file')} Договор</button>
     </div>
     <button class="btn btn--danger btn--block" id="arch" style="margin-top:8px">Отправить в архив</button>
     <button class="btn btn--secondary btn--block" id="refer" style="margin-top:8px">${UI.icon('handshake')} Передать партнёру</button>
@@ -102,6 +103,7 @@ function wire(l) {
 
   document.getElementById('deal').onclick = () => dealSheet(l);
   document.getElementById('kp').onclick = () => docSheet(l);
+  document.getElementById('contract').onclick = () => contractSheet(l);
   document.getElementById('refer').onclick = () => referralSheet(l);
 
   document.querySelectorAll('[data-acc]').forEach((b) => b.onclick = async () => {
@@ -125,6 +127,46 @@ function rejectSheet(l, propId) {
           close(); UI.toast('Отклонено'); Router.resolve();
         } catch (e) { UI.toast('Ошибка: ' + e.message); }
       });
+    });
+}
+
+function contractSheet(l) {
+  const opts = (l.matches || []).map((m) =>
+    `<option value="${m.property_id}">${UI.esc(m.title || m.property_id)}</option>`).join('');
+  if (!opts) { UI.toast('Сначала нужен подобранный объект'); return; }
+
+  const plus = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  UI.sheet('Предварительный договор',
+    `<div class="field"><label>Объект</label><select id="cp">${opts}</select></div>
+     <div class="field"><label>Задаток, ₽</label><input id="cd" type="number" inputmode="numeric" placeholder="напр. 300000"></div>
+     <div class="field"><label>Срок задатка, дней</label><input id="cdays" type="number" inputmode="numeric" value="7"></div>
+     <div class="field"><label>Дата основной сделки</label><input id="cfd" type="date" value="${plus}"></div>
+     <button class="btn btn--block" id="cgo">${UI.icon('file')} Сформировать</button>`,
+    (close) => {
+      document.getElementById('cgo').onclick = async () => {
+        const amount = parseInt(document.getElementById('cd').value, 10);
+        const days = parseInt(document.getElementById('cdays').value, 10);
+        const finalDate = document.getElementById('cfd').value;
+        if (isNaN(amount) || amount <= 0) { UI.toast('Укажите сумму задатка'); return; }
+        if (isNaN(days) || days <= 0) { UI.toast('Укажите срок задатка'); return; }
+        if (!finalDate) { UI.toast('Укажите дату сделки'); return; }
+
+        const btn = document.getElementById('cgo');
+        btn.disabled = true;
+        try {
+          const doc = await API.createContract({
+            lead_id: l.id,
+            property_id: document.getElementById('cp').value,
+            deposit_amount: amount, deposit_days: days, final_date: finalDate,
+          });
+          close();
+          UI.sheet('Договор готов',
+            `<p class="muted">Формат: ${UI.esc(doc.format.toUpperCase())}</p>
+             <a class="btn btn--block" href="${UI.esc(doc.pdf_url)}" target="_blank" rel="noopener">Открыть документ</a>`);
+        } catch (e) {
+          UI.toast('Ошибка: ' + e.message); btn.disabled = false;
+        }
+      };
     });
 }
 
