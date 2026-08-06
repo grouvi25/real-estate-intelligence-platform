@@ -6,6 +6,7 @@
     ['signals/:id', (p) => Screens.signalDetail(p)],
     ['queue', () => Screens.queue()],
     ['leads', () => Screens.leads()],
+    ['leads/new', () => Screens.leadNew()],
     ['leads/:id', (p) => Screens.leadDetail(p)],
     ['properties', () => Screens.properties()],
     ['properties/import', () => Screens.propertyImport()],
