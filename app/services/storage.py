@@ -21,8 +21,13 @@ from app.config import config
 
 logger = structlog.get_logger()
 
-# Credential prefixes that indicate a non-real (dev/test) value -> use local fs.
-_DUMMY_MARKERS = ("dummy", "changeme", "test")
+# Placeholder values that must not be mistaken for real credentials. "dev" is on
+# the list because production shipped with YC_S3_ACCESS_KEY=dev: once boto3 was
+# installed the adapter took those at face value, and every document upload died
+# with SignatureDoesNotMatch. A credential shorter than a real one is treated the
+# same way -- Yandex keys are long, so anything tiny is a placeholder.
+_DUMMY_MARKERS = ("dummy", "changeme", "test", "dev", "todo", "xxx", "your", "placeholder")
+_MIN_CREDENTIAL_LEN = 12
 
 
 class StorageAdapter(ABC):
@@ -124,8 +129,16 @@ class YandexObjectStorage(StorageAdapter):
 
 
 def _creds_configured() -> bool:
+    """True only when all three S3 settings look like real credentials."""
     for value in (config.yc_s3_bucket, config.yc_s3_access_key, config.yc_s3_secret_key):
-        if not value or any(value.startswith(m) for m in _DUMMY_MARKERS if m):
+        if not value:
+            return False
+        lowered = value.strip().lower()
+        if lowered in _DUMMY_MARKERS or any(lowered.startswith(m) for m in _DUMMY_MARKERS):
+            return False
+    # The bucket name may legitimately be short; the keys never are.
+    for secret in (config.yc_s3_access_key, config.yc_s3_secret_key):
+        if len(secret.strip()) < _MIN_CREDENTIAL_LEN:
             return False
     return True
 

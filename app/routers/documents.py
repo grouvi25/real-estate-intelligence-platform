@@ -65,7 +65,17 @@ async def _render_and_store(doc_type: str, context: dict, key: str) -> dict:
         content_type, suffix = "text/html; charset=utf-8", "html"
 
     full_key = f"{key}.{suffix}"
-    storage_url = await storage.upload(full_key, content, content_type=content_type)
+    try:
+        storage_url = await storage.upload(full_key, content, content_type=content_type)
+    except Exception as e:  # noqa: BLE001 - object storage down or misconfigured
+        # The document itself is fine; only the destination failed. Fall back to
+        # local storage rather than handing the manager a 500 -- the link below
+        # goes through this API either way, so nothing downstream notices.
+        from app.services.storage import LocalStorage  # noqa: PLC0415
+
+        logger.warning("Object storage upload failed, storing locally",
+                       doc_type=doc_type, error=str(e))
+        storage_url = await LocalStorage().upload(full_key, content, content_type=content_type)
     logger.info("Document generated", doc_type=doc_type, key=full_key, format=suffix)
     return {
         # LocalStorage hands back a file:// path and an Object Storage URL needs a
