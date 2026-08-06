@@ -243,6 +243,84 @@ async def test_a_known_group_id_skips_the_lookup():
     assert "groups.getById" not in [m for m, _ in c._client.calls]
 
 
+# --- discovery without groups.search -----------------------------------------
+
+def _feed_responses(items, groups):
+    return {
+        "groups.search": {"error": {"error_code": 15, "error_msg": "Access denied"}},
+        "newsfeed.search": {"response": {"items": items}},
+        "groups.getById": {"response": {"groups": groups}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_feed_finds_groups_when_the_directory_is_closed():
+    """groups.search is user-only, but newsfeed.search takes a service key and
+    every post names its publisher -- so the groups can be counted out of the
+    feed. Measured live on Геленджик: five queries, 103 groups, every large
+    local барахолка among them."""
+    c = _collector(_feed_responses(
+        items=[
+            {"owner_id": -20096, "text": "Куплю квартиру в Геленджике"},
+            {"owner_id": -20096, "text": "Продам дом"},
+            {"owner_id": 777, "text": "личная страница, не группа"},
+        ],
+        groups=[{"id": 20096, "screen_name": "aviyla", "members_count": 20096,
+                 "name": "Барахолка|Куплю|Продам|Геленджик", "is_closed": 0}],
+    ))
+
+    found = await c.search_groups(["Геленджик квартира"])
+
+    assert [g["username"] for g in found] == ["aviyla"]
+    assert found[0]["members"] == 20096
+    counted = [p for m, p in c._client.calls if m == "groups.getById"]
+    assert "777" not in counted[0]["group_ids"], "положительный owner_id — это человек, не группа"
+
+
+@pytest.mark.asyncio
+async def test_the_feed_is_not_used_when_the_directory_answers():
+    """A user token searches properly; the looser feed path must stay off."""
+    c = _collector({
+        "groups.search": {"response": {"items": [
+            {"id": 1, "screen_name": "gel_realty", "name": "Недвижимость", "is_closed": 0},
+        ]}},
+    })
+
+    await c.search_groups(["Геленджик недвижимость"])
+
+    assert "newsfeed.search" not in [m for m, _ in c._client.calls]
+
+
+@pytest.mark.asyncio
+async def test_the_feed_drags_in_strangers_and_they_are_dropped():
+    """"Новости Тольятти" really did answer "Геленджик квартира", and a tiny
+    group is not worth the AI call either."""
+    c = _collector(_feed_responses(
+        items=[{"owner_id": -1}, {"owner_id": -2}, {"owner_id": -3}],
+        groups=[
+            {"id": 1, "screen_name": "t0lyatt1", "members_count": 1614,
+             "name": "Новости Тольятти сегодня", "is_closed": 0},
+            {"id": 2, "screen_name": "tiny_gel", "members_count": 40,
+             "name": "Геленджик квартиры", "is_closed": 0},
+            {"id": 3, "screen_name": "closed_gel", "members_count": 9000,
+             "name": "Геленджик недвижимость", "is_closed": 1},
+        ],
+    ))
+
+    assert await c.search_groups(["Геленджик квартира"]) == []
+
+
+def test_a_search_word_matches_the_declined_form():
+    """«Барахолка Геленджика» has to match the query «Геленджик квартира»."""
+    from app.collectors.vk_collector import VkCollector
+
+    stems = VkCollector._stems(["Геленджик куплю квартиру"])
+
+    text = "барахолка геленджика: квартиры и дома".lower()
+    assert any(s in text for s in stems)
+    assert not any(s in "новости тольятти сегодня" for s in stems)
+
+
 @pytest.mark.asyncio
 async def test_a_group_with_neither_wall_nor_topics_yields_nothing():
     c = _collector({

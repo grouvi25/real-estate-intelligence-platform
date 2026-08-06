@@ -15,13 +15,17 @@ Token types, from VK's own API schema (VKCOM/vk-api-schema):
 
     wall.get           user, service
     wall.getComments   user, service
+    board.*            user, service
+    newsfeed.search    user, service
     groups.search      user only
 
-So a service key reads groups fine and cannot search for them. That is a
-supported way to run: add the groups by hand on the Источники screen and the
-collector reads them. Auto-discovery of VK groups needs a user token, and when
-the key cannot do it VK answers error 28 -- which this module reports in plain
-words rather than as a bare code.
+So a service key reads groups fine and cannot search for them. Auto-discovery is
+not lost to that, though: newsfeed.search does take a service key, and every post
+it returns carries the id of the group that published it. Searching the feed and
+counting publishers finds the groups that keep posting about the city -- measured
+on Геленджик, five queries surfaced 103 groups including every large local
+барахолка. So groups.search is tried first and the feed is harvested when the key
+cannot call it.
 
 Credential-gated exactly like the Telegram collector: without VK_SERVICE_TOKEN
 every method is a no-op, so dev and CI are unaffected.
@@ -55,6 +59,13 @@ TOPICS_TO_SCAN = 5
 COMMENTS_PER_TOPIC = 50
 # Buyers ask in the comments far more often than they post on a group wall.
 POSTS_TO_SCAN_FOR_COMMENTS = 10
+# Feed harvesting: how many posts to look at per query, and the floor a group has
+# to clear to be worth an AI evaluation. A regional feed search drags in unrelated
+# groups ("Новости Тольятти" answered "Геленджик квартира"), so a candidate also
+# has to mention one of the search words in its name or description.
+NEWSFEED_LIMIT = 200
+MIN_MEMBERS = 300
+WORD_PREFIX = 6  # "квартиру" and "квартира" have to match each other
 
 
 class VkCollector:
@@ -62,6 +73,9 @@ class VkCollector:
         self.token = config.vk_service_token
         self.version = config.vk_api_version
         self._client = None
+        # Set when VK refuses a method as beyond this key; search_groups reads it
+        # to decide whether to fall back to the feed.
+        self.token_too_weak = False
 
     def is_available(self) -> bool:
         return bool(self.token)
@@ -97,6 +111,7 @@ class VkCollector:
             err = body["error"]
             code = err.get("error_code")
             if code in TOKEN_TOO_WEAK:
+                self.token_too_weak = True
                 # Worth saying outright: the difference between "VK is broken"
                 # and "this key cannot do that" is otherwise a bare number.
                 logger.warning(
@@ -112,15 +127,15 @@ class VkCollector:
         """Find candidate groups. Shaped like the Telegram collector's output so
         source_finder can score both the same way.
 
-        Needs a user token: VK marks groups.search "user only". With a service
-        key this returns [] and says why in the log; reading already-known groups
-        is unaffected.
+        groups.search is marked "user only", so a service key falls back to
+        harvesting the publishers out of newsfeed.search.
         """
         if not self.is_available():
             return []
 
+        queries = queries[:12]
         seen: dict[str, dict] = {}
-        for query in queries[:12]:
+        for query in queries:
             response = await self._call("groups.search", q=query, count=limit, type="group")
             for group in (response or {}).get("items", []):
                 screen_name = group.get("screen_name")
@@ -136,8 +151,80 @@ class VkCollector:
                     "description": group.get("description") or "",
                     "samples": [],
                 }
+
+        if not seen and self.token_too_weak:
+            seen = await self._harvest_groups(queries, limit)
+
         await self._enrich(list(seen.values()))
         return list(seen.values())
+
+    async def _harvest_groups(self, queries: list[str], limit: int) -> dict[str, dict]:
+        """Find groups through the feed instead of the group directory.
+
+        newsfeed.search accepts a service key, and every post it returns names its
+        publisher. Counting publishers therefore answers the same question
+        groups.search would have: which groups keep writing about this city.
+
+        The feed is looser than the directory -- "Новости Тольятти" came back for
+        "Геленджик квартира" -- so a candidate has to mention one of the search
+        words itself before it costs an AI evaluation.
+        """
+        from collections import Counter  # noqa: PLC0415
+
+        posts_by_group: Counter = Counter()
+        for query in queries:
+            response = await self._call("newsfeed.search", q=query, count=NEWSFEED_LIMIT)
+            for item in (response or {}).get("items", []):
+                owner_id = item.get("owner_id") or 0
+                if owner_id < 0:  # negative owner == group, positive == person
+                    posts_by_group[-owner_id] += 1
+
+        if not posts_by_group:
+            return {}
+
+        stems = self._stems(queries)
+        ranked = [gid for gid, _ in posts_by_group.most_common(limit * 4)]
+        response = await self._call(
+            "groups.getById", group_ids=",".join(str(g) for g in ranked),
+            fields="members_count,description")
+        groups = (response or {}).get("groups") if isinstance(response, dict) else response
+
+        found: dict[str, dict] = {}
+        for group in sorted(groups or [], key=lambda g: -(g.get("members_count") or 0)):
+            screen_name = group.get("screen_name")
+            text = f"{group.get('name') or ''} {group.get('description') or ''}".lower()
+            if not screen_name or group.get("is_closed"):
+                continue
+            if (group.get("members_count") or 0) < MIN_MEMBERS:
+                continue
+            if not any(stem in text for stem in stems):
+                continue
+            found[screen_name] = {
+                "id": str(group.get("id")),
+                "name": group.get("name") or screen_name,
+                "username": screen_name,
+                "url": f"https://vk.com/{screen_name}",
+                "members": group.get("members_count") or 0,
+                "description": group.get("description") or "",
+                "samples": [],
+            }
+            if len(found) >= limit:
+                break
+
+        logger.info("VK: группы найдены через ленту (ключ не умеет groups.search)",
+                    seen=len(posts_by_group), kept=len(found))
+        return found
+
+    @staticmethod
+    def _stems(queries: list[str]) -> set[str]:
+        """Search words cut short so declensions still match: a group called
+        «Барахолка Геленджика» has to match the query «Геленджик квартира»."""
+        return {
+            word[:WORD_PREFIX]
+            for query in queries
+            for word in query.lower().split()
+            if len(word) >= WORD_PREFIX
+        }
 
     async def _enrich(self, candidates: list[dict], samples: int = 3) -> None:
         """Attach recent wall text so the AI scores content, not just a name.
