@@ -86,20 +86,33 @@ Screens.sources = async function () {
         };
       });
 
-      document.getElementById('add').onclick = () => {
+      document.getElementById('add').onclick = async () => {
+        // The city is where the collector gets its keywords: a source without
+        // one reads messages and discards every single one of them.
+        const geos = (await API.geoList().catch(() => ({}))).geo || [];
+        const cityField = geos.length > 1 ? `
+          <div class="field"><label>Город</label>
+            <select id="src-geo">${geos.map((g) => `<option value="${g.id}">${UI.esc(g.city_name)}</option>`).join('')}</select></div>` : '';
+
         UI.sheet('Добавить источник', `
           <div class="field"><label>Ссылка на чат или группу</label>
             <input id="src-url" placeholder="@gelendzhik_chat или vk.com/gel_realty"></div>
           <div class="item__sub">Telegram и ВКонтакте — канал определяется по ссылке.</div>
           <div class="field"><label>Название (необязательно)</label>
             <input id="src-name" placeholder="Барахолка Геленджик"></div>
+          ${cityField}
           <button class="btn btn--block" id="src-save" style="margin-top:12px">Добавить</button>`,
           (close) => {
             document.getElementById('src-save').onclick = async () => {
               const url = document.getElementById('src-url').value.trim();
               if (!url) { UI.toast('Укажите ссылку или @имя'); return; }
+              const geoEl = document.getElementById('src-geo');
               try {
-                await API.createSource({ source_url: url, source_name: document.getElementById('src-name').value.trim() || null });
+                await API.createSource({
+                  source_url: url,
+                  source_name: document.getElementById('src-name').value.trim() || null,
+                  geo_location_id: geoEl ? geoEl.value : null,
+                });
                 UI.toast('Источник добавлен в песочницу');
                 close();
                 await draw();

@@ -153,6 +153,31 @@ async def list_sources(
     }
 
 
+async def _default_geo(session, agency_id: uuid.UUID) -> uuid.UUID:
+    """The city a hand-added source belongs to.
+
+    A source without one is not merely incomplete, it is inert: the collectors
+    read the geo's keywords to pre-filter messages, an empty keyword set fails
+    the city check in quick_filter, and every message is discarded. The source
+    then sits on the screen looking active and produces nothing, for ever,
+    without an error anywhere. The add form does not ask for a city, so this has
+    to be filled in.
+
+    With several cities the guess is not safe -- the caller has to say which.
+    """
+    geos = (await session.execute(
+        select(GeoLocation.id).where(GeoLocation.agency_id == agency_id)
+    )).scalars().all()
+
+    if not geos:
+        raise ValidationError(
+            "geo_location_id",
+            "сначала добавьте город — без него источник не будет собирать сигналы")
+    if len(geos) > 1:
+        raise ValidationError("geo_location_id", "укажите город источника")
+    return geos[0]
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_source(
     req: CreateSourceRequest,
@@ -177,9 +202,11 @@ async def create_source(
     if existing:
         raise ValidationError("source_url", "такой источник уже добавлен")
 
+    geo_location_id = req.geo_location_id or await _default_geo(session, agency_id)
+
     source = Source(
         agency_id=agency_id,
-        geo_location_id=req.geo_location_id,
+        geo_location_id=geo_location_id,
         source_type=source_type,
         source_url=url,
         source_name=req.source_name or handle or url,
