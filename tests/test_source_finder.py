@@ -1,5 +1,6 @@
 """Source Discovery tests: search stub, AI evaluation + save, cron wiring."""
 import os
+import uuid
 
 import pytest
 
@@ -153,3 +154,97 @@ async def test_refinding_a_paused_source_does_not_reactivate_it(monkeypatch):
             select(Source).where(Source.agency_id == agency_id))).scalars().one()
     assert source.status == "paused"
     assert source.score == 85  # the score refreshes, the decision does not
+
+
+@pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
+@pytest.mark.asyncio
+async def test_an_interrupted_run_keeps_what_it_already_judged(monkeypatch):
+    """Evaluations ran one at a time and committed once at the end. With VK added
+    the first live run over Геленджик hit the worker's 300 s ceiling, and every
+    source it had already scored went down with it -- the run cost real AI money
+    and saved nothing."""
+    from sqlalchemy import select
+
+    from app.database import async_session, run_migrations
+    from app.discovery import source_finder
+    from app.models.agency import Agency
+    from app.models.geo_location import GeoLocation
+    from app.models.source import Source
+    from app.services.ai_service import AIService
+
+    monkeypatch.setattr(source_finder, "EVALUATION_BATCH", 2)
+
+    async def fake_complete(self, system, user, module, agency_id="global"):
+        if "boom" in user:
+            raise TimeoutError("Async task exceeded timeout")
+        return '{"relevance_score": 85}'
+
+    monkeypatch.setattr(AIService, "complete", fake_complete)
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name=f"Interrupted {uuid.uuid4().hex[:6]}", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+        geo = GeoLocation(agency_id=agency.id, city_name="Геленджик", geo_type="base")
+        s.add(geo)
+        await s.commit()
+        geo_id, agency_id = geo.id, agency.id
+
+    candidates = [
+        {"name": "Первый Геленджик", "username": "first", "members": 5000},
+        {"name": "Второй Геленджик", "username": "second", "members": 4000},
+        {"name": "boom", "username": "boom", "members": 3000},
+    ]
+    async with async_session() as s:
+        with pytest.raises(TimeoutError):
+            await source_finder.evaluate_and_save_sources(
+                s, candidates, geo_id, {"agency_id": agency_id, "city_name": "Геленджик"})
+
+    async with async_session() as s:
+        saved = (await s.execute(
+            select(Source.external_id).where(Source.geo_location_id == geo_id)
+        )).scalars().all()
+    assert sorted(saved) == ["first", "second"], "первая партия должна пережить обрыв"
+
+
+@pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
+@pytest.mark.asyncio
+async def test_a_batch_is_evaluated_in_parallel(monkeypatch):
+    """Sequential scoring at ~8 s a call is what put the run over the limit."""
+    import asyncio
+
+    from app.database import async_session, run_migrations
+    from app.discovery import source_finder
+    from app.models.agency import Agency
+    from app.models.geo_location import GeoLocation
+    from app.services.ai_service import AIService
+
+    running = 0
+    peak = 0
+
+    async def fake_complete(self, system, user, module, agency_id="global"):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.05)
+        running -= 1
+        return '{"relevance_score": 10}'
+
+    monkeypatch.setattr(AIService, "complete", fake_complete)
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name=f"Parallel {uuid.uuid4().hex[:6]}", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+        geo = GeoLocation(agency_id=agency.id, city_name="Геленджик", geo_type="base")
+        s.add(geo)
+        await s.commit()
+        geo_id, agency_id = geo.id, agency.id
+
+    candidates = [{"name": f"Чат {i}", "username": f"c{i}", "members": 100}
+                  for i in range(source_finder.EVALUATION_BATCH)]
+    async with async_session() as s:
+        await source_finder.evaluate_and_save_sources(
+            s, candidates, geo_id, {"agency_id": agency_id, "city_name": "Геленджик"})
+
+    assert peak == source_finder.EVALUATION_BATCH

@@ -229,3 +229,67 @@ async def test_rejects_invalid_type_status_and_score():
         with pytest.raises(ValidationError):
             await update_source(uuid.UUID(created["id"]), UpdateSourceRequest(score=500),
                                 current=current, session=s)
+
+
+@pytest.mark.asyncio
+async def test_a_source_added_without_a_city_gets_the_agency_s_own():
+    """A source with no geo is inert: the collectors take their pre-filter
+    keywords from the geo, an empty set fails the city check, and every message
+    is discarded. It looks active on the screen and never produces a signal. The
+    add form does not ask for a city, so the single obvious one is filled in."""
+    from app.database import async_session, run_migrations
+    from app.routers.sources import CreateSourceRequest, create_source
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, geo = await _agency_with_geo(s)
+        await s.commit()
+        current, geo_id = _current(agency), geo.id
+
+    async with async_session() as s:
+        created = await create_source(
+            CreateSourceRequest(source_url="https://vk.com/gel_baraholka"),
+            current=current, session=s)
+
+    assert created["geo_location_id"] == str(geo_id)
+    assert created["source_type"] == "vk_group"
+
+
+@pytest.mark.asyncio
+async def test_with_two_cities_the_source_must_name_one():
+    from app.database import async_session, run_migrations
+    from app.exceptions import ValidationError
+    from app.models.geo_location import GeoLocation
+    from app.routers.sources import CreateSourceRequest, create_source
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, _ = await _agency_with_geo(s)
+        s.add(GeoLocation(agency_id=agency.id, city_name="Анапа", geo_type="sales"))
+        await s.commit()
+        current = _current(agency)
+
+    async with async_session() as s:
+        with pytest.raises(ValidationError):
+            await create_source(CreateSourceRequest(source_url="@two_cities_chat"),
+                                current=current, session=s)
+
+
+@pytest.mark.asyncio
+async def test_an_agency_with_no_city_is_told_to_add_one():
+    from app.database import async_session, run_migrations
+    from app.exceptions import ValidationError
+    from app.models.agency import Agency
+    from app.routers.sources import CreateSourceRequest, create_source
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name=f"No geo {uuid.uuid4().hex[:6]}", base_city="Геленджик")
+        s.add(agency)
+        await s.commit()
+        current = _current(agency)
+
+    async with async_session() as s:
+        with pytest.raises(ValidationError):
+            await create_source(CreateSourceRequest(source_url="@no_geo_chat"),
+                                current=current, session=s)
