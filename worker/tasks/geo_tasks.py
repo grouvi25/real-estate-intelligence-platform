@@ -31,4 +31,12 @@ async def _generate_keywords_for_geo(geo_id: str, city_data: dict[str, Any]) -> 
 
 @shared_task(name="worker.tasks.geo_tasks.generate_keywords_for_geo")
 def generate_keywords_for_geo(geo_id: str, city_data: dict) -> bool:
-    return run_async(_generate_keywords_for_geo(geo_id, city_data))
+    generated = run_async(_generate_keywords_for_geo(geo_id, city_data))
+    if generated:
+        # TZ 13.2: adding a city runs keywords AND discovery, and the endpoint
+        # already tells the caller "discovery_started". Discovery reads the
+        # keywords, so it can only be queued once they exist.
+        from worker.tasks.source_tasks import discover_sources_for_geo  # noqa: PLC0415
+
+        discover_sources_for_geo.delay(geo_id)
+    return generated
