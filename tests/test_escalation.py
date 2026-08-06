@@ -1,0 +1,185 @@
+"""SLA escalation must survive a missed run. TZ 32.3 (needs PostgreSQL).
+
+The original implementation compared the elapsed hours against three one-hour
+windows (4 <= hrs < 5, 24 <= hrs < 25, 48 <= hrs < 49) inside an hourly task. A
+run that never happened -- a deploy, a worker restart, a slow queue -- dropped
+that lead's reminder for good, and two runs inside one window pinged the manager
+twice. Neither shows up as an error anywhere.
+"""
+import os
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL"
+)
+
+
+class _Bot:
+    def __init__(self):
+        self.sent = []
+
+    async def notify_manager(self, manager_id, text):
+        self.sent.append((manager_id, text))
+        return True
+
+
+@pytest.fixture
+def bot(monkeypatch):
+    import app.services.bot_abstraction as ba
+
+    rec = _Bot()
+    monkeypatch.setattr(ba, "bot_layer", rec)
+    return rec
+
+
+async def _lead(s, *, hours_idle: float, urgency: str = "hot", stage: int = 0):
+    from app.models.agency import Agency
+    from app.models.lead import Lead
+    from app.models.manager import Manager
+
+    agency = Agency(name=f"Esc {uuid.uuid4().hex[:6]}", base_city="Геленджик")
+    s.add(agency)
+    await s.flush()
+    manager = Manager(agency_id=agency.id, name="Менеджер", role="owner",
+                      telegram_id=1000 + int(uuid.uuid4().int % 10000), is_active=True)
+    s.add(manager)
+    await s.flush()
+
+    lead = Lead(agency_id=agency.id, source_type="signal", status="new",
+                urgency=urgency, assigned_to=manager.id, escalation_stage=stage)
+    s.add(lead)
+    await s.flush()
+    # updated_at is maintained by the ORM, so it is set explicitly here.
+    lead.updated_at = datetime.now(timezone.utc) - timedelta(hours=hours_idle)
+    await s.commit()
+    return lead
+
+
+@pytest.mark.asyncio
+async def test_a_lead_found_late_still_gets_every_step(bot):
+    """The point of the change: 30 hours idle after a missed run must produce the
+    4h and 24h steps, not skip straight past them."""
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        lead = await _lead(s, hours_idle=30)
+        lead_id = lead.id
+
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        lead = await s.get(Lead, lead_id)
+    assert lead.escalation_stage == 24, "оба пропущенных шага должны отработать за один проход"
+    assert any(str(lead_id)[:6] in text for _, text in bot.sent)
+
+
+@pytest.mark.asyncio
+async def test_running_twice_does_not_notify_twice(bot):
+    from app.database import async_session, run_migrations
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        await _lead(s, hours_idle=5)
+
+    await _escalate_overdue_leads()
+    before = len(bot.sent)
+    await _escalate_overdue_leads()
+
+    assert len(bot.sent) == before, "повторный запуск не должен слать уведомление снова"
+
+
+@pytest.mark.asyncio
+async def test_a_lead_inside_the_sla_is_left_alone(bot):
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        lead = await _lead(s, hours_idle=1)
+        lead_id = lead.id
+
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        lead = await s.get(Lead, lead_id)
+    assert lead.escalation_stage == 0
+    assert not any(str(lead_id)[:6] in text for _, text in bot.sent)
+
+
+@pytest.mark.asyncio
+async def test_contact_resets_the_ladder(bot):
+    """A lead that was escalated, answered, then went quiet again must escalate a
+    second time -- otherwise the stage would pin it forever."""
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        # Escalated to 24 previously, but contacted an hour ago.
+        lead = await _lead(s, hours_idle=1, stage=24)
+        lead_id = lead.id
+
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        lead = await s.get(Lead, lead_id)
+    assert lead.escalation_stage == 0, "после контакта лестница должна сброситься"
+
+
+@pytest.mark.asyncio
+async def test_the_48h_step_creates_one_urgent_task(bot):
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from app.models.task import Task
+    from sqlalchemy import func, select
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        lead = await _lead(s, hours_idle=50)
+        lead_id = lead.id
+
+    await _escalate_overdue_leads()
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        count = await s.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.lead_id == lead_id, Task.task_type == "escalation")
+        )
+        task = (await s.execute(
+            select(Task).where(Task.lead_id == lead_id))).scalars().first()
+        lead = await s.get(Lead, lead_id)
+    assert count == 1
+    assert task.is_urgent is True
+    assert lead.escalation_stage == 48
+
+
+@pytest.mark.asyncio
+async def test_a_cold_lead_skips_the_4h_ping_but_still_advances(bot):
+    """Only hot leads get the 4h nudge; the stage must still move so the lead is
+    not re-examined for it on every run."""
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        lead = await _lead(s, hours_idle=5, urgency="cold")
+        lead_id = lead.id
+
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        lead = await s.get(Lead, lead_id)
+    assert lead.escalation_stage == 4
+    assert not any(str(lead_id)[:6] in text for _, text in bot.sent)

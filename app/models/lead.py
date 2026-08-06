@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import TIMESTAMP, Boolean, ForeignKey, Integer, LargeBinary, Text
+from sqlalchemy import TIMESTAMP, Boolean, ForeignKey, Integer, LargeBinary, SmallInteger, Text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
@@ -75,6 +75,10 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     source_signal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("signals.id", ondelete="SET NULL")
     )
+    # Highest escalation step already actioned (0/4/24/48 hours). Migration 046:
+    # the SLA task used to rely on catching an exact hour window, so a missed run
+    # lost the reminder outright.
+    escalation_stage: Mapped[int] = mapped_column(SmallInteger, default=0)
     crm_deal_id: Mapped[Optional[str]] = mapped_column(Text)
 
     @hybrid_property
