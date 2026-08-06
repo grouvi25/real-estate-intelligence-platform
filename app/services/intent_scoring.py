@@ -32,7 +32,14 @@ NEGATIVE_KEYWORDS = [
 # adverts and owner listings through.
 BUY_INTENT_KEYWORDS = [
     "куплю", "хочу купить", "приобрет",
-    "ищу квартир", "ищу дом", "ищу участок",
+    # Bare stem, not "ищу квартир": people write "Ищу 2-комнатную квартиру", and
+    # the compound never matched that -- the canonical buyer message was being
+    # dropped at stage 1. Renters saying "ищу жильё" are caught by the negatives,
+    # which win, and the city + property/financial clause carries the rest.
+    "ищу",
+    # Chat shorthand for a buyer request: "Запрос: квартира в Геленджике,
+    # бюджет 5 млн". No verb at all, so nothing else here matches it.
+    "запрос",
     # First-person deliberation. "рассматрива"/"планиру" carry the intent on
     # their own -- "рассматриваем покупку дома" does not contain the literal
     # "рассматрива покупк" -- and sellers do not write them about themselves.
