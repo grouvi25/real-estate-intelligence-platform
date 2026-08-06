@@ -231,18 +231,49 @@ class VkCollector:
 
         The Telegram side learned this the hard way: judged on its title alone,
         the one genuinely relevant chat scored 0.
+
+        The groups most worth having are exactly the ones with no wall to read --
+        both Геленджик барахолки answer wall.get with "wall is disabled" -- so
+        their обсуждения are read instead. Without this they would reach the AI
+        as a bare name and be scored blind.
         """
         for cand in candidates:
             response = await self._call(
                 "wall.get", domain=cand["username"], count=samples * 4)
-            texts = []
-            for post in (response or {}).get("items", []):
-                text = (post.get("text") or "").strip()
-                if len(text) > 20:
-                    texts.append(text[:280])
-                if len(texts) >= samples:
-                    break
+            texts = self._sample_texts((response or {}).get("items", []), samples)
+            if not texts:
+                texts = await self._board_samples(cand["username"], samples)
             cand["samples"] = texts
+
+    @staticmethod
+    def _sample_texts(items: list[dict], samples: int) -> list[str]:
+        texts = []
+        for item in items:
+            text = (item.get("text") or "").strip()
+            if len(text) > 20:
+                texts.append(text[:280])
+            if len(texts) >= samples:
+                break
+        return texts
+
+    async def _board_samples(self, domain: str, samples: int) -> list[str]:
+        """Sample text from обсуждения, for a group whose wall is closed."""
+        group_id = await self._resolve_group_id(domain)
+        if not group_id:
+            return []
+
+        topics = await self._call("board.getTopics", group_id=group_id, count=TOPICS_TO_SCAN)
+        texts: list[str] = []
+        for topic in (topics or {}).get("items", []):
+            if not topic.get("id"):
+                continue
+            comments = await self._call(
+                "board.getComments", group_id=group_id, topic_id=topic["id"],
+                count=samples * 4)
+            texts += self._sample_texts((comments or {}).get("items", []), samples - len(texts))
+            if len(texts) >= samples:
+                break
+        return texts
 
     async def collect_from_source(
         self, session, source, geo_keywords: dict[str, Any], limit: int = WALL_LIMIT
@@ -364,10 +395,12 @@ class VkCollector:
         return entries
 
     async def _group_id(self, source) -> Optional[int]:
-        """Numeric group id, needed by the board methods."""
+        """Numeric group id of a stored source, needed by the board methods."""
         if source.meta and source.meta.get("vk_group_id"):
             return int(source.meta["vk_group_id"])
-        domain = self._domain(source)
+        return await self._resolve_group_id(self._domain(source))
+
+    async def _resolve_group_id(self, domain: Optional[str]) -> Optional[int]:
         if not domain:
             return None
         response = await self._call("groups.getById", group_id=domain)

@@ -330,3 +330,24 @@ async def test_a_group_with_neither_wall_nor_topics_yields_nothing():
     })
 
     assert await c._board_entries(_Src()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_candidate_with_a_closed_wall_is_still_sampled():
+    """The groups most worth having are the ones with no wall: both Геленджик
+    барахолки answer "wall is disabled". Judged on a bare name the one relevant
+    Telegram chat had scored 0 -- these would reach the AI the same way."""
+    c = _collector({
+        "wall.get": {"error": {"error_code": 15, "error_msg": "Access denied: wall is disabled"}},
+        "groups.getById": {"response": {"groups": [{"id": 57812686}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7, "title": "Куплю"}]}},
+        "board.getComments": {"response": {"items": [
+            {"id": 42, "text": "Куплю двушку в Геленджике до 8 млн, наличка"},
+            {"id": 43, "text": "ок"},
+        ]}},
+    })
+    cand = {"username": "gel_baraholka", "samples": []}
+
+    await c._enrich([cand])
+
+    assert cand["samples"] == ["Куплю двушку в Геленджике до 8 млн, наличка"]
