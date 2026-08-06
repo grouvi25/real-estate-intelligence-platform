@@ -32,6 +32,7 @@ every method is a no-op, so dev and CI are unaffected.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 import structlog
@@ -47,16 +48,27 @@ API_BASE = "https://api.vk.com/method"
 # live API with a real service token: groups.search answers 15 "Access denied",
 # not the 28 the schema suggested -- so the list covers both.
 TOKEN_TOO_WEAK = (5, 15, 28)
+# "Too many requests per second" -- 3/s for a service key, and a discovery pass
+# makes them back to back.
+TOO_MANY_REQUESTS = 6
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_PAUSE = 0.4
 # VK rejects long bursts; discovery runs weekly and collection every 10 minutes,
 # so a small page size keeps well inside the service-token limits.
 SEARCH_LIMIT = 20
 WALL_LIMIT = 50
 COMMENTS_PER_POST = 20
-# Classified groups routinely disable the wall and run on обсуждения instead --
-# "Access denied: wall is disabled" is what both Геленджик boards returned. Board
-# topics take a service token too, so they are read as a fallback.
+# Some groups keep the wall closed and run on обсуждения instead, and a board can
+# be where the buyers are: otdyhonsea has a topic «Сниму жилье» with 509
+# comments, club100645332 one called «ИЩИТЕ ЖИЛЬЕ? Оставляйте Ваши заявки» with
+# 165. Board topics take a service token too, so they are read as a fallback.
 TOPICS_TO_SCAN = 5
 COMMENTS_PER_TOPIC = 50
+# Both comment endpoints answer from the START of the thread by default --
+# checked live: the topic above returns comments 2, 3, 4 out of 165. Reading a
+# board without this means reading the same years-old comments on every run,
+# deduplicating them all after the first pass, and never seeing a new one.
+NEWEST_FIRST = "desc"
 # Buyers ask in the comments far more often than they post on a group wall.
 POSTS_TO_SCAN_FOR_COMMENTS = 10
 # Feed harvesting: how many posts to look at per query, and the floor a group has
@@ -87,7 +99,7 @@ class VkCollector:
             self._client = httpx.AsyncClient(timeout=20.0)
         return self._client
 
-    async def _call(self, method: str, **params) -> Optional[dict]:
+    async def _call(self, method: str, attempt: int = 1, **params) -> Optional[dict]:
         """One API call. Returns the `response` payload, or None on any failure.
 
         VK reports errors with HTTP 200 and an `error` object, so the status code
@@ -110,6 +122,13 @@ class VkCollector:
         if "error" in body:
             err = body["error"]
             code = err.get("error_code")
+            if code == TOO_MANY_REQUESTS and attempt <= RATE_LIMIT_RETRIES:
+                # A service key gets 3 requests a second. One discovery pass over
+                # a city is ~70 calls back to back, so this is reached in normal
+                # use, and dropping the call would quietly cost a group its
+                # samples -- or lose the group altogether.
+                await asyncio.sleep(RATE_LIMIT_PAUSE * attempt)
+                return await self._call(method, attempt=attempt + 1, **params)
             if code in TOKEN_TOO_WEAK:
                 self.token_too_weak = True
                 # Worth saying outright: the difference between "VK is broken"
@@ -231,18 +250,49 @@ class VkCollector:
 
         The Telegram side learned this the hard way: judged on its title alone,
         the one genuinely relevant chat scored 0.
+
+        The groups most worth having are exactly the ones with no wall to read --
+        both Геленджик барахолки answer wall.get with "wall is disabled" -- so
+        their обсуждения are read instead. Without this they would reach the AI
+        as a bare name and be scored blind.
         """
         for cand in candidates:
             response = await self._call(
                 "wall.get", domain=cand["username"], count=samples * 4)
-            texts = []
-            for post in (response or {}).get("items", []):
-                text = (post.get("text") or "").strip()
-                if len(text) > 20:
-                    texts.append(text[:280])
-                if len(texts) >= samples:
-                    break
+            texts = self._sample_texts((response or {}).get("items", []), samples)
+            if not texts:
+                texts = await self._board_samples(cand["username"], samples)
             cand["samples"] = texts
+
+    @staticmethod
+    def _sample_texts(items: list[dict], samples: int) -> list[str]:
+        texts = []
+        for item in items:
+            text = (item.get("text") or "").strip()
+            if len(text) > 20:
+                texts.append(text[:280])
+            if len(texts) >= samples:
+                break
+        return texts
+
+    async def _board_samples(self, domain: str, samples: int) -> list[str]:
+        """Sample text from обсуждения, for a group whose wall is closed."""
+        group_id = await self._resolve_group_id(domain)
+        if not group_id:
+            return []
+
+        topics = await self._call("board.getTopics", group_id=group_id, count=TOPICS_TO_SCAN)
+        texts: list[str] = []
+        for topic in (topics or {}).get("items", []):
+            if not topic.get("id"):
+                continue
+            comments = await self._call(
+                "board.getComments", group_id=group_id, topic_id=topic["id"],
+                count=samples * 4, sort=NEWEST_FIRST)
+            texts += self._sample_texts((comments or {}).get("items", []), samples - len(texts))
+            if len(texts) >= samples:
+                break
+        return texts
 
     async def collect_from_source(
         self, session, source, geo_keywords: dict[str, Any], limit: int = WALL_LIMIT
@@ -323,12 +373,15 @@ class VkCollector:
                 continue
             response = await self._call(
                 "wall.getComments", owner_id=owner_id, post_id=post_id,
-                count=COMMENTS_PER_POST, thread_items_count=0)
+                count=COMMENTS_PER_POST, thread_items_count=0, sort=NEWEST_FIRST)
             for comment in (response or {}).get("items", []):
                 entries.append({
                     **comment,
                     "content_type": "comment",
                     "owner_id": owner_id,
+                    # Comments are numbered separately from posts, so a bare
+                    # "{owner}_{id}" would collide with a post on the same wall.
+                    "external_id": f"{owner_id}_{post_id}_r{comment.get('id')}",
                     "url": f"https://vk.com/wall{owner_id}_{post_id}?reply={comment.get('id')}",
                     "author_name": None,
                 })
@@ -352,22 +405,27 @@ class VkCollector:
                 continue
             comments = await self._call(
                 "board.getComments", group_id=group_id, topic_id=topic_id,
-                count=COMMENTS_PER_TOPIC)
+                count=COMMENTS_PER_TOPIC, sort=NEWEST_FIRST)
             for c in (comments or {}).get("items", []):
                 entries.append({
                     **c,
                     "content_type": "comment",
                     "owner_id": -int(group_id),
+                    # Board comments restart their numbering in every topic, so
+                    # the topic has to be part of the identity.
+                    "external_id": f"-{group_id}_t{topic_id}_{c.get('id')}",
                     "url": f"https://vk.com/topic-{group_id}_{topic_id}?post={c.get('id')}",
                     "author_name": None,
                 })
         return entries
 
     async def _group_id(self, source) -> Optional[int]:
-        """Numeric group id, needed by the board methods."""
+        """Numeric group id of a stored source, needed by the board methods."""
         if source.meta and source.meta.get("vk_group_id"):
             return int(source.meta["vk_group_id"])
-        domain = self._domain(source)
+        return await self._resolve_group_id(self._domain(source))
+
+    async def _resolve_group_id(self, domain: Optional[str]) -> Optional[int]:
         if not domain:
             return None
         response = await self._call("groups.getById", group_id=domain)

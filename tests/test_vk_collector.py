@@ -330,3 +330,130 @@ async def test_a_group_with_neither_wall_nor_topics_yields_nothing():
     })
 
     assert await c._board_entries(_Src()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_candidate_with_a_closed_wall_is_still_sampled():
+    """The groups most worth having are the ones with no wall: both Геленджик
+    барахолки answer "wall is disabled". Judged on a bare name the one relevant
+    Telegram chat had scored 0 -- these would reach the AI the same way."""
+    c = _collector({
+        "wall.get": {"error": {"error_code": 15, "error_msg": "Access denied: wall is disabled"}},
+        "groups.getById": {"response": {"groups": [{"id": 57812686}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7, "title": "Куплю"}]}},
+        "board.getComments": {"response": {"items": [
+            {"id": 42, "text": "Куплю двушку в Геленджике до 8 млн, наличка"},
+            {"id": 43, "text": "ок"},
+        ]}},
+    })
+    cand = {"username": "gel_baraholka", "samples": []}
+
+    await c._enrich([cand])
+
+    assert cand["samples"] == ["Куплю двушку в Геленджике до 8 млн, наличка"]
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limited_call_is_retried(monkeypatch):
+    """A service key gets 3 requests a second and one discovery pass over a city
+    makes ~70 back to back, so error 6 arrives in normal use. Dropping the call
+    would quietly cost a group its samples -- or the group itself."""
+    import app.collectors.vk_collector as vk
+
+    monkeypatch.setattr(vk, "RATE_LIMIT_PAUSE", 0)
+    c = _collector({})
+    replies = [
+        {"error": {"error_code": 6, "error_msg": "Too many requests per second"}},
+        {"response": {"items": [{"id": 1, "text": "Куплю квартиру в Геленджике"}]}},
+    ]
+
+    async def get(url, params=None):
+        c._client.calls.append((url.rsplit("/", 1)[-1], params))
+        payload = replies.pop(0)
+
+        class _Res:
+            def raise_for_status(self):
+                return None
+
+            @staticmethod
+            def json():
+                return payload
+
+        return _Res()
+
+    c._client.get = get
+
+    response = await c._call("wall.get", domain="gel_realty")
+
+    assert response["items"][0]["text"].startswith("Куплю")
+    assert len(c._client.calls) == 2, "первый ответ — лимит, второй — данные"
+
+
+@pytest.mark.asyncio
+async def test_a_call_that_keeps_being_throttled_gives_up(monkeypatch):
+    import app.collectors.vk_collector as vk
+
+    monkeypatch.setattr(vk, "RATE_LIMIT_PAUSE", 0)
+    c = _collector({"wall.get": {"error": {"error_code": 6, "error_msg": "Too many"}}})
+
+    assert await c._call("wall.get", domain="gel_realty") is None
+    assert len(c._client.calls) == vk.RATE_LIMIT_RETRIES + 1
+
+
+@pytest.mark.asyncio
+async def test_a_comment_cannot_be_mistaken_for_a_post():
+    """Dedup is by (agency, channel, external_id). Posts, wall comments and board
+    comments are three separate numberings, so a bare "{owner}_{id}" describes
+    all three: comment 42 would overwrite post 42 on the same wall and never
+    become a signal of its own."""
+    from app.services.channels import get_channel_adapter
+
+    c = _collector({
+        "wall.getComments": {"response": {"items": [{"id": 42, "text": "Куплю квартиру"}]}},
+    })
+
+    entries = await c._entries([{"id": 42, "owner_id": -55, "text": "Подборка новостроек"}])
+    adapter = get_channel_adapter("vk")
+    ids = [adapter.normalize(e).external_id for e in entries]
+
+    assert ids == ["-55_42", "-55_42_r42"]
+    assert len(set(ids)) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_same_comment_id_in_two_topics_stays_two_messages():
+    """Board comments restart their numbering in every topic."""
+    from app.services.channels import get_channel_adapter
+
+    c = _collector({
+        "groups.getById": {"response": {"groups": [{"id": 100}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7}, {"id": 8}]}},
+        "board.getComments": {"response": {"items": [{"id": 1, "text": "Куплю дом"}]}},
+    })
+
+    entries = await c._board_entries(_Src())
+    adapter = get_channel_adapter("vk")
+    ids = [adapter.normalize(e).external_id for e in entries]
+
+    assert ids == ["-100_t7_1", "-100_t8_1"]
+
+
+@pytest.mark.asyncio
+async def test_comments_are_read_newest_first():
+    """Both comment endpoints answer from the start of the thread by default.
+    Checked live: «ИЩИТЕ ЖИЛЬЕ? Оставляйте Ваши заявки» has 165 comments and
+    returns 2, 3, 4. A board read without this returns the same years-old
+    comments on every run and never sees a new one."""
+    from app.collectors.vk_collector import NEWEST_FIRST
+
+    c = _collector({
+        "groups.getById": {"response": {"groups": [{"id": 100}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7}]}},
+    })
+
+    await c._entries([{"id": 1, "owner_id": -55}])
+    await c._board_entries(_Src())
+
+    sorts = {method: params.get("sort") for method, params in c._client.calls
+             if method.endswith("getComments")}
+    assert sorts == {"wall.getComments": NEWEST_FIRST, "board.getComments": NEWEST_FIRST}

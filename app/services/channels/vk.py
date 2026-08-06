@@ -29,10 +29,16 @@ class VkAdapter(ChannelAdapter):
     def normalize(self, raw: dict) -> NormalizedContent:
         owner_id = raw.get("owner_id")
         post_id = raw.get("id")
-        external_id = f"{owner_id}_{post_id}" if owner_id and post_id else (
+        wall_id = f"{owner_id}_{post_id}" if owner_id and post_id else (
             str(post_id) if post_id else None
         )
-        url = raw.get("url") or (f"https://vk.com/wall{external_id}" if external_id else None)
+        # Posts, wall comments and board comments are numbered in three separate
+        # sequences, so "-55_42" describes all of them. Dedup is by (agency,
+        # channel, external_id): a comment that happens to share an id with a
+        # post on the same wall would overwrite it and never become a signal of
+        # its own. The collector namespaces comments; posts keep the plain id.
+        external_id = raw.get("external_id") or wall_id
+        url = raw.get("url") or (f"https://vk.com/wall{wall_id}" if wall_id else None)
         return NormalizedContent(
             channel=self.channel,
             external_id=external_id,
