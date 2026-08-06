@@ -114,6 +114,7 @@
     createChecklist: (propId) => api.request(`/documents/checklist/${propId}`, 'POST'),
     // `key` already carries the agency prefix the endpoint checks.
     documentBlob: (key) => api.requestBlob(`/documents/${key}`),
+    readiness: () => api.request('/health/readiness'),
 
     // Deals (Knowledge Moat)
     recordOutcome: (leadId, body) => api.request(`/deals/${leadId}/outcome`, 'POST', body),

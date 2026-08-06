@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.config import config
-from app.database import check_database_connection
+from app.database import check_database_connection, get_session
 
 router = APIRouter()
 
@@ -108,3 +108,30 @@ async def deep_health_check() -> DeepHealthResponse:
     )
     overall = "ok" if critical_ok else "degraded"
     return DeepHealthResponse(status=overall, checks=checks, timestamp=_now(), version=VERSION)
+
+
+class ReadinessResponse(BaseModel):
+    ready: bool
+    blockers: int
+    warnings: int
+    findings: dict[str, dict]
+    timestamp: str
+    version: str
+
+
+@router.get("/health/readiness", response_model=ReadinessResponse, tags=["Health"])
+async def readiness_check(session=Depends(get_session)) -> ReadinessResponse:
+    """Go-live readiness: TZ 26 / 35.12.
+
+    /health/deep answers "are the dependencies up". This answers the question
+    that actually matters -- if a buyer appeared right now, could the agency act
+    on them? A system with an empty catalogue, no live sources or a bot token
+    that was never set is green on /health/deep and useless in practice.
+
+    Manager-scoped is unnecessary: it reports configuration state and counts, no
+    personal data, and the operator needs it before anyone can log in.
+    """
+    from app.services.readiness import readiness_report
+
+    report = await readiness_report(session)
+    return ReadinessResponse(**report, timestamp=_now(), version=VERSION)
