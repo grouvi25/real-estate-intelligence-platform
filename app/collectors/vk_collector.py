@@ -11,9 +11,20 @@ That matters beyond tidiness: Telegram's public search over Геленджик s
 eighteen chats and one of them was about buying property. VK groups are where a
 regional audience of that size actually sits.
 
-Uses the service-token API (v5.199): groups.search to discover, wall.get and
-wall.getComments to read. Credential-gated exactly like the Telegram collector --
-without VK_SERVICE_TOKEN every method is a no-op, so dev and CI are unaffected.
+Token types, from VK's own API schema (VKCOM/vk-api-schema):
+
+    wall.get           user, service
+    wall.getComments   user, service
+    groups.search      user only
+
+So a service key reads groups fine and cannot search for them. That is a
+supported way to run: add the groups by hand on the Источники screen and the
+collector reads them. Auto-discovery of VK groups needs a user token, and when
+the key cannot do it VK answers error 28 -- which this module reports in plain
+words rather than as a bare code.
+
+Credential-gated exactly like the Telegram collector: without VK_SERVICE_TOKEN
+every method is a no-op, so dev and CI are unaffected.
 """
 from __future__ import annotations
 
@@ -28,6 +39,9 @@ from app.services.intent_scoring import quick_filter
 logger = structlog.get_logger()
 
 API_BASE = "https://api.vk.com/method"
+# 28 = application authorization failed, 5 = user authorization failed. Both are
+# what a service key gets on a method VK marks "user only".
+TOKEN_TOO_WEAK = (5, 28)
 # VK rejects long bursts; discovery runs weekly and collection every 10 minutes,
 # so a small page size keeps well inside the service-token limits.
 SEARCH_LIMIT = 20
@@ -75,14 +89,27 @@ class VkCollector:
 
         if "error" in body:
             err = body["error"]
-            logger.warning("VK API error", method=method,
-                           code=err.get("error_code"), msg=err.get("error_msg"))
+            code = err.get("error_code")
+            if code in TOKEN_TOO_WEAK:
+                # Worth saying outright: the difference between "VK is broken"
+                # and "this key cannot do that" is otherwise a bare number.
+                logger.warning(
+                    "VK: этот ключ не может вызвать метод — нужен пользовательский токен",
+                    method=method, code=code, msg=err.get("error_msg"))
+            else:
+                logger.warning("VK API error", method=method,
+                               code=code, msg=err.get("error_msg"))
             return None
         return body.get("response")
 
     async def search_groups(self, queries: list[str], limit: int = SEARCH_LIMIT) -> list[dict]:
         """Find candidate groups. Shaped like the Telegram collector's output so
-        source_finder can score both the same way."""
+        source_finder can score both the same way.
+
+        Needs a user token: VK marks groups.search "user only". With a service
+        key this returns [] and says why in the log; reading already-known groups
+        is unaffected.
+        """
         if not self.is_available():
             return []
 

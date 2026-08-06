@@ -176,3 +176,28 @@ def test_an_unrecognised_link_keeps_the_declared_type():
 
     url, source_type, handle = _classify("https://example.com/forum", "forum")
     assert (url, source_type, handle) == ("https://example.com/forum", "forum", None)
+
+
+@pytest.mark.asyncio
+async def test_a_service_key_can_read_walls_even_if_it_cannot_search():
+    """VK's own schema: wall.get and wall.getComments accept a service token,
+    groups.search is user-only. A service key is therefore a supported way to
+    run -- add the groups by hand, and reading works."""
+    c = _collector({
+        "groups.search": {"error": {"error_code": 28,
+                                    "error_msg": "Application authorization failed"}},
+        "wall.get": {"response": {"items": [
+            {"id": 1, "owner_id": -55, "text": "Ищу квартиру в Геленджике до 7 млн"},
+        ]}},
+    })
+
+    assert await c.search_groups(["Геленджик"]) == []
+    entries = await c._entries([{"id": 1, "owner_id": -55, "text": "Ищу квартиру"}])
+    assert entries and entries[0]["content_type"] == "post"
+
+
+def test_the_weak_token_codes_are_the_documented_ones():
+    """5 = user authorization failed, 28 = application authorization failed."""
+    from app.collectors.vk_collector import TOKEN_TOO_WEAK
+
+    assert set(TOKEN_TOO_WEAK) == {5, 28}
