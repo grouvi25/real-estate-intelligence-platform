@@ -93,10 +93,18 @@ def decay_lead_scores() -> int:
 # --- Overdue lead escalation (TZ 32.3) -------------------------------------
 # Hourly: hot leads at 4h -> remind manager, any lead at 24h -> notify owner,
 # at 48h -> create an urgent 'escalation' task (once).
+# Hours after the last activity at which each step fires. Stored on the lead as
+# escalation_stage so the task is idempotent: TZ 32.3 was implemented as three
+# one-hour windows (4 <= hrs < 5, ...) evaluated hourly, so a missed run -- a
+# deploy, a worker restart, a slow queue -- lost that lead's reminder for good,
+# and a double run inside the window pinged the manager twice.
+ESCALATION_STEPS = (4, 24, 48)
+
+
 async def _escalate_overdue_leads() -> int:
     from datetime import datetime, timezone
 
-    from sqlalchemy import select
+    from sqlalchemy import select, update
 
     from app.database import async_session
     from app.models.lead import Lead
@@ -106,6 +114,22 @@ async def _escalate_overdue_leads() -> int:
 
     now = datetime.now(timezone.utc)
     actions = 0
+
+    async def record(lead, stage: int) -> None:
+        """Store the stage without disturbing the idle clock.
+
+        updated_at is what "hours since last activity" is measured from, and the
+        mixin bumps it on any write -- so writing the stage through the ORM reset
+        the very timer the ladder reads, and the next run saw a fresh lead and
+        wound the stage back to zero. Passing updated_at explicitly overrides the
+        onupdate default and carries the real activity time forward.
+        """
+        await session.execute(
+            update(Lead).where(Lead.id == lead.id)
+            .values(escalation_stage=stage, updated_at=lead.updated_at)
+        )
+        lead.escalation_stage = stage
+
     async with async_session() as session:
         leads = (await session.execute(
             select(Lead).where(
@@ -113,38 +137,58 @@ async def _escalate_overdue_leads() -> int:
                 Lead.assigned_to.isnot(None),
             )
         )).scalars().all()
+
         for lead in leads:
             hrs = (now - lead.updated_at).total_seconds() / 3600
-            short = str(lead.id)[:6]
-            if lead.urgency == "hot" and 4 <= hrs < 5:
-                await bot_layer.notify_manager(
-                    str(lead.assigned_to),
-                    f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
-                actions += 1
-            elif 24 <= hrs < 25:
-                owner = (await session.execute(
-                    select(Manager).where(
-                        Manager.agency_id == lead.agency_id,
-                        Manager.role == "owner").limit(1)
-                )).scalar_one_or_none()
-                if owner:
+            done = lead.escalation_stage or 0
+
+            # Contact resets the clock (updated_at moves), so the recorded stage
+            # has to fall back with it -- otherwise a lead that went quiet again
+            # would never escalate a second time.
+            if hrs < done:
+                await record(lead, 0)
+                done = 0
+
+            # Every step now due, oldest first: a lead found at 30 hours after a
+            # missed run still gets its 4h and 24h steps rather than skipping them.
+            for step in ESCALATION_STEPS:
+                if hrs < step or step <= done:
+                    continue
+                short = str(lead.id)[:6]
+
+                if step == 4:
+                    if lead.urgency != "hot":
+                        await record(lead, step)
+                        continue
                     await bot_layer.notify_manager(
-                        str(owner.id), f"⚠️ Лид #{short} без контакта 24ч.")
-                    actions += 1
-            elif 48 <= hrs < 49:
-                existing = (await session.execute(
-                    select(Task).where(
-                        Task.lead_id == lead.id, Task.task_type == "escalation")
-                )).scalar_one_or_none()
-                if not existing:
-                    session.add(Task(
-                        agency_id=lead.agency_id, lead_id=lead.id,
-                        manager_id=lead.assigned_to, task_type="escalation",
-                        title=f"🚨 ПРОСРОЧЕНО 48ч: #{short}",
-                        due_at=now, status="pending", is_urgent=True,
-                        escalated_at=now,
-                    ))
-                    actions += 1
+                        str(lead.assigned_to),
+                        f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
+                elif step == 24:
+                    owner = (await session.execute(
+                        select(Manager).where(
+                            Manager.agency_id == lead.agency_id,
+                            Manager.role == "owner").limit(1)
+                    )).scalar_one_or_none()
+                    if owner:
+                        await bot_layer.notify_manager(
+                            str(owner.id), f"⚠️ Лид #{short} без контакта {int(hrs)}ч.")
+                else:
+                    existing = (await session.execute(
+                        select(Task).where(
+                            Task.lead_id == lead.id, Task.task_type == "escalation")
+                    )).scalar_one_or_none()
+                    if not existing:
+                        session.add(Task(
+                            agency_id=lead.agency_id, lead_id=lead.id,
+                            manager_id=lead.assigned_to, task_type="escalation",
+                            title=f"🚨 ПРОСРОЧЕНО 48ч: #{short}",
+                            due_at=now, status="pending", is_urgent=True,
+                            escalated_at=now,
+                        ))
+
+                await record(lead, step)
+                actions += 1
+
         await session.commit()
     logger.info("Overdue leads escalated", actions=actions)
     return actions
