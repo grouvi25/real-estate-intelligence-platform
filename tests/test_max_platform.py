@@ -195,3 +195,49 @@ async def test_irrelevant_events_are_ignored(bot):
                                    "message": {"sender": {"user_id": 1},
                                                "body": {"text": "привет"}}}) is None
     assert bot.sent == []
+
+
+# --- an unconfigured secret must not mean "trust everyone" --------------------
+
+def _post(client, path, headers=None):
+    return client.post(path, json={"update_type": "message_created"}, headers=headers or {})
+
+
+@pytest.mark.parametrize("path,header", [
+    ("/api/webhooks/max", "X-Max-Bot-Api-Secret"),
+    ("/api/webhooks/telegram", "X-Telegram-Bot-Api-Secret-Token"),
+])
+def test_webhook_refuses_when_no_secret_is_configured(monkeypatch, path, header):
+    """TZ 35.2 asks for 403 on an unsigned webhook. An unset secret used to skip
+    the check entirely, so the MAX endpoint answered 200 to anything that reached
+    the URL -- confirmed against production."""
+    from fastapi.testclient import TestClient
+
+    from app.config import config as app_config
+    from app.main import app
+
+    monkeypatch.setattr(app_config, "node_env", "production")
+    monkeypatch.setattr(app_config, "max_webhook_secret", None)
+    monkeypatch.setattr(app_config, "telegram_webhook_secret", None)
+
+    with TestClient(app) as client:
+        assert _post(client, path).status_code == 403
+        assert _post(client, path, {header: "guessed"}).status_code == 403
+
+
+@pytest.mark.parametrize("path,header,attr", [
+    ("/api/webhooks/max", "X-Max-Bot-Api-Secret", "max_webhook_secret"),
+    ("/api/webhooks/telegram", "X-Telegram-Bot-Api-Secret-Token", "telegram_webhook_secret"),
+])
+def test_webhook_accepts_the_configured_secret(monkeypatch, path, header, attr):
+    from fastapi.testclient import TestClient
+
+    from app.config import config as app_config
+    from app.main import app
+
+    monkeypatch.setattr(app_config, "node_env", "production")
+    monkeypatch.setattr(app_config, attr, "s3cret")
+
+    with TestClient(app) as client:
+        assert _post(client, path, {header: "s3cret"}).status_code == 200
+        assert _post(client, path, {header: "wrong"}).status_code == 403

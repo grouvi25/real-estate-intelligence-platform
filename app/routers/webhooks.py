@@ -30,6 +30,25 @@ router = APIRouter()
 TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 MAX_SECRET_HEADER = "X-Max-Bot-Api-Secret"
 
+
+def _require_secret(received: Optional[str], expected: Optional[str], platform: str) -> None:
+    """Reject an update unless it carries the configured shared secret.
+
+    An unset secret used to mean "skip the check", so the MAX endpoint accepted
+    anything that reached the URL -- TZ 35.2 asks for 403. Outside development a
+    missing secret is a misconfiguration, not permission to trust the caller:
+    refusing is the safe reading, and it is the same choice already made for MAX
+    initData and for registering the Telegram webhook.
+    """
+    if not expected:
+        if config.node_env == "development":
+            return
+        logger.warning("Webhook secret is not configured; refusing", platform=platform)
+        raise ForbiddenError("Webhook secret is not configured")
+    if received != expected:
+        logger.warning("Webhook secret mismatch", platform=platform)
+        raise ForbiddenError("Invalid webhook secret")
+
 WELCOME_TEXT = (
     "Это рабочий кабинет агентства.\n\n"
     "Здесь видно сигналы от людей, которые ищут жильё; тут же вы работаете "
@@ -88,10 +107,8 @@ async def handle_telegram_message(message: dict[str, Any]) -> Optional[str]:
 
 @router.post("/telegram")
 async def telegram_webhook(request: Request):
-    secret = request.headers.get(TELEGRAM_SECRET_HEADER)
-    if config.telegram_webhook_secret and secret != config.telegram_webhook_secret:
-        logger.warning("Telegram webhook secret mismatch")
-        raise ForbiddenError("Invalid webhook secret")
+    _require_secret(request.headers.get(TELEGRAM_SECRET_HEADER),
+                    config.telegram_webhook_secret, "telegram")
 
     try:
         update = await request.json()
@@ -154,10 +171,8 @@ async def max_webhook(request: Request):
     The endpoint used to accept anything that reached the URL, so a stranger
     could feed the bot arbitrary events.
     """
-    secret = request.headers.get(MAX_SECRET_HEADER)
-    if config.max_webhook_secret and secret != config.max_webhook_secret:
-        logger.warning("MAX webhook secret mismatch")
-        raise ForbiddenError("Invalid webhook secret")
+    _require_secret(request.headers.get(MAX_SECRET_HEADER),
+                    config.max_webhook_secret, "max")
 
     try:
         update = await request.json()
