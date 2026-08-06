@@ -248,3 +248,56 @@ async def test_a_batch_is_evaluated_in_parallel(monkeypatch):
             s, candidates, geo_id, {"agency_id": agency_id, "city_name": "Геленджик"})
 
     assert peak == source_finder.EVALUATION_BATCH
+
+
+def test_adding_a_city_queues_discovery_not_just_keywords(monkeypatch):
+    """POST /api/geo answers "discovery_started". It was not: adding a city only
+    queued keyword generation, and the city then sat without a single source
+    until the weekly cron came round on Monday -- up to a week of an empty
+    screen, with nothing reporting it."""
+    from worker.tasks import geo_tasks, source_tasks
+
+    queued = []
+    monkeypatch.setattr(geo_tasks, "run_async", lambda coro: (coro.close(), True)[1])
+    monkeypatch.setattr(source_tasks.discover_sources_for_geo, "delay",
+                        lambda geo_id: queued.append(geo_id))
+
+    geo_tasks.generate_keywords_for_geo("geo-1", {"city_name": "Геленджик"})
+
+    assert queued == ["geo-1"]
+
+
+def test_discovery_is_not_queued_when_keywords_failed(monkeypatch):
+    """Discovery reads the keywords; without them it would search an empty
+    vocabulary and quietly find nothing."""
+    from worker.tasks import geo_tasks, source_tasks
+
+    queued = []
+    monkeypatch.setattr(geo_tasks, "run_async", lambda coro: (coro.close(), False)[1])
+    monkeypatch.setattr(source_tasks.discover_sources_for_geo, "delay",
+                        lambda geo_id: queued.append(geo_id))
+
+    geo_tasks.generate_keywords_for_geo("geo-1", {"city_name": "Геленджик"})
+
+    assert queued == []
+
+
+@pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
+@pytest.mark.asyncio
+async def test_discovery_for_a_geo_without_keywords_does_nothing(monkeypatch):
+    from app.database import async_session, run_migrations
+    from app.models.agency import Agency
+    from app.models.geo_location import GeoLocation
+    from worker.tasks.source_tasks import _discover_sources_for_geo
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name=f"No keywords {uuid.uuid4().hex[:6]}", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+        geo = GeoLocation(agency_id=agency.id, city_name="Геленджик", geo_type="base")
+        s.add(geo)
+        await s.commit()
+        geo_id = str(geo.id)
+
+    assert await _discover_sources_for_geo(geo_id) == 0

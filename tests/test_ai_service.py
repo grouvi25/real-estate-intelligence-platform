@@ -2,6 +2,7 @@
 import httpx
 import pytest
 
+from app.config import config
 from app.exceptions import AIBudgetExceededError
 from app.services.ai_service import AIProvider, AIResponse, AIService, AIUsage, safe_ai_parse
 
@@ -166,3 +167,67 @@ def test_safe_ai_parse_garbage_returns_default():
     parsed = safe_ai_parse("totally not json", {"intent_score": 0})
     assert parsed["intent_score"] == 0
     assert parsed["parse_error"] is True
+
+
+# --- the provider is an operator's choice, not a deploy ----------------------
+
+@pytest.mark.asyncio
+async def test_the_stored_provider_wins_over_the_env(monkeypatch):
+    """TZ 2.2 calls the providers switchable from the admin area, and 35.4 asks
+    for it without a restart. It was AI_DEFAULT_PROVIDER in .env -- so moving off
+    a foreign provider, a 152-ФЗ decision, meant editing a file on the server."""
+    from app.services import platform_settings
+    from app.services.ai_service import AIProvider, AIService
+
+    monkeypatch.setattr(config, "ai_default_provider", AIProvider.OPENAI)
+
+    async def stored(key):
+        return "yandexgpt"
+
+    monkeypatch.setattr(platform_settings, "get_setting", stored)
+
+    service = AIService()
+    try:
+        assert service.provider == AIProvider.OPENAI
+        assert await service.resolve_provider() == AIProvider.YANDEX_GPT
+    finally:
+        await service.http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_nothing_stored_leaves_the_configured_provider(monkeypatch):
+    from app.services import platform_settings
+    from app.services.ai_service import AIProvider, AIService
+
+    monkeypatch.setattr(config, "ai_default_provider", AIProvider.GIGACHAT)
+
+    async def stored(key):
+        return None
+
+    monkeypatch.setattr(platform_settings, "get_setting", stored)
+
+    service = AIService()
+    try:
+        assert await service.resolve_provider() == AIProvider.GIGACHAT
+    finally:
+        await service.http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_stored_provider_is_ignored(monkeypatch):
+    """A bad row must not take AI down; the configured provider carries on."""
+    from app.services import platform_settings
+    from app.services.ai_service import AIProvider, AIService
+
+    monkeypatch.setattr(config, "ai_default_provider", AIProvider.YANDEX_GPT)
+
+    async def stored(key):
+        return "deepseek"
+
+    monkeypatch.setattr(platform_settings, "get_setting", stored)
+
+    service = AIService()
+    try:
+        assert await service.resolve_provider() == AIProvider.YANDEX_GPT
+    finally:
+        await service.http.aclose()
