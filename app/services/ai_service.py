@@ -63,6 +63,8 @@ _RATES_PER_1K = {
 class AIService:
     def __init__(self, cost_tracker=None):
         self.http = httpx.AsyncClient(timeout=60.0)
+        # The env value is the fallback; the operator's choice, stored in
+        # platform_settings, wins and takes effect without a restart (TZ 2.2).
         self.provider: AIProvider = AIProvider(config.ai_default_provider)
         self.daily_budget: float = config.ai_daily_budget_rub
         self._cost_tracker_override = cost_tracker
@@ -100,8 +102,26 @@ class AIService:
             )
         return False
 
+    async def resolve_provider(self) -> AIProvider:
+        """The provider in force right now: the operator's choice, else the env.
+
+        Resolved per call rather than per process, so switching in the admin area
+        applies to the next AI request instead of the next deploy.
+        """
+        from app.services.platform_settings import AI_PROVIDER, get_setting
+
+        chosen = await get_setting(AI_PROVIDER)
+        if chosen:
+            try:
+                self.provider = AIProvider(chosen)
+            except ValueError:
+                logger.warning("Unknown AI provider stored; using the configured one",
+                               stored=chosen)
+        return self.provider
+
     async def complete(self, system: str, user: str, module: str, agency_id: str = "global") -> str:
         """Main entrypoint: routing, budget guard, anonymization, cost logging."""
+        await self.resolve_provider()
         tracker = self._tracker()
         current_cost = await tracker.get_daily_cost(agency_id)
         if current_cost >= self.daily_budget:

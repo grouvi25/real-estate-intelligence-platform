@@ -257,3 +257,73 @@ async def rotate_invite(
     await session.commit()
     logger.info("Invite rotated", agency_id=current.agency_id)
     return InviteResponse(link=invite_link(agency.invite_token), token=agency.invite_token)
+
+
+class AiProviderResponse(BaseModel):
+    provider: str
+    configured: bool
+    source: str  # "admin" — выбран владельцем, "env" — из настроек сервера
+    options: list[dict]
+
+
+class AiProviderRequest(BaseModel):
+    provider: str
+
+
+async def _provider_state(chosen: Optional[str]) -> AiProviderResponse:
+    from app.services.ai_service import AIProvider, AIService
+
+    service = AIService()
+    try:
+        current = await service.resolve_provider()
+        options = []
+        for p in AIProvider:
+            service.provider = p
+            options.append({
+                "value": p.value,
+                "configured": service.provider_configured,
+                # The one thing an owner has to know when choosing: where the
+                # data goes. 152-ФЗ, not a preference.
+                "data_stays_in_russia": p in (AIProvider.YANDEX_GPT, AIProvider.GIGACHAT),
+            })
+        service.provider = current
+        return AiProviderResponse(
+            provider=current.value,
+            configured=service.provider_configured,
+            source="admin" if chosen else "env",
+            options=options,
+        )
+    finally:
+        await service.http.aclose()
+
+
+@router.get("/ai-provider", response_model=AiProviderResponse)
+async def get_ai_provider(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    from app.services.platform_settings import AI_PROVIDER, get_setting
+
+    await _owner(current, session)
+    return await _provider_state(await get_setting(AI_PROVIDER))
+
+
+@router.put("/ai-provider", response_model=AiProviderResponse)
+async def set_ai_provider(
+    req: AiProviderRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Switch the provider. Applies to the next AI call, no restart (TZ 2.2)."""
+    from app.services.ai_service import AIProvider
+    from app.services.platform_settings import AI_PROVIDER, set_setting
+
+    await _owner(current, session)
+    try:
+        provider = AIProvider(req.provider)
+    except ValueError:
+        raise AppException(status_code=400, detail=f"Неизвестный провайдер: {req.provider}",
+                           code="UNKNOWN_PROVIDER") from None
+
+    await set_setting(AI_PROVIDER, provider.value, updated_by=current.manager_id)
+    return await _provider_state(provider.value)

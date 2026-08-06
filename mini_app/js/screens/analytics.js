@@ -136,6 +136,9 @@ Screens.settings = async function () {
     <div class="section-title" style="margin:18px 2px 8px">Менеджеры</div>
     <div id="invite">${UI.skelCard()}</div>
 
+    <div class="section-title" style="margin:18px 2px 8px">AI-провайдер</div>
+    <div id="aiprov">${UI.skelCard()}</div>
+
     <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Города (гео)</span>
       <button class="btn btn--ghost btn--sm" id="add-geo">${UI.icon('plus')} Город</button></div>
@@ -170,7 +173,7 @@ Screens.settings = async function () {
       document.getElementById('go-refs').onclick = () => Router.go('referrals');
       document.getElementById('go-sources').onclick = () => Router.go('sources');
       document.getElementById('go-tasks').onclick = () => Router.go('tasks');
-      loadGeos(); loadPartners(); loadMgrs(); loadInvite();
+      loadGeos(); loadPartners(); loadMgrs(); loadInvite(); loadAiProvider();
     });
 };
 
@@ -207,6 +210,41 @@ async function loadInvite() {
     };
   };
   draw(data.link);
+}
+
+const PROVIDER_RU = {
+  yandexgpt: 'YandexGPT', gigachat: 'GigaChat', openai: 'OpenAI', anthropic: 'Anthropic',
+};
+
+async function loadAiProvider() {
+  const box = document.getElementById('aiprov');
+  let d;
+  try {
+    d = await API.aiProvider();
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="item__sub">Провайдера выбирает владелец агентства.</div></div>`;
+    return;
+  }
+  const opts = (d.options || []).map((o) => `
+    <option value="${o.value}" ${o.value === d.provider ? 'selected' : ''} ${o.configured ? '' : 'disabled'}>
+      ${UI.esc(PROVIDER_RU[o.value] || o.value)}${o.data_stays_in_russia ? ' · данные в РФ' : ' · через прокси, обезличенно'}${o.configured ? '' : ' — нет ключей'}
+    </option>`).join('');
+  box.innerHTML = `
+    <div class="card">
+      <div class="item__sub">Кто отвечает на запросы системы. Смена действует со следующего
+        запроса, перезапуск не нужен.</div>
+      <div class="field" style="margin-top:8px"><select id="ai-sel">${opts}</select></div>
+      <div class="item__sub">Сейчас: <b>${UI.esc(PROVIDER_RU[d.provider] || d.provider)}</b>
+        · ${d.source === 'admin' ? 'выбран здесь' : 'из настроек сервера'}
+        ${d.configured ? '' : ' · <b>ключей нет, вызовы не пройдут</b>'}</div>
+    </div>`;
+  document.getElementById('ai-sel').onchange = async (ev) => {
+    try {
+      await API.setAiProvider(ev.target.value);
+      UI.toast('Провайдер переключён');
+      loadAiProvider();
+    } catch (e) { UI.toast('Не удалось: ' + e.message); loadAiProvider(); }
+  };
 }
 
 async function loadMgrs() {

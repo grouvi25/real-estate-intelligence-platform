@@ -165,6 +165,10 @@
     invite: () => api.request('/auth/invite'),
     rotateInvite: () => api.request('/auth/invite/rotate', 'POST'),
 
+    // Which AI answers, and whether the data leaves Russia (152-ФЗ)
+    aiProvider: () => api.request('/auth/ai-provider'),
+    setAiProvider: (provider) => api.request('/auth/ai-provider', 'PUT', { provider }),
+
     // Monitoring sources (TZ 30 /admin/sources)
     sources: (f) => api.request('/sources' + qs(f)),
     createSource: (body) => api.request('/sources', 'POST', body),
