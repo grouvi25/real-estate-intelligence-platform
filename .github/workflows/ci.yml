@@ -160,6 +160,33 @@ jobs:
             EOF
             fi
 
+      # The block above writes .env once and never touches it again, so every
+      # credential obtained afterwards had to be typed into the file over SSH by
+      # hand -- untracked, unrepeatable, and lost if the box is rebuilt. Keys that
+      # arrive later are kept as GitHub secrets and written from here instead.
+      # An unset secret changes nothing: the value on the server survives.
+      - name: Sync optional secrets into .env
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          VK_SERVICE_TOKEN: ${{ secrets.VK_SERVICE_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          envs: VK_SERVICE_TOKEN
+          script: |
+            set -e
+            upsert() {
+              [ -n "$2" ] || return 0
+              touch /opt/reip/.env
+              grep -v "^$1=" /opt/reip/.env > /opt/reip/.env.next || true
+              printf '%s=%s\n' "$1" "$2" >> /opt/reip/.env.next
+              mv /opt/reip/.env.next /opt/reip/.env
+              echo "$1: записан из секрета GitHub"
+            }
+            upsert VK_SERVICE_TOKEN "$VK_SERVICE_TOKEN"
+
       - name: Copy code to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
