@@ -224,11 +224,47 @@ function geoSheet() {
         const city = document.getElementById('g-city').value.trim();
         const region = document.getElementById('g-region').value.trim();
         if (!city || !region) { UI.toast('Заполните город и регион'); return; }
+        const marketType = document.getElementById('g-type').value;
         try {
-          await API.createGeo({ city_name: city, region, market_type: document.getElementById('g-type').value });
-          close(); UI.toast('Город добавлен'); loadGeos();
+          const res = await API.createGeo({ city_name: city, region, market_type: marketType });
+          close();
+          // 202 partner_offer: the city belongs to a partner's territory, so it
+          // was NOT created. Saying "Город добавлен" here was a lie, and the
+          // offer itself had no way to be accepted.
+          if (res && res.status === 'partner_offer') {
+            partnerOfferSheet({ city, region, marketType, res });
+            return;
+          }
+          UI.toast('Город добавлен'); loadGeos();
         } catch (e) {
           UI.toast(e.message.indexOf('409') >= 0 ? 'Город защищён другим агентством' : 'Ошибка: ' + e.message);
+        }
+      };
+    });
+}
+
+// The city is covered by a partner: the agency may open it in referral mode,
+// collecting signals there and handing deals to that partner.
+function partnerOfferSheet({ city, region, marketType, res }) {
+  UI.sheet('Город закреплён за партнёром',
+    `<p>${UI.esc(res.message || 'Этот город обслуживает партнёр.')}</p>
+     <p class="muted">Можно работать через партнёра: сигналы собираем мы,
+       сделки передаются ему по реферальной схеме.</p>
+     <button class="btn btn--block" id="po-accept">${UI.icon('handshake')} Работать через партнёра</button>
+     <button class="btn btn--secondary btn--block" id="po-skip" style="margin-top:8px">Не добавлять</button>`,
+    (close) => {
+      document.getElementById('po-skip').onclick = close;
+      document.getElementById('po-accept').onclick = async () => {
+        const btn = document.getElementById('po-accept');
+        btn.disabled = true;
+        try {
+          await API.acceptPartnerGeo({
+            partner_id: res.partner_id, city_name: city,
+            region: region || null, market_type: marketType,
+          });
+          close(); UI.toast('Город открыт через партнёра'); loadGeos();
+        } catch (e) {
+          UI.toast('Ошибка: ' + e.message); btn.disabled = false;
         }
       };
     });
