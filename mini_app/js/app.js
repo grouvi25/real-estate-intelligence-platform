@@ -48,7 +48,8 @@
       document.body.innerHTML =
         '<div class="empty" style="padding-top:80px">' + Icons.svg('close') +
         '<div class="empty__t">Не удалось авторизоваться</div>' +
-        '<div class="empty__s">Откройте приложение через кнопку в боте.</div></div>';
+        '<div class="empty__s">' + UI.esc(e.message || 'Откройте приложение через кнопку в боте.') +
+        '</div></div>';
       return;
     }
 

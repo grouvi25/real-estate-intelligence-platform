@@ -133,6 +133,9 @@ Screens.settings = async function () {
     <div class="section-title" style="margin:18px 2px 8px">Готовность к работе</div>
     <div id="readiness">${UI.skelCard()}</div>
 
+    <div class="section-title" style="margin:18px 2px 8px">Менеджеры</div>
+    <div id="invite">${UI.skelCard()}</div>
+
     <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Города (гео)</span>
       <button class="btn btn--ghost btn--sm" id="add-geo">${UI.icon('plus')} Город</button></div>
@@ -167,9 +170,44 @@ Screens.settings = async function () {
       document.getElementById('go-refs').onclick = () => Router.go('referrals');
       document.getElementById('go-sources').onclick = () => Router.go('sources');
       document.getElementById('go-tasks').onclick = () => Router.go('tasks');
-      loadGeos(); loadPartners(); loadMgrs();
+      loadGeos(); loadPartners(); loadMgrs(); loadInvite();
     });
 };
+
+async function loadInvite() {
+  // The link IS the invitation: anyone holding it joins this agency, and nobody
+  // without it can. Owners only -- a manager gets a 403 and sees nothing here.
+  const box = document.getElementById('invite');
+  let data;
+  try {
+    data = await API.invite();
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="item__sub">Ссылку-приглашение выдаёт владелец агентства.</div></div>`;
+    return;
+  }
+  const draw = (link) => {
+    box.innerHTML = `
+      <div class="card">
+        <div class="item__sub">Отправьте менеджеру эту ссылку — по ней он попадёт в ваше агентство.
+          Без неё вход в кабинет закрыт.</div>
+        <div class="item__title" style="margin-top:8px;word-break:break-all">${UI.esc(link)}</div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn" id="inv-copy">${UI.icon('check')} Скопировать</button>
+          <button class="btn btn--secondary" id="inv-rot">${UI.icon('close')} Сменить ссылку</button>
+        </div>
+      </div>`;
+    document.getElementById('inv-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(link); UI.toast('Ссылка скопирована'); }
+      catch (e) { UI.toast('Скопируйте вручную'); }
+    };
+    document.getElementById('inv-rot').onclick = async () => {
+      if (!confirm('Старая ссылка перестанет работать. Сменить?')) return;
+      try { const r = await API.rotateInvite(); draw(r.link); UI.toast('Ссылка обновлена'); }
+      catch (e) { UI.toast('Не удалось: ' + e.message); }
+    };
+  };
+  draw(data.link);
+}
 
 async function loadMgrs() {
   try {

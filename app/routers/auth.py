@@ -17,7 +17,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import secrets
 import time
+import uuid
 from typing import Optional
 from urllib.parse import parse_qsl, unquote
 
@@ -28,6 +30,7 @@ from sqlalchemy import select
 
 from app.config import config
 from app.database import get_session
+from app.dependencies import CurrentManager, get_current_manager
 from app.exceptions import AppException
 from app.models.manager import Manager
 from app.security import create_access_token
@@ -42,6 +45,9 @@ INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
 class AuthRequest(BaseModel):
     platform: str = Field(..., pattern="^(telegram|max)$")
     init_data: str
+    # The agency's invite token, carried by the owner's deeplink. Required for
+    # anyone who is not already a manager.
+    invite: Optional[str] = None
 
 
 def verify_telegram_init_data(init_data: str) -> Optional[dict]:
@@ -115,6 +121,41 @@ def verify_max_init_data(init_data: str) -> Optional[dict]:
         return None
 
 
+INVITE_PREFIX = "inv_"
+
+
+async def _agency_for_invite(session, invite: Optional[str]) -> uuid.UUID:
+    """Which agency an invite token admits to. Refuses anything else.
+
+    The token is the whole of the authorisation, so it is compared against the
+    stored one rather than parsed: a rotated token stops working immediately, and
+    a missing or wrong one is refused rather than quietly falling back to the
+    platform owner's agency.
+    """
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    token = (invite or "").strip()
+    if token.startswith(INVITE_PREFIX):
+        token = token[len(INVITE_PREFIX):]
+    if not token:
+        raise AppException(
+            status_code=403,
+            detail="Нужна ссылка-приглашение от владельца агентства",
+            code="INVITE_REQUIRED",
+        )
+
+    agency_id = await session.scalar(
+        select(Agency.id).where(Agency.invite_token == token)
+    )
+    if agency_id is None:
+        raise AppException(
+            status_code=403,
+            detail="Ссылка-приглашение недействительна или устарела",
+            code="INVITE_INVALID",
+        )
+    return agency_id
+
+
 @router.post("/platform")
 async def auth_platform(req: AuthRequest, session=Depends(get_session)):
     """Verify platform initData, upsert the manager, and issue a JWT."""
@@ -136,16 +177,13 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
     manager = (await session.execute(stmt)).scalar_one_or_none()
 
     if manager is None:
-        # New manager: attach to the platform owner agency. Real onboarding
-        # (linking to an arbitrary agency) is handled elsewhere.
-        if not config.platform_owner_agency_id:
-            raise AppException(
-                status_code=409,
-                detail="Онбординг не настроен: задайте PLATFORM_OWNER_AGENCY_ID",
-                code="ONBOARDING_REQUIRED",
-            )
+        # Until this check existed, any Telegram user who found the bot became a
+        # manager of PLATFORM_OWNER_AGENCY_ID and saw that agency's signals,
+        # leads and their clients' personal data. Joining now requires the
+        # owner's invite link, and the token in it decides which agency.
+        agency_id = await _agency_for_invite(session, req.invite)
         manager = Manager(
-            agency_id=config.platform_owner_agency_id,
+            agency_id=agency_id,
             name=user.get("first_name", "Unknown"),
             telegram_id=platform_user_id if platform == BotPlatform.TELEGRAM else None,
             max_user_id=platform_user_id if platform == BotPlatform.MAX else None,
@@ -166,3 +204,56 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
             "agency_id": str(manager.agency_id),
         },
     }
+
+
+class InviteResponse(BaseModel):
+    link: str
+    token: str
+
+
+async def _owner(current: CurrentManager, session) -> Manager:
+    """The manager, if they may hand out invitations."""
+    manager = await session.get(Manager, uuid.UUID(current.manager_id))
+    if manager is None or manager.role != "owner":
+        raise AppException(status_code=403, detail="Только для владельца агентства",
+                           code="OWNER_ONLY")
+    return manager
+
+
+def invite_link(token: str) -> str:
+    return f"https://t.me/{config.telegram_bot_username}?start={INVITE_PREFIX}{token}"
+
+
+@router.get("/invite", response_model=InviteResponse)
+async def get_invite(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """The link that adds a manager to this agency."""
+    from app.models.agency import Agency
+
+    await _owner(current, session)
+    agency = await session.get(Agency, uuid.UUID(current.agency_id))
+    if not agency.invite_token:
+        agency.invite_token = secrets.token_hex(16)
+        await session.commit()
+    return InviteResponse(link=invite_link(agency.invite_token), token=agency.invite_token)
+
+
+@router.post("/invite/rotate", response_model=InviteResponse)
+async def rotate_invite(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Issue a new link and kill the old one.
+
+    The one thing to do when a link has gone somewhere it should not have.
+    """
+    from app.models.agency import Agency
+
+    await _owner(current, session)
+    agency = await session.get(Agency, uuid.UUID(current.agency_id))
+    agency.invite_token = secrets.token_hex(16)
+    await session.commit()
+    logger.info("Invite rotated", agency_id=current.agency_id)
+    return InviteResponse(link=invite_link(agency.invite_token), token=agency.invite_token)

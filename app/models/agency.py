@@ -21,6 +21,10 @@ class Agency(CreatedAtMixin, UpdatedAtMixin, Base):
     subscription_plan: Mapped[str] = mapped_column(Text, default="mvp")
     settings: Mapped[dict] = mapped_column(JSONB, default=dict)
 
+    # The invitation is the token: a manager joins this agency only by presenting
+    # it, and rotating it invalidates every link handed out before (migration 048).
+    invite_token: Mapped[str | None] = mapped_column(Text)
+
     # Outbound CRM export (migration 007).
     crm_export_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     crm_type: Mapped[str | None] = mapped_column(Text)

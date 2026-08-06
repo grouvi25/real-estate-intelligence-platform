@@ -161,6 +161,10 @@
     tasksSummary: () => api.request('/tasks/summary'),
     updateTask: (id, body) => api.request(`/tasks/${id}`, 'PATCH', body),
 
+    // Manager onboarding: the invite link is what admits someone to the agency
+    invite: () => api.request('/auth/invite'),
+    rotateInvite: () => api.request('/auth/invite/rotate', 'POST'),
+
     // Monitoring sources (TZ 30 /admin/sources)
     sources: (f) => api.request('/sources' + qs(f)),
     createSource: (body) => api.request('/sources', 'POST', body),
