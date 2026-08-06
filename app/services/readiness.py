@@ -24,6 +24,8 @@ from app.config import config
 
 logger = structlog.get_logger()
 
+SEED_CATALOGUE_MAX = 5
+
 # Values that ship in .env.example and mean "not configured yet".
 PLACEHOLDERS = ("dev", "dummy", "test", "changeme", "todo", "xxx", "your", "placeholder", "")
 
@@ -82,6 +84,16 @@ async def collect_findings(session, agency_id: Optional[str] = None) -> list[Fin
             "catalogue", "blocker",
             "В каталоге нет активных объектов",
             "Загрузите каталог: Объекты → «Загрузить каталог» (CSV или XLSX)",
+        ))
+    elif active_properties < SEED_CATALOGUE_MAX:
+        # There is no flag distinguishing seeded rows from imported ones, so the
+        # count is the honest signal: production sat on two demo objects while
+        # the check would have called that a catalogue. Said as a suspicion, not
+        # a fact.
+        findings.append(Finding(
+            "catalogue_size", "warning",
+            f"В каталоге всего {active_properties} объект(а) — похоже на тестовые данные",
+            "Загрузите настоящий каталог агентства, иначе подбор нечего предложить лиду",
         ))
 
     # --- is anything feeding the pipeline? ----------------------------------

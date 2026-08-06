@@ -55,6 +55,8 @@ async def test_a_stocked_catalogue_clears_that_finding():
         report = await readiness_report(s, str(agency.id))
 
     assert "catalogue" not in report["findings"]
+    # A single object is still suspicious -- see the seed-size test below.
+    assert report["findings"]["catalogue_size"]["severity"] == "warning"
 
 
 @pytest.mark.asyncio
@@ -157,7 +159,8 @@ async def test_real_configuration_reports_ready(monkeypatch):
     await run_migrations()
     async with async_session() as s:
         agency = await _agency(s, "Ready Agency")
-        s.add(Property(agency_id=agency.id, title="Квартира", price=8_000_000, status="active"))
+        for i in range(6):
+            s.add(Property(agency_id=agency.id, title=f"Квартира {i}", price=8_000_000, status="active"))
         s.add(Source(agency_id=agency.id, source_type="telegram_chat",
                      source_url="https://t.me/x", status="active"))
         await s.commit()
@@ -165,3 +168,33 @@ async def test_real_configuration_reports_ready(monkeypatch):
 
     assert report["ready"] is True, report["findings"]
     assert report["blockers"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_seed_sized_catalogue_is_flagged_but_not_blocking():
+    """Production reported itself ready on two demo objects. The count is the
+    only signal available -- nothing marks a row as seeded -- so it is raised as
+    a suspicion rather than a blocker."""
+    from app.database import async_session, run_migrations
+    from app.models.property import Property
+    from app.services.readiness import SEED_CATALOGUE_MAX, readiness_report
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = await _agency(s, "Seed Sized Agency")
+        for i in range(2):
+            s.add(Property(agency_id=agency.id, title=f"Демо {i}", price=1_000_000, status="active"))
+        await s.commit()
+        report = await readiness_report(s, str(agency.id))
+
+    assert report["findings"]["catalogue_size"]["severity"] == "warning"
+    assert "catalogue" not in report["findings"]
+
+    async with async_session() as s:
+        agency = await _agency(s, "Stocked Agency")
+        for i in range(SEED_CATALOGUE_MAX + 1):
+            s.add(Property(agency_id=agency.id, title=f"Объект {i}", price=8_000_000, status="active"))
+        await s.commit()
+        report = await readiness_report(s, str(agency.id))
+
+    assert "catalogue_size" not in report["findings"]
