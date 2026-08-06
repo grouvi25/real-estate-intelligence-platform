@@ -17,7 +17,7 @@ Screens.properties = async function () {
       </div>
     </div>`, { icon: 'properties', title: 'Объектов нет', sub: 'Загрузите каталог агентства' })
     + `<button class="btn btn--ghost btn--block" data-go="properties/import" style="margin-top:12px">
-         ${UI.icon('plus')} Загрузить каталог</button>`, bindGo);
+         ${UI.icon('plus')} Загрузить каталог</button>`, Router.bindGo);
 };
 
 Screens.propertyDetail = async function (params) {
@@ -67,9 +67,8 @@ Screens.propertyDetail = async function (params) {
         btn.disabled = true;
         try {
           const doc = await API.createChecklist(p.id);
-          UI.sheet('Чек-лист готов',
-            `<p class="muted">${p.is_new_build ? 'Новостройка' : 'Вторичка'} · ${UI.esc(doc.format.toUpperCase())}</p>
-             <a class="btn btn--block" href="${UI.esc(doc.pdf_url)}" target="_blank" rel="noopener">Открыть документ</a>`);
+          UI.docLinkSheet('Чек-лист готов', doc,
+            `${p.is_new_build ? 'Новостройка' : 'Вторичка'} · ${UI.esc(doc.format.toUpperCase())}`);
         } catch (e) { UI.toast('Ошибка: ' + e.message); }
         btn.disabled = false;
       };

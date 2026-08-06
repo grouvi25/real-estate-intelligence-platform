@@ -26,7 +26,7 @@ Screens.leads = async function () {
           <span class="item__chev">${UI.icon('chevron')}</span>
         </div>
       </div>`, { icon: 'leads', title: 'Лидов нет', sub: 'Квалифицируйте сигнал, чтобы создать лид' });
-    bindGo();
+    Router.bindGo();
   }
 
   UI.render(seg() + '<div id="lead-list">' + UI.skelList() + '</div>', () => {
@@ -160,9 +160,7 @@ function contractSheet(l) {
             deposit_amount: amount, deposit_days: days, final_date: finalDate,
           });
           close();
-          UI.sheet('Договор готов',
-            `<p class="muted">Формат: ${UI.esc(doc.format.toUpperCase())}</p>
-             <a class="btn btn--block" href="${UI.esc(doc.pdf_url)}" target="_blank" rel="noopener">Открыть документ</a>`);
+          UI.docLinkSheet('Договор готов', doc, `Формат: ${UI.esc(doc.format.toUpperCase())}`);
         } catch (e) {
           UI.toast('Ошибка: ' + e.message); btn.disabled = false;
         }

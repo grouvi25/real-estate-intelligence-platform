@@ -116,3 +116,21 @@ const UI = (() => {
     render, setHeader, toast, sheet,
   };
 })();
+
+UI.docLinkSheet = function (title, doc, subtitle) {
+  // The stored document needs the JWT, so fetch it and hand the browser a blob
+  // URL; a bare href to pdf_url would open a 401.
+  UI.sheet(title, `<p class="muted">${subtitle}</p><div class="skel skel-line md"></div>`,
+    async () => {
+      const body = document.querySelector('.sheet__body');
+      try {
+        const url = await API.documentBlob(doc.key);
+        body.innerHTML =
+          `<p class="muted">${subtitle}</p>
+           <a class="btn btn--block" href="${url}" target="_blank" rel="noopener"
+              download="${UI.esc(doc.key.split('/').pop())}">Открыть документ</a>`;
+      } catch (e) {
+        body.innerHTML = UI.errorState(e.message);
+      }
+    });
+};

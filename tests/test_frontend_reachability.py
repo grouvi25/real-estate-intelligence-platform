@@ -143,4 +143,54 @@ def test_screens_bind_navigation_after_rendering(path: Path):
     src = path.read_text(encoding="utf-8")
     if "data-go=" not in src:
         pytest.skip("no navigation markup")
-    assert "bindGo" in src, f"{path.name} рисует data-go, но не вызывает bindGo()"
+    assert "Router.bindGo" in src, f"{path.name} рисует data-go, но не вызывает Router.bindGo()"
+
+
+def test_screens_do_not_depend_on_each_other():
+    """Screens are plain scripts sharing one global scope, so a helper defined in
+    one screen silently works in another -- until load order changes or that
+    screen is edited. Shared helpers belong in components.js / api_client.js.
+
+    Caught docLinkSheet, which was defined in leads.js and called from
+    properties.js.
+    """
+    # Only top-level declarations become globals.
+    top_level: dict[str, str] = {}
+    # Anything a file declares at any depth is its own -- a nested helper that
+    # happens to share a name is not a cross-file dependency.
+    own: dict[str, set[str]] = {}
+    for f in SCREENS:
+        src = f.read_text(encoding="utf-8")
+        own[f.name] = set(re.findall(r"function (\w+)\s*\(", src))
+        for name in re.findall(r"^function (\w+)\s*\(", src, re.M):
+            top_level[name] = f.name
+
+    leaks = []
+    for f in SCREENS:
+        src = f.read_text(encoding="utf-8")
+        for name, owner in top_level.items():
+            if owner == f.name or name in own[f.name]:
+                continue
+            if re.search(rf"(?<![\w.]){name}\s*\(", src):
+                leaks.append(f"{f.name} вызывает {name}() из {owner}")
+
+    assert not leaks, (
+        "экраны зависят друг от друга:\n  " + "\n  ".join(sorted(leaks))
+        + "\n\nперенесите общий помощник в components.js"
+    )
+
+
+def test_ui_helpers_used_by_screens_exist():
+    """A typo in a UI.* call is invisible until that screen is opened."""
+    components = (MINI_APP / "js" / "components.js").read_text(encoding="utf-8")
+    available = set(re.findall(r"UI\.(\w+)\s*=", components))
+    available |= set(re.findall(r"^\s*(\w+),?\s*$", components, re.M))
+    # Names exposed through the object literal UI returns.
+    available |= set(re.findall(r"(\w+)\s*[,:]", components))
+
+    missing = set()
+    for f in SCREENS:
+        for name in re.findall(r"UI\.(\w+)\s*\(", f.read_text(encoding="utf-8")):
+            if name not in available:
+                missing.add(name)
+    assert not missing, f"экран зовёт несуществующий UI-помощник: {sorted(missing)}"

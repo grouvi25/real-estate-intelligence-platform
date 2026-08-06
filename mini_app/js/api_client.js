@@ -48,6 +48,25 @@
     return res.json();
   };
 
+  // Binary fetch for stored documents. The download endpoint requires the JWT,
+  // so a plain <a href> opens a 401 instead of the file -- the header only
+  // travels on a fetch. The blob URL it returns can then be opened or saved.
+  api.requestBlob = async function (endpoint) {
+    const build = () => {
+      const headers = {};
+      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      return fetch(`${API_BASE}/api${endpoint}`, { headers });
+    };
+    let res = await build();
+    if (res.status === 401 && typeof authenticate === 'function') {
+      await StorageAdapter.remove('jwt_token');
+      this.token = null;
+      try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
+    }
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    return URL.createObjectURL(await res.blob());
+  };
+
   // Raw text (documents return HTML, not JSON).
   api.requestText = async function (endpoint) {
     const build = () => {
@@ -93,6 +112,8 @@
     leadDocumentHtml: (id) => api.requestText(`/leads/${id}/document?format=html`),
     createContract: (body) => api.request('/documents/preliminary-contract', 'POST', body),
     createChecklist: (propId) => api.request(`/documents/checklist/${propId}`, 'POST'),
+    // `key` already carries the agency prefix the endpoint checks.
+    documentBlob: (key) => api.requestBlob(`/documents/${key}`),
 
     // Deals (Knowledge Moat)
     recordOutcome: (leadId, body) => api.request(`/deals/${leadId}/outcome`, 'POST', body),
