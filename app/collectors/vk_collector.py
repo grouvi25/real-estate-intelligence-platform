@@ -236,14 +236,29 @@ class VkCollector:
 
     @staticmethod
     def _stems(queries: list[str]) -> set[str]:
-        """Search words cut short so declensions still match: a group called
-        «Барахолка Геленджика» has to match the query «Геленджик квартира»."""
-        return {
-            word[:WORD_PREFIX]
+        """What a candidate has to say about itself to be worth an AI call.
+
+        Words are cut short so declensions still match: «Барахолка Геленджика»
+        has to match the query «Геленджик квартира».
+
+        Only the words common to every query count, which for queries built as
+        "<город> <тема>" means the city -- and that is what separates a local
+        барахолка from a барахолка somewhere else. Live, matching any query word
+        let in «Барахолка Донецк» (133 905 members) and «ДОСКА ОБЪЯВЛЕНИЙ
+        ДОНЕЦК-ШАХТЕРСК» on the strength of the word "барахолка" alone; requiring
+        the shared word replaced them with «Барахолка Геленджика» (18 001) and
+        «Снять жилье в Геленджике», at the same count of twenty.
+        """
+        per_query = [
+            {word[:WORD_PREFIX] for word in query.lower().split() if len(word) >= WORD_PREFIX}
             for query in queries
-            for word in query.lower().split()
-            if len(word) >= WORD_PREFIX
-        }
+        ]
+        per_query = [stems for stems in per_query if stems]
+        if not per_query:
+            return set()
+        # No word in common (queries for several cities at once): fall back to
+        # any of them rather than filtering everything out.
+        return set.intersection(*per_query) or set().union(*per_query)
 
     async def _enrich(self, candidates: list[dict], samples: int = 3) -> None:
         """Attach recent wall text so the AI scores content, not just a name.
