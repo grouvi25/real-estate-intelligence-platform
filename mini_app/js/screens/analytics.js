@@ -82,6 +82,38 @@ function marketEventSheet() {
     });
 }
 
+// What still stands between the agency and a working system. /health/deep says
+// the dependencies are up; this says whether a buyer could actually be served.
+async function loadReadiness() {
+  const box = document.getElementById('readiness');
+  if (!box) return;
+  try {
+    const r = await API.readiness();
+    const items = Object.entries(r.findings || {});
+    if (!items.length) {
+      box.innerHTML = `<div class="card"><div class="row" style="gap:10px">${UI.icon('check')}
+        <span>Всё настроено — система готова к работе</span></div></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="card">
+      <div class="item__sub" style="margin-bottom:10px">
+        ${r.blockers ? `<b>Мешает работе: ${r.blockers}</b> · ` : ''}предупреждений: ${r.warnings}
+      </div>
+      ${items.map(([, f]) => `
+        <div class="item" style="align-items:flex-start;gap:10px">
+          <span class="chip ${f.severity === 'blocker' ? 'chip--hot' : 'chip--warm'}">
+            ${f.severity === 'blocker' ? 'блокирует' : 'внимание'}</span>
+          <div class="grow">
+            <div>${UI.esc(f.detail)}</div>
+            <div class="item__sub">${UI.esc(f.action)}</div>
+          </div>
+        </div>`).join('<hr class="divider">')}
+    </div>`;
+  } catch (e) {
+    box.innerHTML = UI.errorState(e.message);
+  }
+}
+
 Screens.settings = async function () {
   UI.setHeader('Профиль', '', { back: true });
   const platform = (window.PlatformSDK && PlatformSDK.platform) || 'web';
@@ -97,6 +129,9 @@ Screens.settings = async function () {
       <hr class="divider">
       <div class="item__sub">Агентство: <span class="muted">${UI.esc(api.agencyId || '—')}</span></div>
     </div>
+
+    <div class="section-title" style="margin:18px 2px 8px">Готовность к работе</div>
+    <div id="readiness">${UI.skelCard()}</div>
 
     <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Города (гео)</span>
@@ -121,6 +156,7 @@ Screens.settings = async function () {
 
     <button class="btn btn--danger btn--block" id="logout" style="margin-top:16px">${UI.icon('logout')} Выйти</button>`,
     () => {
+      loadReadiness();
       document.getElementById('logout').onclick = async () => {
         await StorageAdapter.remove('jwt_token');
         api.token = null;
