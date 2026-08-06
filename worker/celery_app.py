@@ -90,6 +90,11 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.collector_tasks.collect_telegram_sources",
         "schedule": crontab(minute="*/10"),  # every 10 min (no-op without Telethon)
     },
+    "collect-vk-sources": {
+        "task": "worker.tasks.collector_tasks.collect_vk_sources",
+        # Offset from the Telegram run so the two do not contend for the worker.
+        "schedule": crontab(minute="5-59/10"),  # every 10 min (no-op without VK token)
+    },
     "intent-scoring-batch": {
         "task": "worker.tasks.signal_tasks.score_intent_batch",
         "schedule": crontab(minute="*/5"),  # every 5 min (no-op without AI keys)

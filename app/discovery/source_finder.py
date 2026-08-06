@@ -31,7 +31,27 @@ async def search_telegram_sources(geo_keywords: dict[str, Any]) -> list[dict]:
         queries = geo_keywords.get("city_variations") or []
     if not queries:
         return []
-    return await search_candidate_sources(queries, limit=10)
+    return [
+        {**c, "channel": "telegram"}
+        for c in await search_candidate_sources(queries, limit=10)
+    ]
+
+
+async def search_vk_sources(geo_keywords: dict[str, Any]) -> list[dict]:
+    """Find candidate VK groups for a geo.
+
+    The keyword builder has always produced search_queries.vk_groups and nothing
+    read them, so those queries were generated for no one. Without
+    VK_SERVICE_TOKEN the collector returns [] (stable no-op), same as Telethon.
+    """
+    from app.collectors.vk_collector import search_candidate_groups
+
+    queries = (geo_keywords.get("search_queries") or {}).get("vk_groups") or []
+    if not queries:
+        queries = geo_keywords.get("city_variations") or []
+    if not queries:
+        return []
+    return [{**c, "channel": "vk"} for c in await search_candidate_groups(queries)]
 
 
 async def evaluate_and_save_sources(
@@ -70,7 +90,11 @@ async def evaluate_and_save_sources(
 
             status = "active" if score >= ACTIVE_THRESHOLD else "sandbox"
             username = cand.get("username", "")
-            url = cand.get("url") or f"https://t.me/{username}"
+            channel = cand.get("channel", "telegram")
+            source_type = "vk_group" if channel == "vk" else "telegram_chat"
+            default_url = (f"https://vk.com/{username}" if channel == "vk"
+                           else f"https://t.me/{username}")
+            url = cand.get("url") or default_url
 
             # Discovery runs weekly over the same city and re-finds the same
             # chats, so without this every run added another copy of each source
@@ -91,10 +115,11 @@ async def evaluate_and_save_sources(
                 Source(
                     agency_id=geo_profile["agency_id"],
                     geo_location_id=geo_id,
-                    source_type="telegram_chat",
+                    source_type=source_type,
                     source_url=url,
                     source_name=cand.get("name"),
-                    external_id=cand.get("id"),
+                    # Both collectors resolve a source by handle, not numeric id.
+                    external_id=username or cand.get("id"),
                     status=status,
                     score=score,
                     auto_found=True,
