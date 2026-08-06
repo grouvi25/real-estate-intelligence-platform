@@ -60,7 +60,7 @@ Screens.tasks = async function () {
       </div>`, { icon: 'check', title: 'Задач нет', sub: 'Здесь появятся напоминания и эскалации по лидам' });
 
     UI.render(tabs + body, () => {
-      if (window.bindGo) window.bindGo();
+      Router.bindGo();
 
       document.querySelectorAll('[data-f]').forEach((b) => {
         b.onclick = () => {

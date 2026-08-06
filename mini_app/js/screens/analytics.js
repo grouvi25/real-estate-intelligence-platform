@@ -172,7 +172,7 @@ async function loadPartners() {
           ${p.deals_count ? '· сделок: ' + p.deals_count : ''}</div>
       </div>`,
       { icon: 'handshake', title: 'Партнёров нет', sub: 'Добавьте, чтобы передавать защищённые лиды' });
-    if (window.bindGo) window.bindGo();
+    Router.bindGo();
   } catch (e) { document.getElementById('partners').innerHTML = UI.errorState(e.message); }
 }
 

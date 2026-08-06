@@ -17,7 +17,7 @@ Screens.signals = async function () {
         <span class="item__chev">${UI.icon('chevron')}</span>
       </div>
     </div>`, { icon: 'signals', title: 'Пока нет сигналов', sub: 'Появятся после подключения источников' }),
-    bindGo);
+    Router.bindGo);
 };
 
 Screens.signalDetail = async function (params) {
@@ -53,9 +53,3 @@ Screens.signalDetail = async function (params) {
     });
 };
 
-function bindGo() {
-  document.querySelectorAll('[data-go]').forEach((el) => {
-    el.onclick = () => Router.go(el.getAttribute('data-go'));
-  });
-}
-window.bindGo = bindGo;

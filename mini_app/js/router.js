@@ -43,6 +43,15 @@ const Router = (() => {
 
   const go = (path) => { location.hash = '#/' + String(path).replace(/^#?\/?/, ''); };
 
+  // Wire every [data-go] element rendered by a screen. Lives here rather than in
+  // one of the screens: five screens emit data-go, and a helper owned by one of
+  // them only works because of script load order.
+  const bindGo = () => {
+    document.querySelectorAll('[data-go]').forEach((el) => {
+      el.onclick = () => go(el.getAttribute('data-go'));
+    });
+  };
+
   const start = () => {
     window.addEventListener('hashchange', resolve);
     try {
@@ -52,5 +61,5 @@ const Router = (() => {
     resolve();
   };
 
-  return { add, setNotFound, start, go, resolve };
+  return { add, setNotFound, start, go, resolve, bindGo };
 })();
