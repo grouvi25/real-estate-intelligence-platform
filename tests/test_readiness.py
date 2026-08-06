@@ -115,6 +115,9 @@ async def test_placeholder_credentials_are_reported(monkeypatch):
     assert report["findings"]["yandex_cloud"]["severity"] == "warning"
     assert report["findings"]["max"]["severity"] == "warning"
     assert report["findings"]["node_env"]["severity"] == "warning"
+    # Without the key the VK collector is a no-op and VK discovery returns
+    # nothing -- both silently, so half the channels can be off unnoticed.
+    assert report["findings"]["vk"]["severity"] == "warning"
 
 
 @pytest.mark.asyncio
@@ -151,6 +154,7 @@ async def test_real_configuration_reports_ready(monkeypatch):
     monkeypatch.setattr(r.config, "telethon_phone", None)
     monkeypatch.setattr(r.config, "telegram_bot_token", "8985346019:AAF-real-looking")
     monkeypatch.setattr(r.config, "max_bot_token", "max-real-token")
+    monkeypatch.setattr(r.config, "vk_service_token", "61e837ac61e837ac")
     monkeypatch.setattr(r.config, "yc_folder_id", "b1gxxxxxxxxxxxxx")
     monkeypatch.setattr(r.config, "node_env", "production")
     monkeypatch.setattr(r.config, "database_url",
@@ -168,6 +172,7 @@ async def test_real_configuration_reports_ready(monkeypatch):
 
     assert report["ready"] is True, report["findings"]
     assert report["blockers"] == 0
+    assert "vk" not in report["findings"]
 
 
 @pytest.mark.asyncio
