@@ -373,6 +373,9 @@ class VkCollector:
                     **comment,
                     "content_type": "comment",
                     "owner_id": owner_id,
+                    # Comments are numbered separately from posts, so a bare
+                    # "{owner}_{id}" would collide with a post on the same wall.
+                    "external_id": f"{owner_id}_{post_id}_r{comment.get('id')}",
                     "url": f"https://vk.com/wall{owner_id}_{post_id}?reply={comment.get('id')}",
                     "author_name": None,
                 })
@@ -402,6 +405,9 @@ class VkCollector:
                     **c,
                     "content_type": "comment",
                     "owner_id": -int(group_id),
+                    # Board comments restart their numbering in every topic, so
+                    # the topic has to be part of the identity.
+                    "external_id": f"-{group_id}_t{topic_id}_{c.get('id')}",
                     "url": f"https://vk.com/topic-{group_id}_{topic_id}?post={c.get('id')}",
                     "author_name": None,
                 })

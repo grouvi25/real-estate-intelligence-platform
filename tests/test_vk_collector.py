@@ -398,3 +398,41 @@ async def test_a_call_that_keeps_being_throttled_gives_up(monkeypatch):
 
     assert await c._call("wall.get", domain="gel_realty") is None
     assert len(c._client.calls) == vk.RATE_LIMIT_RETRIES + 1
+
+
+@pytest.mark.asyncio
+async def test_a_comment_cannot_be_mistaken_for_a_post():
+    """Dedup is by (agency, channel, external_id). Posts, wall comments and board
+    comments are three separate numberings, so a bare "{owner}_{id}" describes
+    all three: comment 42 would overwrite post 42 on the same wall and never
+    become a signal of its own."""
+    from app.services.channels import get_channel_adapter
+
+    c = _collector({
+        "wall.getComments": {"response": {"items": [{"id": 42, "text": "Куплю квартиру"}]}},
+    })
+
+    entries = await c._entries([{"id": 42, "owner_id": -55, "text": "Подборка новостроек"}])
+    adapter = get_channel_adapter("vk")
+    ids = [adapter.normalize(e).external_id for e in entries]
+
+    assert ids == ["-55_42", "-55_42_r42"]
+    assert len(set(ids)) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_same_comment_id_in_two_topics_stays_two_messages():
+    """Board comments restart their numbering in every topic."""
+    from app.services.channels import get_channel_adapter
+
+    c = _collector({
+        "groups.getById": {"response": {"groups": [{"id": 100}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7}, {"id": 8}]}},
+        "board.getComments": {"response": {"items": [{"id": 1, "text": "Куплю дом"}]}},
+    })
+
+    entries = await c._board_entries(_Src())
+    adapter = get_channel_adapter("vk")
+    ids = [adapter.normalize(e).external_id for e in entries]
+
+    assert ids == ["-100_t7_1", "-100_t8_1"]
