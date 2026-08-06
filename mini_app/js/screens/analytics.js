@@ -4,7 +4,15 @@ window.Screens = window.Screens || {};
 Screens.analytics = async function () {
   UI.setHeader('Аналитика', 'Воронка и источники');
   UI.render(UI.skelCard() + UI.skelList(3));
-  const [funnel, roi] = await Promise.all([API.funnel(), API.sourceRoi()]);
+  let funnel, roi;
+  try {
+    [funnel, roi] = await Promise.all([API.funnel(), API.sourceRoi()]);
+  } catch (e) {
+    UI.render(UI.errorState(e.message), () => {
+      document.getElementById('retry').onclick = () => Screens.analytics();
+    });
+    return;
+  }
 
   const total = funnel.total || 1;
   const bar = (label, n) => {
@@ -17,12 +25,16 @@ Screens.analytics = async function () {
 
   const sources = UI.list(roi.sources, (s) => `
     <div class="card">
-      <div class="between"><span class="item__title">${UI.esc(s.source)}</span>
-        <span class="chip chip--accent">${s.leads} лид.</span></div>
-      <div class="between" style="margin-top:8px">
-        <span class="muted">Сделки: <b style="color:var(--fg)">${s.deals_won}</b> · конв. ${s.conversion_pct}%</span>
-        <span class="price">${UI.money(s.commission)}</span></div>
-    </div>`, { icon: 'analytics', title: 'Нет данных по источникам' });
+      <div class="between gap-2">
+        <span class="item__title ellipsis">${UI.esc(UI.utmSource(s.source))}</span>
+        <span class="chip chip--accent">${UI.count(s.leads, ['лид', 'лида', 'лидов'])}</span>
+      </div>
+      <div class="between mt-2">
+        <span class="muted">${UI.count(s.deals_won, ['сделка', 'сделки', 'сделок'])} · конверсия ${s.conversion_pct}%</span>
+        <span class="price">${UI.moneyShort(s.commission)}</span>
+      </div>
+    </div>`, { icon: 'analytics', title: 'Нет данных по источникам',
+               sub: 'Появятся, когда лиды начнут приходить по меткам' });
 
   UI.render(`
     <div class="card">
@@ -96,17 +108,17 @@ async function loadReadiness() {
       return;
     }
     box.innerHTML = `<div class="card">
-      <div class="item__sub" style="margin-bottom:10px">
-        ${r.blockers ? `<b>Мешает работе: ${r.blockers}</b> · ` : ''}предупреждений: ${r.warnings}
+      <div class="row row--wrap gap-1">
+        ${r.blockers ? `<span class="chip chip--hot">${UI.icon('flame')}мешает работе ${r.blockers}</span>` : ''}
+        ${r.warnings ? `<span class="chip chip--warm">внимание ${r.warnings}</span>` : ''}
       </div>
       ${items.map(([, f]) => `
-        <div class="item" style="align-items:flex-start;gap:10px">
-          <span class="chip ${f.severity === 'blocker' ? 'chip--hot' : 'chip--warm'}">
-            ${f.severity === 'blocker' ? 'блокирует' : 'внимание'}</span>
-          <div class="grow">
-            <div>${UI.esc(f.detail)}</div>
-            <div class="item__sub">${UI.esc(f.action)}</div>
-          </div>
+        <div class="mt-3">
+          <div class="meta-row">${UI.icon(f.severity === 'blocker' ? 'flame' : 'clock')}
+            <span style="color:${f.severity === 'blocker' ? 'var(--hot)' : 'var(--warm)'}">
+              ${f.severity === 'blocker' ? 'блокирует' : 'внимание'}</span></div>
+          <div class="item__sub mt-1" style="color:var(--fg);font-size:var(--t-md)">${UI.esc(f.detail)}</div>
+          <div class="item__sub">${UI.esc(f.action)}</div>
         </div>`).join('<hr class="divider">')}
     </div>`;
   } catch (e) {
@@ -127,7 +139,11 @@ Screens.settings = async function () {
           <div class="item__sub">Платформа: ${UI.esc(platform)}</div></div>
       </div>
       <hr class="divider">
-      <div class="item__sub">Агентство: <span class="muted">${UI.esc(api.agencyId || '—')}</span></div>
+      <div class="between"><span class="muted">Агентство</span>
+        <span class="item__title ellipsis">${UI.esc((window._agency && window._agency.name) || '—')}</span></div>
+      ${(window._agency && window._agency.city)
+        ? `<div class="between mt-1"><span class="muted">Город</span>
+             <span class="item__meta">${UI.esc(window._agency.city)}</span></div>` : ''}
     </div>
 
     <div class="section-title" style="margin:18px 2px 8px">Готовность к работе</div>
@@ -193,10 +209,10 @@ async function loadInvite() {
       <div class="card">
         <div class="item__sub">Отправьте менеджеру эту ссылку — по ней он попадёт в ваше агентство.
           Без неё вход в кабинет закрыт.</div>
-        <div class="item__title" style="margin-top:8px;word-break:break-all">${UI.esc(link)}</div>
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn" id="inv-copy">${UI.icon('check')} Скопировать</button>
-          <button class="btn btn--secondary" id="inv-rot">${UI.icon('close')} Сменить ссылку</button>
+        <div class="copyfield mt-3">${UI.esc(link)}</div>
+        <div class="btn-row btn-row--equal mt-3">
+          <button class="btn btn--sm" id="inv-copy">${UI.icon('copy')} Скопировать</button>
+          <button class="btn btn--secondary btn--sm" id="inv-rot">${UI.icon('refresh')} Сменить</button>
         </div>
       </div>`;
     document.getElementById('inv-copy').onclick = async () => {
@@ -252,7 +268,7 @@ async function loadMgrs() {
     const m = await API.managers();
     document.getElementById('mgrs').innerHTML = UI.list(m.managers, (x) => `
       <div class="card"><div class="between"><span class="item__title">${UI.esc(x.name)}</span>
-        <span class="chip chip--accent">${x.deals_won} сделок</span></div>
+        <span class="chip chip--accent">${UI.count(x.deals_won, ['сделка', 'сделки', 'сделок'])}</span></div>
         <div class="item__sub" style="margin-top:4px">Комиссия: ${UI.money(x.commission)}</div></div>`,
       { icon: 'leads', title: 'Нет менеджеров' });
   } catch (e) { document.getElementById('mgrs').innerHTML = UI.errorState(e.message); }
@@ -264,7 +280,7 @@ async function loadGeos() {
     document.getElementById('geos').innerHTML = UI.list(d.geo, (g) => `
       <div class="card"><div class="between">
         <span class="item__title">${UI.icon('location')} ${UI.esc(g.city_name)}</span>
-        <span class="chip ${g.geo_type === 'base' ? 'chip--accent' : ''}">${UI.esc(g.geo_type)}</span></div>
+        <span class="chip ${g.geo_type === 'base' ? 'chip--accent' : ''}">${UI.esc(UI.geoType(g.geo_type))}</span></div>
         <div class="item__sub" style="margin-top:4px">${UI.esc(g.region || '')}
           ${g.has_keywords ? '· ключевые слова готовы' : '· keywords генерируются'}</div></div>`,
       { icon: 'location', title: 'Городов нет' });

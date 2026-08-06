@@ -1,44 +1,76 @@
 // Screens: Leads list + detail (feedback, deal outcome, commercial offer).
+//
+// The list answers the manager's three questions in one glance: who, how much,
+// and how long they have been waiting. The budget is the figure that decides
+// what to show them, so it is the figure that gets the weight.
 window.Screens = window.Screens || {};
 
 const LEAD_TABS = [['', 'Все'], ['new', 'Новые'], ['in_progress', 'В работе'],
   ['qualified', 'Квалиф.'], ['deal', 'Сделки']];
 
-Screens.leads = async function () {
-  UI.setHeader('Лиды', '', { actionIcon: 'plus', onAction: () => Router.go('leads/new') });
-  let cur = Screens._leadTab || '';
-  const seg = () => `<div class="segmented" style="margin-bottom:12px">${LEAD_TABS.map(([v, l]) =>
-    `<div class="segmented__opt ${v === cur ? 'segmented__opt--active' : ''}" data-tab="${v}">${l}</div>`).join('')}</div>`;
+function leadName(l) {
+  return l.name || (l.telegram_username ? '@' + l.telegram_username : 'Лид #' + String(l.id).slice(0, 6));
+}
 
-  async function load() {
-    document.getElementById('lead-list').innerHTML = UI.skelList();
-    const data = await API.leads({ limit: 50, status: cur || undefined });
-    document.getElementById('lead-list').innerHTML = UI.list(data.leads, (l) => `
-      <div class="card card--tap" data-go="leads/${l.id}">
-        <div class="item">
-          <div class="avatar">${UI.esc(UI.initials(l.name))}</div>
-          <div class="grow">
-            <div class="between"><span class="item__title ellipsis">${UI.esc(l.name || ('Лид #' + String(l.id).slice(0, 6)))}</span>
-              ${UI.urgencyChip(l.urgency)}</div>
-            <div class="item__sub">${l.segment ? UI.esc(UI.seg(l.segment)) + ' · ' : ''}${UI.statusChip(l.status)}
-              &nbsp;${UI.money(l.budget_max)}</div>
+function leadCard(l) {
+  const tone = l.urgency === 'hot' ? ' card--hot' : l.urgency === 'warm' ? ' card--warm' : '';
+  const budget = l.budget_max ? UI.moneyShort(l.budget_max) : '';
+  return `
+    <div class="card card--tap${tone}" data-go="leads/${l.id}">
+      <div class="item">
+        <div class="avatar">${UI.esc(UI.initials(l.name || l.telegram_username || '?'))}</div>
+        <div class="grow">
+          <div class="between">
+            <span class="item__title ellipsis">${UI.esc(leadName(l))}</span>
+            ${budget ? `<span class="price">${budget}</span>` : ''}
           </div>
-          <span class="item__chev">${UI.icon('chevron')}</span>
+          <div class="row row--wrap gap-1 mt-1">
+            ${UI.urgencyChip(l.urgency)}
+            ${UI.statusChip(l.status)}
+            ${l.segment ? `<span class="chip">${UI.esc(UI.seg(l.segment))}</span>` : ''}
+          </div>
+          <div class="item__meta mt-2">
+            ${l.created_at ? UI.esc(UI.ago(l.created_at)) : ''}
+            ${l.intent_score != null ? `<span class="dot"></span>интерес ${l.intent_score}` : ''}
+          </div>
         </div>
-      </div>`, { icon: 'leads', title: 'Лидов нет',
-                 sub: 'Квалифицируйте сигнал или заведите лида вручную по кнопке «+»' });
-    Router.bindGo();
+        <span class="item__chev">${UI.icon('chevron')}</span>
+      </div>
+    </div>`;
+}
+
+Screens.leads = async function () {
+  UI.setHeader('Лиды', 'Кому продаём', {
+    actionIcon: 'plus', actionLabel: 'Новый лид', onAction: () => Router.go('leads/new'),
+  });
+  let cur = Screens._leadTab || '';
+
+  const bar = () => `<div class="segmented" role="tablist">${LEAD_TABS.map(([v, l]) =>
+    `<button class="segmented__opt${v === cur ? ' segmented__opt--active' : ''}" role="tab"
+       aria-selected="${v === cur}" data-tab="${v}">${l}</button>`).join('')}</div>`;
+
+  function draw() {
+    UI.load(bar() + UI.skelList(4),
+      () => API.leads({ limit: 50, status: cur || undefined }),
+      (data) => {
+        UI.render(bar() + UI.list(data.leads, leadCard, {
+          icon: 'leads',
+          title: cur ? 'В этом статусе пусто' : 'Лидов пока нет',
+          sub: cur ? 'Посмотрите другие вкладки'
+            : 'Квалифицируйте сигнал или заведите лида вручную',
+          actionLabel: cur ? null : 'Новый лид', actionIcon: 'plus', actionId: 'new-lead',
+        }), () => {
+          Router.bindGo();
+          document.querySelectorAll('[data-tab]').forEach((t) => {
+            t.onclick = () => { cur = t.getAttribute('data-tab'); Screens._leadTab = cur; draw(); };
+          });
+          const n = document.getElementById('new-lead');
+          if (n) n.onclick = () => Router.go('leads/new');
+        });
+      });
   }
 
-  UI.render(seg() + '<div id="lead-list">' + UI.skelList() + '</div>', () => {
-    document.querySelectorAll('[data-tab]').forEach((t) => t.onclick = () => {
-      cur = t.getAttribute('data-tab'); Screens._leadTab = cur;
-      document.querySelectorAll('[data-tab]').forEach((x) =>
-        x.classList.toggle('segmented__opt--active', x === t));
-      load();
-    });
-    load();
-  });
+  draw();
 };
 
 // TZ 30 screen /leads/new. Until this existed a lead could only arrive from a
@@ -125,49 +157,68 @@ Screens.leadNew = async function () {
 
 Screens.leadDetail = async function (params) {
   UI.setHeader('Лид', '', { back: true });
-  UI.render(UI.skelCard() + UI.skelList(2));
-  const l = await API.lead(params.id);
 
-  const matches = UI.list(l.matches, (m) => `
-    <div class="card">
-      <div class="between"><span class="card__title ellipsis">${UI.esc(m.title)}</span>
-        ${UI.scoreEl(m.match_score)}</div>
-      <div class="price" style="margin:6px 0">${UI.money(m.price)}</div>
-      ${m.pitch ? `<div class="item__sub">${UI.esc(m.pitch)}</div>` : ''}
-      <div class="btn-row" style="margin-top:10px">
-        <button class="btn btn--secondary btn--sm" data-acc="${m.property_id}">${UI.icon('check')} Подходит</button>
-        <button class="btn btn--danger btn--sm" data-rej="${m.property_id}">${UI.icon('close')} Отклонить</button>
-      </div>
-    </div>`, { icon: 'properties', title: 'Нет подобранных объектов' });
+  UI.load(UI.skelCard() + `<div class="mt-3">${UI.skelList(2)}</div>`,
+    () => API.lead(params.id), (l) => {
+      const matches = UI.list(l.matches, (m) => `
+        <div class="card">
+          <div class="between">
+            <span class="card__title ellipsis">${UI.esc(m.title)}</span>
+            ${UI.scoreEl(m.match_score)}
+          </div>
+          <div class="price mt-1" style="font-size:var(--t-lg)">${UI.money(m.price)}</div>
+          ${m.pitch ? `<div class="item__sub mt-2">${UI.esc(m.pitch)}</div>` : ''}
+          <div class="btn-row btn-row--equal mt-3">
+            <button class="btn btn--secondary btn--sm" data-acc="${m.property_id}">${UI.icon('check')} Подходит</button>
+            <button class="btn btn--danger btn--sm" data-rej="${m.property_id}">${UI.icon('close')} Не то</button>
+          </div>
+        </div>`, { icon: 'properties', title: 'Объекты ещё не подобраны',
+                   sub: 'Подбор запускается после квалификации лида' });
 
-  const alt = l.lead_type === 'alternative'
-    ? `<button class="btn btn--secondary btn--block" id="alt" style="margin-top:8px">${UI.icon('refresh')} Обработать альтернативу</button>` : '';
+      const contact = [
+        l.phone ? `<a class="btn btn--secondary btn--sm" href="tel:${UI.esc(l.phone)}">${UI.icon('phone')} Позвонить</a>` : '',
+        l.telegram_username ? `<a class="btn btn--secondary btn--sm" target="_blank" rel="noopener"
+           href="https://t.me/${UI.esc(String(l.telegram_username).replace(/^@/, ''))}">${UI.icon('send')} Написать</a>` : '',
+      ].filter(Boolean).join('');
 
-  UI.render(`
-    <div class="card">
-      <div class="item">
-        <div class="avatar">${UI.esc(UI.initials(l.name))}</div>
-        <div class="grow"><div class="card__title ellipsis">${UI.esc(l.name || ('Лид #' + String(l.id).slice(0, 6)))}</div>
-          <div class="item__sub">${l.segment ? UI.esc(UI.seg(l.segment)) + ' · ' : ''}${UI.esc(l.purchase_goal || '')}</div></div>
-        ${UI.urgencyChip(l.urgency)}
-      </div>
-      <hr class="divider">
-      ${l.phone ? `<div class="row" style="margin:6px 0">${UI.icon('phone')}<a href="tel:${UI.esc(l.phone)}">${UI.esc(l.phone)}</a></div>` : ''}
-      <div class="row" style="margin:6px 0">${UI.icon('ruble')}<span>${UI.money(l.budget_min)} – ${UI.money(l.budget_max)}</span></div>
-      <div class="row" style="margin:6px 0">${UI.icon('tag')}${UI.statusChip(l.status)}</div>
-    </div>
-    <div class="btn-row" style="margin-top:12px">
-      <button class="btn btn--sm" id="qual">${UI.icon('check')} Квалиф.</button>
-      <button class="btn btn--secondary btn--sm" id="deal">${UI.icon('handshake')} Исход</button>
-      <button class="btn btn--secondary btn--sm" id="kp">${UI.icon('file')} КП</button>
-      <button class="btn btn--secondary btn--sm" id="contract">${UI.icon('file')} Договор</button>
-    </div>
-    <button class="btn btn--danger btn--block" id="arch" style="margin-top:8px">Отправить в архив</button>
-    <button class="btn btn--secondary btn--block" id="refer" style="margin-top:8px">${UI.icon('handshake')} Передать партнёру</button>
-    ${alt}
-    <div class="section-title">Подборка объектов</div>
-    ${matches}`,
-    () => wire(l));
+      UI.render(`
+        <div class="card${l.urgency === 'hot' ? ' card--hot' : ''}">
+          <div class="item">
+            <div class="avatar">${UI.esc(UI.initials(l.name || l.telegram_username || '?'))}</div>
+            <div class="grow">
+              <div class="card__title ellipsis">${UI.esc(leadName(l))}</div>
+              <div class="item__sub">${l.segment ? UI.esc(UI.seg(l.segment)) : 'Сегмент не определён'}</div>
+            </div>
+            ${UI.urgencyChip(l.urgency)}
+          </div>
+          ${contact ? `<div class="btn-row btn-row--equal mt-3">${contact}</div>` : ''}
+          <hr class="divider">
+          <div class="between"><span class="muted">Бюджет</span>
+            <span class="price">${l.budget_min ? UI.moneyShort(l.budget_min) + ' – ' : 'до '}${UI.moneyShort(l.budget_max)}</span></div>
+          <div class="between mt-2"><span class="muted">Статус</span>${UI.statusChip(l.status)}</div>
+          <div class="between mt-2"><span class="muted">Создан</span>
+            <span class="item__meta">${UI.esc(UI.dateTime(l.created_at))}</span></div>
+        </div>
+
+        <div class="section-title">Действия</div>
+        <button class="btn btn--block" id="qual">${UI.icon('check')} Квалифицировать</button>
+        <div class="btn-row btn-row--equal mt-2">
+          <button class="btn btn--secondary btn--sm" id="deal">${UI.icon('handshake')} Исход</button>
+          <button class="btn btn--secondary btn--sm" id="kp">${UI.icon('file')} КП</button>
+          <button class="btn btn--secondary btn--sm" id="contract">${UI.icon('file')} Договор</button>
+        </div>
+        <button class="btn btn--secondary btn--block mt-2" id="refer">${UI.icon('handshake')} Передать партнёру</button>
+        ${l.lead_type === 'alternative'
+          ? `<button class="btn btn--secondary btn--block mt-2" id="alt">${UI.icon('refresh')} Обработать альтернативу</button>` : ''}
+        <button class="btn btn--danger btn--block mt-2" id="arch">${UI.icon('trash')} В архив</button>
+
+        <div class="section-head">
+          <span class="section-title">Подборка объектов</span>
+          <span class="item__meta">${(l.matches || []).length}</span>
+        </div>
+        ${matches}`,
+        () => wire(l));
+    });
 };
 
 function wire(l) {
@@ -176,18 +227,19 @@ function wire(l) {
     UI.toast(toastMsg);
     goBack ? Router.go('leads') : Router.resolve();
   };
-  document.getElementById('qual').onclick = () => doStatus('qualified', 'Квалифицирован', false);
-  document.getElementById('arch').onclick = () => doStatus('archived', 'В архиве', true);
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+  on('qual', (e) => UI.busy(e.currentTarget, () => doStatus('qualified', 'Квалифицирован', false)));
+  on('arch', (e) => UI.busy(e.currentTarget, () => doStatus('archived', 'В архиве', true)));
   const altBtn = document.getElementById('alt');
   if (altBtn) altBtn.onclick = async () => {
     try { const r = await API.processAlternative(l.id); UI.toast(`Создано задач: ${r.tasks_created}`); }
     catch (e) { UI.toast('Ошибка: ' + e.message); }
   };
 
-  document.getElementById('deal').onclick = () => dealSheet(l);
-  document.getElementById('kp').onclick = () => docSheet(l);
-  document.getElementById('contract').onclick = () => contractSheet(l);
-  document.getElementById('refer').onclick = () => referralSheet(l);
+  on('deal', () => dealSheet(l));
+  on('kp', () => docSheet(l));
+  on('contract', () => contractSheet(l));
+  on('refer', () => referralSheet(l));
 
   document.querySelectorAll('[data-acc]').forEach((b) => b.onclick = async () => {
     try { await API.matchFeedback(l.id, b.getAttribute('data-acc'), { status: 'accepted' }); UI.toast('Отмечено «подходит»'); }

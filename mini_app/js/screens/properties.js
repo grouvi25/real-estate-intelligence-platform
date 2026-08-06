@@ -1,57 +1,121 @@
 // Screens: Properties list + detail (price edit -> rematch, object report).
+//
+// Title and price used to share a line, so a long title pushed the price into a
+// wrap: "11 800 000" on one line and "₽" alone on the next. Price now sits on
+// its own row and never wraps.
 window.Screens = window.Screens || {};
 
-Screens.properties = async function () {
-  UI.setHeader('Объекты', 'Каталог агентства');
-  UI.render(UI.skelList());
-  const data = await API.properties({ limit: 50 });
-  UI.render(UI.list(data.properties, (p) => `
+const PROPERTY_TABS = [['', 'Все'], ['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Проданы']];
+
+function propertyCard(p) {
+  const meta = [
+    p.district,
+    p.rooms ? `${p.rooms}-комн.` : null,
+    p.area_total ? `${p.area_total} м²` : null,
+    (p.floor && p.floors_total) ? `${p.floor}/${p.floors_total} эт.` : null,
+  ].filter(Boolean).join(' · ');
+  return `
     <div class="card card--tap" data-go="properties/${p.id}">
-      <div class="item">
-        <div class="grow">
-          <div class="between"><span class="item__title ellipsis">${UI.esc(p.title)}</span>
-            <span class="price">${UI.money(p.price)}</span></div>
-          <div class="item__sub">${p.district ? UI.esc(p.district) + ' · ' : ''}${p.rooms || '—'}-комн. · ${UI.statusChip(p.status)}</div>
-        </div>
+      <div class="between gap-2">
+        <span class="item__title clamp-2">${UI.esc(p.title)}</span>
         <span class="item__chev">${UI.icon('chevron')}</span>
       </div>
-    </div>`, { icon: 'properties', title: 'Объектов нет', sub: 'Загрузите каталог агентства' })
-    + `<button class="btn btn--ghost btn--block" data-go="properties/import" style="margin-top:12px">
-         ${UI.icon('plus')} Загрузить каталог</button>`, Router.bindGo);
+      <div class="between mt-2">
+        <span class="price" style="font-size:var(--t-lg)">${UI.money(p.price)}</span>
+        ${UI.statusChip(p.status)}
+      </div>
+      ${meta ? `<div class="item__sub mt-1">${UI.esc(meta)}</div>` : ''}
+      ${p.price_per_sqm ? `<div class="item__meta mt-1">${UI.money(p.price_per_sqm)} за м²</div>` : ''}
+    </div>`;
+}
+
+Screens.properties = async function () {
+  UI.setHeader('Объекты', 'Каталог агентства', {
+    actionIcon: 'upload', actionLabel: 'Загрузить каталог',
+    onAction: () => Router.go('properties/import'),
+  });
+  let cur = Screens._propTab || '';
+
+  const bar = () => `<div class="segmented" role="tablist">${PROPERTY_TABS.map(([v, l]) =>
+    `<button class="segmented__opt${v === cur ? ' segmented__opt--active' : ''}" role="tab"
+       aria-selected="${v === cur}" data-tab="${v}">${l}</button>`).join('')}</div>`;
+
+  function draw() {
+    UI.load(bar() + UI.skelList(3), () => API.properties({ limit: 50 }), (data) => {
+      const items = cur ? (data.properties || []).filter((p) => p.status === cur) : (data.properties || []);
+      UI.render(bar() + UI.list(items, propertyCard, {
+        icon: 'properties',
+        title: cur ? 'В этом статусе пусто' : 'Каталог пуст',
+        sub: cur ? 'Посмотрите другие вкладки'
+          : 'Система находит покупателей — предложить им нужно ваши объекты',
+        actionLabel: cur ? null : 'Загрузить каталог', actionIcon: 'upload', actionId: 'to-import',
+      }), () => {
+        Router.bindGo();
+        document.querySelectorAll('[data-tab]').forEach((t) => {
+          t.onclick = () => { cur = t.getAttribute('data-tab'); Screens._propTab = cur; draw(); };
+        });
+        const i = document.getElementById('to-import');
+        if (i) i.onclick = () => Router.go('properties/import');
+      });
+    });
+  }
+
+  draw();
 };
 
 Screens.propertyDetail = async function (params) {
   UI.setHeader('Объект', '', { back: true });
-  UI.render(UI.skelCard());
+  UI.render(UI.skelCard() + `<div class="mt-3">${UI.skelForm(1)}</div>`);
   let p;
   try { p = await API.property(params.id); }
-  catch (e) { UI.render(UI.empty({ icon: 'properties', title: 'Объект не найден' })); return; }
+  catch (e) {
+    UI.render(UI.empty({ icon: 'properties', title: 'Объект не найден',
+      sub: 'Возможно, он удалён из каталога' }));
+    return;
+  }
+
+  const meta = [
+    p.district,
+    p.rooms ? `${p.rooms}-комн.` : null,
+    p.area_total ? `${p.area_total} м²` : null,
+    (p.floor && p.floors_total) ? `${p.floor}/${p.floors_total} эт.` : null,
+  ].filter(Boolean).join(' · ');
 
   UI.render(`
     <div class="card">
-      <div class="card__title">${UI.esc(p.title)}</div>
-      <div class="item__sub" style="margin-top:4px">${p.district ? UI.esc(p.district) + ' · ' : ''}${p.rooms || '—'}-комн.
-        ${p.area_total ? ' · ' + p.area_total + ' м²' : ''}</div>
-      <div class="row" style="margin-top:8px">${UI.statusChip(p.status)}</div>
-      <hr class="divider">
-      <div class="field"><label>Цена, ₽</label><input id="price" type="number" inputmode="numeric" value="${p.price || ''}"></div>
-      <button class="btn btn--block" id="save">${UI.icon('check')} Сохранить цену</button>
-      <div class="item__sub" style="margin-top:8px">Снижение цены ≥ 5% запускает переподбор для подходящих лидов.</div>
+      <div class="between gap-2">
+        <span class="card__title">${UI.esc(p.title)}</span>
+        ${UI.statusChip(p.status)}
+      </div>
+      ${meta ? `<div class="item__sub mt-1">${UI.esc(meta)}</div>` : ''}
+      <div class="hero__v mt-3">${UI.money(p.price)}</div>
+      ${p.price_per_sqm ? `<div class="item__meta">${UI.money(p.price_per_sqm)} за м²</div>` : ''}
     </div>
-    <button class="btn btn--secondary btn--block" id="report" style="margin-top:12px">${UI.icon('file')} Отчёт по объекту</button>
-    <button class="btn btn--secondary btn--block" id="listing" style="margin-top:8px">${UI.icon('sparkles')} Сгенерировать объявление</button>
-    <button class="btn btn--secondary btn--block" id="checklist" style="margin-top:8px">${UI.icon('check')} Чек-лист проверки документов</button>`,
+
+    <div class="card mt-3">
+      <div class="field"><label for="price">Цена, ₽</label>
+        <input id="price" type="number" inputmode="numeric" value="${p.price || ''}">
+        <div class="field__hint">Снижение на 5% и больше запускает переподбор для подходящих лидов.</div>
+      </div>
+      <button class="btn btn--block" id="save">${UI.icon('check')} Сохранить цену</button>
+    </div>
+
+    <div class="section-title">Документы и продвижение</div>
+    <button class="btn btn--secondary btn--block" id="report">${UI.icon('file')} Отчёт по объекту</button>
+    <button class="btn btn--secondary btn--block mt-2" id="listing">${UI.icon('sparkles')} Сгенерировать объявление</button>
+    <button class="btn btn--secondary btn--block mt-2" id="checklist">${UI.icon('check')} Чек-лист документов</button>`,
     () => {
-      document.getElementById('save').onclick = async () => {
+      const saveBtn = document.getElementById('save');
+      saveBtn.onclick = () => UI.busy(saveBtn, async () => {
         const price = parseInt(document.getElementById('price').value, 10);
-        if (isNaN(price)) { UI.toast('Введите число'); return; }
+        if (isNaN(price) || price <= 0) { UI.toast('Введите цену числом'); return; }
         try {
           const r = await API.updateProperty(p.id, { price });
-          UI.toast(r.price_changed ? 'Цена обновлена, переподбор запущен' : 'Цена сохранена');
-        } catch (e) { UI.toast('Ошибка: ' + e.message); }
-      };
+          UI.toast(r.price_changed ? 'Цена снижена — переподбор запущен' : 'Цена сохранена');
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      });
       document.getElementById('report').onclick = () => {
-        UI.sheet('Отчёт по объекту', '<div class="skel skel-line lg"></div><div class="skel skel-line md"></div>',
+        UI.sheet('Отчёт по объекту', UI.skelCard(),
           async () => {
             try {
               const html = await API.propertyReportHtml(p.id);
@@ -62,16 +126,14 @@ Screens.propertyDetail = async function (params) {
             } catch (e) { document.querySelector('.sheet__body').innerHTML = UI.errorState(e.message); }
           });
       };
-      document.getElementById('checklist').onclick = async () => {
-        const btn = document.getElementById('checklist');
-        btn.disabled = true;
+      const checklistBtn = document.getElementById('checklist');
+      checklistBtn.onclick = () => UI.busy(checklistBtn, async () => {
         try {
           const doc = await API.createChecklist(p.id);
           UI.docLinkSheet('Чек-лист готов', doc,
-            `${p.is_new_build ? 'Новостройка' : 'Вторичка'} · ${UI.esc(doc.format.toUpperCase())}`);
-        } catch (e) { UI.toast('Ошибка: ' + e.message); }
-        btn.disabled = false;
-      };
+            `${p.is_new_build ? 'Новостройка' : 'Вторичка'} · ${String(doc.format).toUpperCase()}`);
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      });
       document.getElementById('listing').onclick = () => {
         UI.sheet('Генерация объявления', `
           <div class="field"><label>Площадка</label>

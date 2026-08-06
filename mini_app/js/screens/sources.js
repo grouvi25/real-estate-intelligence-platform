@@ -20,38 +20,56 @@ Screens.sources = async function () {
   let filter = {};
 
   async function draw() {
-    UI.render(UI.skelList());
-    const data = await API.sources(filter);
+    UI.render(UI.skelList(3));
+    let data;
+    try {
+      data = await API.sources(filter);
+    } catch (e) {
+      UI.render(UI.errorState(e.message), () => { document.getElementById('retry').onclick = draw; });
+      return;
+    }
 
     const tabs = `
-      <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <button class="chip ${!filter.status ? 'chip--accent' : ''}" data-s="">Все ${data.count}</button>
-        <button class="chip ${filter.status === 'active' ? 'chip--accent' : ''}" data-s="active">В работе</button>
-        <button class="chip ${filter.status === 'sandbox' ? 'chip--accent' : ''}" data-s="sandbox">Песочница</button>
-        <button class="chip ${filter.status === 'paused' ? 'chip--accent' : ''}" data-s="paused">Остановлены</button>
+      <div class="chips">
+        <button class="chip chip--btn ${!filter.status ? 'chip--accent' : ''}" data-s="">Все <span class="num">${data.count}</span></button>
+        <button class="chip chip--btn ${filter.status === 'active' ? 'chip--accent' : ''}" data-s="active">В работе</button>
+        <button class="chip chip--btn ${filter.status === 'sandbox' ? 'chip--accent' : ''}" data-s="sandbox">Песочница</button>
+        <button class="chip chip--btn ${filter.status === 'paused' ? 'chip--accent' : ''}" data-s="paused">Остановлены</button>
       </div>
-      <button class="btn btn--block" id="add" style="margin-bottom:12px">${UI.icon('plus')} Добавить чат вручную</button>`;
+      <button class="btn btn--secondary btn--block mt-3" id="add">${UI.icon('plus')} Добавить чат или группу</button>`;
 
-    const body = UI.list(data.sources, (s) => `
-      <div class="card">
-        <div class="row" style="gap:8px;flex-wrap:wrap">
+    const body = UI.list(data.sources, (s) => {
+      const isVk = String(s.source_type || '').startsWith('vk');
+      const dead = s.status === 'active' && !s.signals_total;
+      return `
+      <div class="card${s.status === 'active' ? '' : s.status === 'paused' || s.status === 'dead' ? ' card--warm' : ''}">
+        <div class="between gap-2">
+          <span class="item__title clamp-2">${UI.esc(s.source_name || s.source_url)}</span>
           ${sourceStatusChip(s.status)}
-          <span class="chip">оценка ${s.score}</span>
-          <span class="chip">сигналов: ${s.signals_total}</span>
-          ${s.auto_found ? '<span class="chip">найден роботом</span>' : ''}
-          ${s.city_name ? `<span class="chip">${UI.icon('location')} ${UI.esc(s.city_name)}</span>` : ''}
         </div>
-        <div class="item__title" style="margin-top:10px">${UI.esc(s.source_name || s.source_url)}</div>
-        <div class="item__sub" style="margin-top:4px">${UI.esc(s.source_url)}</div>
-        <div class="btn-row" style="margin-top:12px">
-          ${s.status !== 'active' ? `<button class="btn" data-act="active" data-id="${s.id}">${UI.icon('check')} В работу</button>` : ''}
-          ${s.status !== 'paused' ? `<button class="btn btn--secondary" data-act="paused" data-id="${s.id}">${UI.icon('close')} Остановить</button>` : ''}
-          <button class="btn btn--secondary" data-del="${s.id}">${UI.icon('close')} Удалить</button>
+        <div class="meta-row mt-1">${UI.icon(isVk ? 'globe' : 'send')}${isVk ? 'ВКонтакте' : 'Telegram'}
+          ${s.external_id ? `<span class="dot"></span>${UI.esc(isVk ? s.external_id : '@' + s.external_id)}` : ''}
+          ${s.city_name ? `<span class="dot"></span>${UI.esc(s.city_name)}` : ''}</div>
+        <div class="row row--wrap gap-1 mt-3">
+          <span class="chip">оценка <span class="num">${s.score}</span></span>
+          <span class="chip${dead ? ' chip--warm' : s.signals_total ? ' chip--success' : ''}">
+            сигналов <span class="num">${s.signals_total}</span></span>
+          ${s.signals_per_day ? `<span class="chip"><span class="num">${s.signals_per_day}</span> в день</span>` : ''}
+          ${s.auto_found ? '<span class="chip">нашёл робот</span>' : ''}
         </div>
-      </div>`, {
+        ${dead ? '<div class="item__meta mt-2">В работе, но пока ничего не принёс.</div>' : ''}
+        <div class="btn-row mt-3">
+          ${s.status !== 'active' ? `<button class="btn btn--sm" data-act="active" data-id="${s.id}">${UI.icon('check')} В работу</button>` : ''}
+          ${s.status !== 'paused' ? `<button class="btn btn--secondary btn--sm" data-act="paused" data-id="${s.id}">${UI.icon('pause')} Остановить</button>` : ''}
+          <button class="btn btn--danger btn--sm" data-del="${s.id}">${UI.icon('trash')} Удалить</button>
+        </div>
+      </div>`;
+    }, {
       icon: 'settings',
-      title: 'Источников нет',
-      sub: 'Робот ищет чаты сам раз в неделю — или добавьте чат вручную',
+      title: filter.status ? 'В этом статусе пусто' : 'Источников нет',
+      sub: filter.status ? 'Посмотрите другие фильтры'
+        : 'Робот ищет чаты сам раз в неделю — или добавьте свой',
+      actionLabel: filter.status ? null : 'Добавить источник', actionIcon: 'plus', actionId: 'add-empty',
     });
 
     UI.render(tabs + body, () => {
@@ -86,7 +104,7 @@ Screens.sources = async function () {
         };
       });
 
-      document.getElementById('add').onclick = async () => {
+      const openAdd = async () => {
         // The city is where the collector gets its keywords: a source without
         // one reads messages and discards every single one of them.
         const geos = (await API.geoList().catch(() => ({}))).geo || [];
@@ -120,9 +138,14 @@ Screens.sources = async function () {
             };
           });
       };
+
+      const addBtn = document.getElementById('add');
+      if (addBtn) addBtn.onclick = openAdd;
+      const addEmpty = document.getElementById('add-empty');
+      if (addEmpty) addEmpty.onclick = openAdd;
     });
   }
 
-  UI.setHeader('Источники', 'Откуда система берёт сигналы', { back: true });
+  UI.setHeader('Источники', 'Откуда берутся сигналы', { back: true });
   await draw();
 };

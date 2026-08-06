@@ -5,6 +5,10 @@ window.Screens = window.Screens || {};
 
 const TASK_TYPE_RU = {
   contact: 'Первый контакт',
+  call: 'Звонок',
+  document: 'Документы',
+  meeting: 'Встреча',
+  reply: 'Ответ',
   follow_up: 'Напоминание',
   showing: 'Показ',
   call_back: 'Перезвонить',
@@ -27,37 +31,50 @@ Screens.tasks = async function () {
   let filter = { status: 'pending' };
 
   async function draw() {
-    UI.render(UI.skelList());
-    const [data, sum] = await Promise.all([API.tasks(filter), API.tasksSummary()]);
+    UI.render(UI.skelList(3));
+    let data, sum;
+    try {
+      [data, sum] = await Promise.all([API.tasks(filter), API.tasksSummary()]);
+    } catch (e) {
+      UI.render(UI.errorState(e.message), () => {
+        document.getElementById('retry').onclick = draw;
+      });
+      return;
+    }
 
     const tabs = `
-      <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <button class="chip ${filter.status === 'pending' && !filter.only_urgent && !filter.only_mine ? 'chip--accent' : ''}" data-f="open">Открытые ${sum.pending}</button>
-        <button class="chip ${filter.only_urgent ? 'chip--accent' : ''}" data-f="urgent">Срочные ${sum.urgent}</button>
-        <button class="chip ${filter.only_mine ? 'chip--accent' : ''}" data-f="mine">Мои</button>
-        <button class="chip ${filter.status === 'done' ? 'chip--accent' : ''}" data-f="done">Закрытые</button>
+      <div class="chips">
+        <button class="chip chip--btn ${filter.status === 'pending' && !filter.only_urgent && !filter.only_mine ? 'chip--accent' : ''}" data-f="open">Открытые <span class="num">${sum.pending}</span></button>
+        <button class="chip chip--btn ${filter.only_urgent ? 'chip--accent' : ''}" data-f="urgent">${UI.icon('flame')} Срочные <span class="num">${sum.urgent}</span></button>
+        <button class="chip chip--btn ${filter.only_mine ? 'chip--accent' : ''}" data-f="mine">Мои</button>
+        <button class="chip chip--btn ${filter.status === 'done' ? 'chip--accent' : ''}" data-f="done">Закрытые</button>
       </div>`;
 
     const body = UI.list(data.tasks, (t) => `
-      <div class="card">
-        <div class="row" style="gap:8px;flex-wrap:wrap">
+      <div class="card${t.is_overdue ? ' card--hot' : t.is_urgent ? ' card--warm' : ''}">
+        <div class="row row--wrap gap-2">
           ${t.is_urgent ? `<span class="chip chip--hot">${UI.icon('flame')} срочно</span>` : ''}
           <span class="chip">${UI.esc(TASK_TYPE_RU[t.task_type] || t.task_type)}</span>
           ${taskDue(t)}
         </div>
-        <div class="item__title" style="margin-top:10px">${UI.esc(t.title)}</div>
-        ${t.description ? `<div class="item__sub" style="margin-top:4px">${UI.esc(t.description)}</div>` : ''}
-        ${t.lead_name ? `<div class="item__sub" style="margin-top:4px">Лид: ${UI.esc(t.lead_name)}</div>` : ''}
-        ${t.suggested_message ? `<div class="item__sub" style="margin-top:8px;font-style:italic">${UI.esc(t.suggested_message)}</div>` : ''}
-        <div class="btn-row" style="margin-top:12px">
-          ${t.lead_id ? `<button class="btn btn--secondary" data-go="leads/${t.lead_id}">${UI.icon('leads')} Открыть лид</button>` : ''}
-          ${t.status === 'pending' ? `
-            ${t.manager_id ? '' : `<button class="btn btn--secondary" data-claim="${t.id}">${UI.icon('user')} Взять</button>`}
-            <button class="btn" data-done="${t.id}">${UI.icon('check')} Выполнено</button>
-            <button class="btn btn--secondary" data-cancel="${t.id}">${UI.icon('close')} Отменить</button>
-          ` : `<button class="btn btn--secondary" data-reopen="${t.id}">${UI.icon('refresh')} Вернуть в работу</button>`}
-        </div>
-      </div>`, { icon: 'check', title: 'Задач нет', sub: 'Здесь появятся напоминания и эскалации по лидам' });
+        <div class="item__title mt-3">${UI.esc(t.title)}</div>
+        ${t.description ? `<div class="item__sub mt-1">${UI.esc(t.description)}</div>` : ''}
+        ${t.lead_name ? `<div class="meta-row mt-1">${UI.icon('leads')}${UI.esc(t.lead_name)}</div>` : ''}
+        ${t.suggested_message ? `<div class="item__sub mt-2" style="font-style:italic">«${UI.esc(t.suggested_message)}»</div>` : ''}
+        ${t.status === 'pending'
+          ? `<button class="btn btn--block mt-3" data-done="${t.id}">${UI.icon('check')} Выполнено</button>
+             <div class="btn-row btn-row--equal mt-2">
+               ${t.lead_id ? `<button class="btn btn--secondary btn--sm" data-go="leads/${t.lead_id}">${UI.icon('leads')} Лид</button>` : ''}
+               ${t.manager_id ? '' : `<button class="btn btn--secondary btn--sm" data-claim="${t.id}">${UI.icon('user')} Взять</button>`}
+               <button class="btn btn--secondary btn--sm" data-cancel="${t.id}">${UI.icon('close')} Отменить</button>
+             </div>`
+          : `<div class="btn-row btn-row--equal mt-3">
+               ${t.lead_id ? `<button class="btn btn--secondary btn--sm" data-go="leads/${t.lead_id}">${UI.icon('leads')} Лид</button>` : ''}
+               <button class="btn btn--secondary btn--sm" data-reopen="${t.id}">${UI.icon('refresh')} Вернуть</button>
+             </div>`}
+      </div>`, { icon: 'check', title: 'Задач нет',
+         sub: filter.status === 'done' ? 'Закрытых задач пока не было'
+           : 'Здесь появятся напоминания и эскалации по лидам' });
 
     UI.render(tabs + body, () => {
       Router.bindGo();

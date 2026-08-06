@@ -196,12 +196,22 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
         await session.refresh(manager)
 
     token = create_access_token(str(manager.id), agency_id=str(manager.agency_id))
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    agency = await session.get(Agency, manager.agency_id)
     return {
         "token": token,
         "manager": {
             "id": str(manager.id),
+            "name": manager.name,
             "role": manager.role,
             "agency_id": str(manager.agency_id),
+        },
+        # The cabinet has to name the agency to a human; a UUID is not a name.
+        "agency": {
+            "id": str(manager.agency_id),
+            "name": agency.name if agency else None,
+            "city": agency.base_city if agency else None,
         },
     }
 
