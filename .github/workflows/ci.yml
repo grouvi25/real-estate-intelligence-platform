@@ -121,12 +121,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Key auth, not a password: the server stopped offering password auth
+      # ("no supported methods remain") and every deploy failed. VPS_SSH_KEY is a
+      # dedicated ed25519 key used only by this workflow, so it can be revoked by
+      # deleting one line from authorized_keys without touching the root password.
       - name: Prepare VPS (Docker + .env)
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
@@ -161,7 +165,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           source: "."
           target: "/opt/reip"
@@ -172,7 +176,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           command_timeout: 20m
           script: |
