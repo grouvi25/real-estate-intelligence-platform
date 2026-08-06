@@ -88,8 +88,9 @@ Screens.sources = async function () {
 
       document.getElementById('add').onclick = () => {
         UI.sheet('Добавить источник', `
-          <div class="field"><label>Ссылка или @имя чата</label>
-            <input id="src-url" placeholder="@gelendzhik_chat"></div>
+          <div class="field"><label>Ссылка на чат или группу</label>
+            <input id="src-url" placeholder="@gelendzhik_chat или vk.com/gel_realty"></div>
+          <div class="item__sub">Telegram и ВКонтакте — канал определяется по ссылке.</div>
           <div class="field"><label>Название (необязательно)</label>
             <input id="src-name" placeholder="Барахолка Геленджик"></div>
           <button class="btn btn--block" id="src-save" style="margin-top:12px">Добавить</button>`,

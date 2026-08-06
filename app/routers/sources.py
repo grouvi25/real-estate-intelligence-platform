@@ -56,6 +56,41 @@ def _telegram_username(url: str) -> Optional[str]:
     return None
 
 
+def _vk_screen_name(url: str) -> Optional[str]:
+    if "vk.com/" in url:
+        return url.split("vk.com/")[-1].strip("/").split("?")[0] or None
+    return None
+
+
+def _classify(url: str, declared: str) -> tuple[str, str, Optional[str]]:
+    """Work out the channel from the link. Returns (url, source_type, handle).
+
+    The add-source form sends only a link, so the type fell back to
+    telegram_chat -- a VK group pasted there would have been stored as a Telegram
+    chat and never read by anything. A link says which channel it is, so it wins
+    over the default; an explicit non-default type is still honoured.
+    """
+    # Managers paste "vk.com/..." as often as the full address; store a real URL.
+    def _absolute(u: str) -> str:
+        return u if u.startswith(("http://", "https://")) else f"https://{u}"
+
+    handle = _vk_screen_name(url)
+    if handle:
+        return _absolute(url), "vk_group", handle
+
+    handle = _telegram_username(url)
+    if handle:
+        kind = "telegram_channel" if declared == "telegram_channel" else "telegram_chat"
+        return _absolute(url), kind, handle
+
+    # A bare "@name" is Telegram shorthand.
+    if url.startswith("@"):
+        name = url.lstrip("@")
+        return f"https://t.me/{name}", declared if declared != "telegram_chat" else "telegram_chat", name
+
+    return url, declared, None
+
+
 def _source_dto(s: Source, signals: int = 0, city: Optional[str] = None) -> dict:
     return {
         "id": str(s.id),
@@ -133,8 +168,7 @@ async def create_source(
     url = req.source_url.strip()
     if not url:
         raise ValidationError("source_url", "укажите ссылку на источник")
-    if url.startswith("@"):
-        url = f"https://t.me/{url.lstrip('@')}"
+    url, source_type, handle = _classify(url, req.source_type)
 
     agency_id = uuid.UUID(current.agency_id)
     existing = await session.scalar(
@@ -146,12 +180,12 @@ async def create_source(
     source = Source(
         agency_id=agency_id,
         geo_location_id=req.geo_location_id,
-        source_type=req.source_type,
+        source_type=source_type,
         source_url=url,
-        source_name=req.source_name or _telegram_username(url) or url,
-        # The collector resolves Telegram sources by username; store it so a
-        # manually added source behaves like an auto-found one.
-        external_id=_telegram_username(url),
+        source_name=req.source_name or handle or url,
+        # Both collectors resolve a source by its handle, so storing it makes a
+        # manually added source behave like an auto-found one.
+        external_id=handle,
         status=req.status,
         auto_found=False,
     )

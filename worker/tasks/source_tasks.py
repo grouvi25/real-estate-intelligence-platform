@@ -14,7 +14,11 @@ async def _geo_discovery_cron() -> int:
     from sqlalchemy import select
 
     from app.database import async_session
-    from app.discovery.source_finder import evaluate_and_save_sources, search_telegram_sources
+    from app.discovery.source_finder import (
+        evaluate_and_save_sources,
+        search_telegram_sources,
+        search_vk_sources,
+    )
     from app.models.geo_location import GeoLocation
 
     total = 0
@@ -25,7 +29,11 @@ async def _geo_discovery_cron() -> int:
         )
         geos = (await session.execute(stmt)).scalars().all()
         for geo in geos:
+            # Both channels, scored by the same prompt: VK groups are where a
+            # regional audience sits, and Telegram search over a small city
+            # returns mostly flea markets.
             candidates = await search_telegram_sources(geo.keywords or {})
+            candidates += await search_vk_sources(geo.keywords or {})
             if candidates:
                 total += await evaluate_and_save_sources(
                     session,
