@@ -194,3 +194,27 @@ def test_ui_helpers_used_by_screens_exist():
             if name not in available:
                 missing.add(name)
     assert not missing, f"экран зовёт несуществующий UI-помощник: {sorted(missing)}"
+
+
+def test_every_api_client_method_is_called():
+    """A method nobody calls is a feature nobody can use.
+
+    The endpoint-level check passes as soon as the API client mentions a route,
+    so a client method wired to nothing still looked reachable. That is how
+    acceptPartnerGeo sat unused: POST /api/geo answers a partner-covered city
+    with 202 partner_offer, the UI reported "Город добавлен" for a city it had
+    not created, and the offer could not be accepted anywhere.
+    """
+    client = (MINI_APP / "js" / "api_client.js").read_text(encoding="utf-8")
+    callers = "\n".join(
+        p.read_text(encoding="utf-8") for p in JS if p.name != "api_client.js"
+    )
+
+    unused = [
+        name for name in re.findall(r"^\s{4}(\w+):\s*\(", client, re.M)
+        if not re.search(rf"API\.{name}\b", callers)
+    ]
+    assert not unused, (
+        "методы API-клиента, которые никто не вызывает:\n  " + "\n  ".join(unused)
+        + "\n\nдобавьте вызов в экран или удалите метод"
+    )
