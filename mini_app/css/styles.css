@@ -319,6 +319,9 @@ body {
 
 /* Fields --------------------------------------------------------------- */
 .field { margin: var(--s-3) 0; }
+/* A card is already padded; the first and last field must not add to it. */
+.field:first-child { margin-top: 0; }
+.field:last-child { margin-bottom: 0; }
 .field label { display: block; font-size: var(--t-sm); color: var(--muted); margin-bottom: 6px; font-weight: 600; }
 .field__hint { font-size: var(--t-sm); color: var(--muted); margin-top: 6px; }
 input, textarea, select {
@@ -334,6 +337,27 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 3px var(--ring); outline: none;
 }
 textarea { resize: vertical; min-height: 84px; line-height: 1.45; }
+
+/* The native file control renders as the platform's own grey button, which is
+   the one thing on the screen that looks like a different application. */
+input[type="file"] { padding: var(--s-2); display: flex; align-items: center; gap: var(--s-3); }
+input[type="file"]::file-selector-button {
+  font: inherit; font-weight: 600; font-size: 13.5px;
+  padding: var(--s-2) var(--s-3); margin-right: var(--s-3);
+  border: 1px solid var(--hair); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--fg); cursor: pointer;
+  transition: background var(--tap), border-color var(--tap);
+}
+@media (hover: hover) {
+  input[type="file"]::file-selector-button:hover { background: var(--hover); border-color: var(--hair-strong); }
+}
+input[type="file"]::file-selector-button:active { background: var(--press); }
+
+/* Checkbox: the consent tick is a legal artefact, it should be visible. */
+input[type="checkbox"] {
+  width: 22px; height: 22px; min-height: 22px; flex: none; margin: 0;
+  accent-color: var(--accent); cursor: pointer;
+}
 select { appearance: none; padding-right: 34px;
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
                     linear-gradient(135deg, currentColor 50%, transparent 50%);
