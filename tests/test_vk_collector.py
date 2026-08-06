@@ -436,3 +436,24 @@ async def test_the_same_comment_id_in_two_topics_stays_two_messages():
     ids = [adapter.normalize(e).external_id for e in entries]
 
     assert ids == ["-100_t7_1", "-100_t8_1"]
+
+
+@pytest.mark.asyncio
+async def test_comments_are_read_newest_first():
+    """Both comment endpoints answer from the start of the thread by default.
+    Checked live: «ИЩИТЕ ЖИЛЬЕ? Оставляйте Ваши заявки» has 165 comments and
+    returns 2, 3, 4. A board read without this returns the same years-old
+    comments on every run and never sees a new one."""
+    from app.collectors.vk_collector import NEWEST_FIRST
+
+    c = _collector({
+        "groups.getById": {"response": {"groups": [{"id": 100}]}},
+        "board.getTopics": {"response": {"items": [{"id": 7}]}},
+    })
+
+    await c._entries([{"id": 1, "owner_id": -55}])
+    await c._board_entries(_Src())
+
+    sorts = {method: params.get("sort") for method, params in c._client.calls
+             if method.endswith("getComments")}
+    assert sorts == {"wall.getComments": NEWEST_FIRST, "board.getComments": NEWEST_FIRST}

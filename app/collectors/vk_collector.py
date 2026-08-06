@@ -58,11 +58,17 @@ RATE_LIMIT_PAUSE = 0.4
 SEARCH_LIMIT = 20
 WALL_LIMIT = 50
 COMMENTS_PER_POST = 20
-# Classified groups routinely disable the wall and run on обсуждения instead --
-# "Access denied: wall is disabled" is what both Геленджик boards returned. Board
-# topics take a service token too, so they are read as a fallback.
+# Some groups keep the wall closed and run on обсуждения instead, and a board can
+# be where the buyers are: otdyhonsea has a topic «Сниму жилье» with 509
+# comments, club100645332 one called «ИЩИТЕ ЖИЛЬЕ? Оставляйте Ваши заявки» with
+# 165. Board topics take a service token too, so they are read as a fallback.
 TOPICS_TO_SCAN = 5
 COMMENTS_PER_TOPIC = 50
+# Both comment endpoints answer from the START of the thread by default --
+# checked live: the topic above returns comments 2, 3, 4 out of 165. Reading a
+# board without this means reading the same years-old comments on every run,
+# deduplicating them all after the first pass, and never seeing a new one.
+NEWEST_FIRST = "desc"
 # Buyers ask in the comments far more often than they post on a group wall.
 POSTS_TO_SCAN_FOR_COMMENTS = 10
 # Feed harvesting: how many posts to look at per query, and the floor a group has
@@ -282,7 +288,7 @@ class VkCollector:
                 continue
             comments = await self._call(
                 "board.getComments", group_id=group_id, topic_id=topic["id"],
-                count=samples * 4)
+                count=samples * 4, sort=NEWEST_FIRST)
             texts += self._sample_texts((comments or {}).get("items", []), samples - len(texts))
             if len(texts) >= samples:
                 break
@@ -367,7 +373,7 @@ class VkCollector:
                 continue
             response = await self._call(
                 "wall.getComments", owner_id=owner_id, post_id=post_id,
-                count=COMMENTS_PER_POST, thread_items_count=0)
+                count=COMMENTS_PER_POST, thread_items_count=0, sort=NEWEST_FIRST)
             for comment in (response or {}).get("items", []):
                 entries.append({
                     **comment,
@@ -399,7 +405,7 @@ class VkCollector:
                 continue
             comments = await self._call(
                 "board.getComments", group_id=group_id, topic_id=topic_id,
-                count=COMMENTS_PER_TOPIC)
+                count=COMMENTS_PER_TOPIC, sort=NEWEST_FIRST)
             for c in (comments or {}).get("items", []):
                 entries.append({
                     **c,
