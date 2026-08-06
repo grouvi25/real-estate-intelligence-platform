@@ -104,7 +104,7 @@ ESCALATION_STEPS = (4, 24, 48)
 async def _escalate_overdue_leads() -> int:
     from datetime import datetime, timezone
 
-    from sqlalchemy import select
+    from sqlalchemy import select, update
 
     from app.database import async_session
     from app.models.lead import Lead
@@ -114,6 +114,22 @@ async def _escalate_overdue_leads() -> int:
 
     now = datetime.now(timezone.utc)
     actions = 0
+
+    async def record(lead, stage: int) -> None:
+        """Store the stage without disturbing the idle clock.
+
+        updated_at is what "hours since last activity" is measured from, and the
+        mixin bumps it on any write -- so writing the stage through the ORM reset
+        the very timer the ladder reads, and the next run saw a fresh lead and
+        wound the stage back to zero. Passing updated_at explicitly overrides the
+        onupdate default and carries the real activity time forward.
+        """
+        await session.execute(
+            update(Lead).where(Lead.id == lead.id)
+            .values(escalation_stage=stage, updated_at=lead.updated_at)
+        )
+        lead.escalation_stage = stage
+
     async with async_session() as session:
         leads = (await session.execute(
             select(Lead).where(
@@ -130,7 +146,7 @@ async def _escalate_overdue_leads() -> int:
             # has to fall back with it -- otherwise a lead that went quiet again
             # would never escalate a second time.
             if hrs < done:
-                lead.escalation_stage = 0
+                await record(lead, 0)
                 done = 0
 
             # Every step now due, oldest first: a lead found at 30 hours after a
@@ -142,7 +158,7 @@ async def _escalate_overdue_leads() -> int:
 
                 if step == 4:
                     if lead.urgency != "hot":
-                        lead.escalation_stage = step
+                        await record(lead, step)
                         continue
                     await bot_layer.notify_manager(
                         str(lead.assigned_to),
@@ -170,7 +186,7 @@ async def _escalate_overdue_leads() -> int:
                             escalated_at=now,
                         ))
 
-                lead.escalation_stage = step
+                await record(lead, step)
                 actions += 1
 
         await session.commit()

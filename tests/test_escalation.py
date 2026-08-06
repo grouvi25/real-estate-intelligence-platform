@@ -136,6 +136,29 @@ async def test_contact_resets_the_ladder(bot):
 
 
 @pytest.mark.asyncio
+async def test_recording_a_step_does_not_reset_the_idle_clock(bot):
+    """updated_at is the clock the ladder reads, and the ORM bumps it on any
+    write -- so storing the stage through the ORM reset the timer, and the next
+    run saw a fresh lead and wound the stage back to zero."""
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        lead = await _lead(s, hours_idle=50)
+        lead_id, idle_at = lead.id, lead.updated_at
+
+    await _escalate_overdue_leads()
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        lead = await s.get(Lead, lead_id)
+    assert lead.escalation_stage == 48
+    assert lead.updated_at == idle_at, "эскалация не должна двигать отметку активности"
+
+
+@pytest.mark.asyncio
 async def test_the_48h_step_creates_one_urgent_task(bot):
     from app.database import async_session, run_migrations
     from app.models.lead import Lead
