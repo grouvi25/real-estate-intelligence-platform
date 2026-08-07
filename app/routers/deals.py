@@ -70,5 +70,10 @@ async def record_outcome(
         lead.status = "deal"
     await session.commit()
 
+    # The CRM opened the deal; it should learn how it ended (addendum §4.1).
+    from worker.tasks.crm_tasks import push_outcome_to_crm
+
+    push_outcome_to_crm.delay(str(lead.id), str(outcome.id))
+
     logger.info("Deal outcome recorded", lead_id=str(lead_id), outcome=req.outcome)
     return {"status": "outcome_recorded", "outcome_id": str(outcome.id)}

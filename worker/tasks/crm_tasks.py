@@ -28,3 +28,23 @@ async def _export_lead(lead_id: str) -> dict:
 @shared_task(name="worker.tasks.crm_tasks.export_lead_to_crm")
 def export_lead_to_crm(lead_id: str) -> dict:
     return run_async(_export_lead(lead_id))
+
+
+async def _push_outcome(lead_id: str, outcome_id: str) -> dict:
+    from app.database import async_session
+    from app.models.deal_outcome import DealOutcome
+    from app.models.lead import Lead
+    from app.services.crm_export import push_outcome_to_crm
+
+    async with async_session() as session:
+        lead = await session.get(Lead, lead_id)
+        outcome = await session.get(DealOutcome, outcome_id)
+        if lead is None or outcome is None:
+            return {"exported": False, "reason": "not_found"}
+        return await push_outcome_to_crm(session, lead, outcome)
+
+
+@shared_task(name="worker.tasks.crm_tasks.push_outcome_to_crm")
+def push_outcome_to_crm(lead_id: str, outcome_id: str) -> dict:
+    """A deal closed in REIP has to reach the CRM it came from."""
+    return run_async(_push_outcome(lead_id, outcome_id))

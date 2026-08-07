@@ -25,12 +25,20 @@ async def _recompute_ai_weights(session, deals) -> None:
 
     ai = AIService()
     try:
+        # The keys are fixed on purpose: matching.resolve_weights reads exactly
+        # these, and free-form keys would be stored and silently ignored — which
+        # is what happened while nothing read them at all.
         prompt = (
-            f"Проанализируй {len(deals)} сделок. Какие сегменты конвертируются быстрее? "
-            "Верни JSON с рекомендуемыми весами для матчинга."
+            f"Проанализируй {len(deals)} закрытых сделок агентства. Что сильнее всего "
+            "предсказывало успешную сделку? Верни JSON строго с ключами "
+            "budget_weight, segment_weight, location_weight, priorities_weight, "
+            "urgency_weight — числа в баллах от 5 до 45, в сумме около 100."
         )
         res = await ai.complete("Ты — аналитик рынка недвижимости.", prompt, "daily_report")
-        weights = safe_ai_parse(res, {"segment_weight": 0.3, "budget_weight": 0.25})
+        weights = safe_ai_parse(res, {
+            "budget_weight": 30, "segment_weight": 25, "location_weight": 20,
+            "priorities_weight": 15, "urgency_weight": 10,
+        })
     finally:
         await ai.close()
 
