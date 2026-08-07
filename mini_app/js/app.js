@@ -1,5 +1,13 @@
 // Mini App bootstrap: auth, shell (header + nav), routes, router start.
 (function () {
+  // The server explains refusals in Russian ("нужна ссылка-приглашение"); the
+  // Telegram SDK throws things like "WebAppMethodUnsupported", which means
+  // nothing to a person and only happens outside Telegram anyway.
+  function authHint(e) {
+    const msg = String((e && e.message) || '');
+    return /[а-яё]/i.test(msg) ? msg : 'Откройте кабинет кнопкой в боте.';
+  }
+
   const ROUTES = [
     ['dashboard', () => Screens.dashboard()],
     ['signals', () => Screens.signals()],
@@ -47,9 +55,8 @@
     } catch (e) {
       document.body.innerHTML =
         '<div class="empty" style="padding-top:80px">' + Icons.svg('close') +
-        '<div class="empty__t">Не удалось авторизоваться</div>' +
-        '<div class="empty__s">' + UI.esc(e.message || 'Откройте приложение через кнопку в боте.') +
-        '</div></div>';
+        '<div class="empty__t">Не удалось войти</div>' +
+        '<div class="empty__s">' + UI.esc(authHint(e)) + '</div></div>';
       return;
     }
 
