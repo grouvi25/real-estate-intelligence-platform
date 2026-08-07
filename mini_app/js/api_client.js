@@ -173,6 +173,10 @@
     invite: () => api.request('/auth/invite'),
     rotateInvite: () => api.request('/auth/invite/rotate', 'POST'),
 
+    // The agency's own record: name, city, and where leads are exported
+    agency: () => api.request('/auth/agency'),
+    updateAgency: (body) => api.request('/auth/agency', 'PATCH', body),
+
     // Which AI answers, and whether the data leaves Russia (152-ФЗ)
     aiProvider: () => api.request('/auth/ai-provider'),
     setAiProvider: (provider) => api.request('/auth/ai-provider', 'PUT', { provider }),

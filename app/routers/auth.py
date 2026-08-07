@@ -337,3 +337,106 @@ async def set_ai_provider(
 
     await set_setting(AI_PROVIDER, provider.value, updated_by=current.manager_id)
     return await _provider_state(provider.value)
+
+
+class AgencyResponse(BaseModel):
+    id: str
+    name: str
+    city: str
+    crm: Optional[dict] = None
+
+
+class AgencyUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+    crm_type: Optional[str] = None
+    crm_base_url: Optional[str] = None
+    crm_api_key: Optional[str] = None
+
+
+def _agency_dto(agency, crm=None) -> AgencyResponse:
+    return AgencyResponse(
+        id=str(agency.id), name=agency.name, city=agency.base_city,
+        crm={"type": crm.crm_type, "base_url": crm.base_url,
+             "has_key": bool(crm.api_key), "is_active": crm.is_active} if crm else None,
+    )
+
+
+async def _agency_crm(session, agency_id):
+    from sqlalchemy import select as _select
+
+    from app.models.agency_crm_config import AgencyCRMConfig
+
+    return (await session.execute(
+        _select(AgencyCRMConfig).where(AgencyCRMConfig.agency_id == agency_id).limit(1)
+    )).scalars().first()
+
+
+@router.get("/agency", response_model=AgencyResponse)
+async def get_agency(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """The agency's own record. Editing it used to mean an UPDATE by hand."""
+    from app.models.agency import Agency
+
+    agency = await session.get(Agency, uuid.UUID(current.agency_id))
+    if agency is None:
+        raise AppException(status_code=404, detail="Агентство не найдено", code="NOT_FOUND")
+    return _agency_dto(agency, await _agency_crm(session, agency.id))
+
+
+@router.patch("/agency", response_model=AgencyResponse)
+async def update_agency(
+    req: AgencyUpdateRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Rename the agency, move its base city, choose which CRM to export to.
+
+    The CRM connector decides where every qualified lead goes, so it belongs to
+    the owner and not to anyone with a login.
+    """
+    from app.models.agency import Agency
+    from app.models.agency_crm_config import AgencyCRMConfig
+    from app.services.crm import SUPPORTED_CRMS
+
+    await _owner(current, session)
+    agency = await session.get(Agency, uuid.UUID(current.agency_id))
+    if agency is None:
+        raise AppException(status_code=404, detail="Агентство не найдено", code="NOT_FOUND")
+
+    if req.name is not None:
+        if not req.name.strip():
+            raise AppException(status_code=400, detail="Название не может быть пустым",
+                               code="VALIDATION_ERROR")
+        agency.name = req.name.strip()
+    if req.city is not None and req.city.strip():
+        agency.base_city = req.city.strip()
+
+    crm = await _agency_crm(session, agency.id)
+    if req.crm_type is not None:
+        if req.crm_type and req.crm_type not in SUPPORTED_CRMS:
+            raise AppException(
+                status_code=400,
+                detail=f"Неизвестная CRM: {req.crm_type}. Доступны: {', '.join(SUPPORTED_CRMS)}",
+                code="UNKNOWN_CRM")
+        if not req.crm_type:
+            # Empty means "back to the generic webhook", which is the fallback.
+            if crm is not None:
+                crm.is_active = False
+        else:
+            if crm is None:
+                crm = AgencyCRMConfig(agency_id=agency.id, crm_type=req.crm_type)
+                session.add(crm)
+            crm.crm_type = req.crm_type
+            crm.is_active = True
+    if crm is not None:
+        if req.crm_base_url is not None:
+            crm.base_url = req.crm_base_url.strip() or None
+        if req.crm_api_key:
+            crm.api_key = req.crm_api_key  # encrypted by the model
+
+    await session.commit()
+    logger.info("Agency updated", agency_id=str(agency.id))
+    return _agency_dto(agency, crm if crm and crm.is_active else None)

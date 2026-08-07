@@ -1,9 +1,16 @@
 """Channel adapter tests (Signal Bus addendum). normalize() is pure."""
+import pytest
+
 from app.services.channels import SUPPORTED_CHANNELS, get_channel_adapter
 
 
 def test_registry_has_all_channels():
-    assert set(SUPPORTED_CHANNELS) == {"avito", "cian", "telegram", "max", "vk"}
+    assert set(SUPPORTED_CHANNELS) == {
+        # answerable
+        "avito", "cian", "telegram", "max", "vk",
+        # read-only: collected from, never answered on
+        "youtube", "rss",
+    }
     assert get_channel_adapter("AVITO").channel == "avito"
     assert get_channel_adapter("unknown") is None
 
@@ -48,3 +55,20 @@ def test_author_hash_stable_and_none_safe():
     assert author_hash("vk", None) is None
     assert author_hash("vk", 7) == author_hash("vk", 7)
     assert author_hash("vk", 7) != author_hash("avito", 7)
+
+
+@pytest.mark.parametrize("channel,expected", [("avito", "Avito"), ("cian", "ЦИАН")])
+@pytest.mark.asyncio
+async def test_a_classifieds_refusal_says_what_is_missing(channel, expected):
+    """The addendum's acceptance list asks these two to block sending "с понятной
+    ошибкой" when the agency has no professional account. They fell through to a
+    bare "reply_not_supported", which left the manager with a saved draft and no
+    idea why it had not gone anywhere."""
+    from app.services.channels import get_channel_adapter
+
+    result = await get_channel_adapter(channel).send_reply("", "Здравствуйте!")
+
+    assert result["sent"] is False
+    assert result["reason"] == "account_required"
+    assert expected in result["detail"]
+    assert "вручную" in result["detail"]
