@@ -140,10 +140,11 @@ Screens.settings = async function () {
       </div>
       <hr class="divider">
       <div class="between"><span class="muted">Агентство</span>
-        <span class="item__title ellipsis">${UI.esc((window._agency && window._agency.name) || '—')}</span></div>
+        <span class="item__title ellipsis" id="ag-name">${UI.esc((window._agency && window._agency.name) || '—')}</span></div>
       ${(window._agency && window._agency.city)
         ? `<div class="between mt-1"><span class="muted">Город</span>
-             <span class="item__meta">${UI.esc(window._agency.city)}</span></div>` : ''}
+             <span class="item__meta" id="ag-city">${UI.esc(window._agency.city)}</span></div>` : ''}
+      <button class="btn btn--secondary btn--block mt-3" id="ag-edit">${UI.icon('edit')} Настройки агентства</button>
     </div>
 
     <div class="section-title" style="margin:18px 2px 8px">Готовность к работе</div>
@@ -189,6 +190,8 @@ Screens.settings = async function () {
       document.getElementById('go-refs').onclick = () => Router.go('referrals');
       document.getElementById('go-sources').onclick = () => Router.go('sources');
       document.getElementById('go-tasks').onclick = () => Router.go('tasks');
+      const edit = document.getElementById('ag-edit');
+      if (edit) edit.onclick = agencySheet;
       loadGeos(); loadPartners(); loadMgrs(); loadInvite(); loadAiProvider();
     });
 };
@@ -226,6 +229,57 @@ async function loadInvite() {
     };
   };
   draw(data.link);
+}
+
+const CRM_RU = {
+  '': 'Обычный вебхук', topnlab: 'Topnlab', amocrm: 'amoCRM',
+  bitrix24: 'Bitrix24', yucrm: 'YUcrm',
+};
+
+// Name, city and where qualified leads are exported. All three used to be
+// editable only with an UPDATE against the database.
+async function agencySheet() {
+  let a;
+  try { a = await API.agency(); } catch (e) { UI.toast('Не удалось: ' + e.message); return; }
+  const crmType = (a.crm && a.crm.type) || '';
+
+  UI.sheet('Настройки агентства', `
+    <div class="field"><label for="ag-n">Название</label>
+      <input id="ag-n" value="${UI.esc(a.name || '')}"></div>
+    <div class="field"><label for="ag-c">Основной город</label>
+      <input id="ag-c" value="${UI.esc(a.city || '')}"></div>
+
+    <div class="section-title">Выгрузка лидов в CRM</div>
+    <div class="field"><label for="ag-crm">Система</label>
+      <select id="ag-crm">${Object.entries(CRM_RU).map(([v, l]) =>
+        `<option value="${v}" ${v === crmType ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="field"><label for="ag-url">Адрес API</label>
+      <input id="ag-url" placeholder="https://crm.example" value="${UI.esc((a.crm && a.crm.base_url) || '')}"></div>
+    <div class="field"><label for="ag-key">Ключ доступа</label>
+      <input id="ag-key" type="password" placeholder="${a.crm && a.crm.has_key ? 'сохранён — введите новый, чтобы заменить' : 'не задан'}">
+      <div class="field__hint">Ключ хранится в зашифрованном виде и не показывается обратно.</div></div>
+
+    <button class="btn btn--block mt-3" id="ag-save">${UI.icon('check')} Сохранить</button>`,
+    (close) => {
+      const save = document.getElementById('ag-save');
+      save.onclick = () => UI.busy(save, async () => {
+        const val = (id) => document.getElementById(id).value.trim();
+        if (!val('ag-n')) { UI.toast('Название не может быть пустым'); return; }
+        try {
+          const updated = await API.updateAgency({
+            name: val('ag-n'), city: val('ag-c'),
+            crm_type: document.getElementById('ag-crm').value,
+            crm_base_url: val('ag-url'),
+            crm_api_key: val('ag-key') || null,
+          });
+          window._agency = { id: updated.id, name: updated.name, city: updated.city };
+          try { sessionStorage.setItem('agency', JSON.stringify(window._agency)); } catch (e) { /* ignore */ }
+          close();
+          UI.toast('Сохранено');
+          Router.resolve();
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      });
+    });
 }
 
 const PROVIDER_RU = {

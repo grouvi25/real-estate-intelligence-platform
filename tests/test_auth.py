@@ -261,3 +261,111 @@ async def test_only_the_owner_hands_out_invitations():
         assert err.value.code == "OWNER_ONLY"
     finally:
         await engine.dispose()
+
+
+# --- the agency's own record --------------------------------------------------
+
+@pytestmark_db
+@pytest.mark.asyncio
+async def test_the_owner_can_rename_the_agency_and_pick_a_crm():
+    """Name, city and the CRM connector were editable only with an UPDATE against
+    the database — and the connector decides where every qualified lead goes."""
+    from app.database import async_session, engine, run_migrations
+    from app.dependencies import CurrentManager
+    from app.models.agency import Agency
+    from app.models.manager import Manager
+    from app.routers.auth import AgencyUpdateRequest, get_agency, update_agency
+
+    await run_migrations()
+    try:
+        async with async_session() as s:
+            agency = Agency(name="Старое имя", base_city="Геленджик")
+            s.add(agency)
+            await s.flush()
+            owner = Manager(agency_id=agency.id, name="Владелец", role="owner",
+                            telegram_id=860000 + int(time.time()) % 10000, is_active=True)
+            s.add(owner)
+            await s.commit()
+            ctx = CurrentManager(manager_id=str(owner.id), agency_id=str(agency.id))
+
+        async with async_session() as s:
+            updated = await update_agency(
+                AgencyUpdateRequest(name="Мыс Недвижимость", city="Геленджик",
+                                    crm_type="topnlab", crm_base_url="https://crm.example",
+                                    crm_api_key="secret-key"),
+                current=ctx, session=s)
+
+        assert updated.name == "Мыс Недвижимость"
+        assert updated.crm["type"] == "topnlab"
+        assert updated.crm["has_key"] is True
+
+        async with async_session() as s:
+            fetched = await get_agency(current=ctx, session=s)
+        assert fetched.name == "Мыс Недвижимость"
+        # The key is stored encrypted and never handed back out.
+        assert "secret-key" not in str(fetched.model_dump())
+    finally:
+        await engine.dispose()
+
+
+@pytestmark_db
+@pytest.mark.asyncio
+async def test_an_unknown_crm_is_refused():
+    """A typo would otherwise store a connector nothing can build."""
+    from app.database import async_session, engine, run_migrations
+    from app.dependencies import CurrentManager
+    from app.exceptions import AppException
+    from app.models.agency import Agency
+    from app.models.manager import Manager
+    from app.routers.auth import AgencyUpdateRequest, update_agency
+
+    await run_migrations()
+    try:
+        async with async_session() as s:
+            agency = Agency(name="CRM", base_city="Геленджик")
+            s.add(agency)
+            await s.flush()
+            owner = Manager(agency_id=agency.id, name="В", role="owner",
+                            telegram_id=870000 + int(time.time()) % 10000, is_active=True)
+            s.add(owner)
+            await s.commit()
+            ctx = CurrentManager(manager_id=str(owner.id), agency_id=str(agency.id))
+
+        async with async_session() as s:
+            with pytest.raises(AppException) as err:
+                await update_agency(AgencyUpdateRequest(crm_type="megacrm"),
+                                    current=ctx, session=s)
+        assert err.value.code == "UNKNOWN_CRM"
+    finally:
+        await engine.dispose()
+
+
+@pytestmark_db
+@pytest.mark.asyncio
+async def test_a_manager_cannot_change_where_leads_are_exported():
+    from app.database import async_session, engine, run_migrations
+    from app.dependencies import CurrentManager
+    from app.exceptions import AppException
+    from app.models.agency import Agency
+    from app.models.manager import Manager
+    from app.routers.auth import AgencyUpdateRequest, update_agency
+
+    await run_migrations()
+    try:
+        async with async_session() as s:
+            agency = Agency(name="Скоуп", base_city="Геленджик")
+            s.add(agency)
+            await s.flush()
+            staff = Manager(agency_id=agency.id, name="М", role="manager",
+                            telegram_id=880000 + int(time.time()) % 10000, is_active=True)
+            s.add(staff)
+            await s.commit()
+            ctx = CurrentManager(manager_id=str(staff.id), agency_id=str(agency.id))
+
+        async with async_session() as s:
+            with pytest.raises(AppException) as err:
+                await update_agency(AgencyUpdateRequest(name="Чужое имя"),
+                                    current=ctx, session=s)
+        assert err.value.code == "OWNER_ONLY"
+    finally:
+        await engine.dispose()
