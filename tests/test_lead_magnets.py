@@ -143,3 +143,81 @@ async def test_lm4_districts_fallback_when_no_ai():
     # No AI provider configured in tests -> graceful fallback.
     res = await lm4_districts(LM4DistrictsRequest(city="Геленджик", scenario="family"))
     assert "districts" in res
+
+
+# --- LM-1 promised a reason and delivered a price tag ------------------------
+
+def _lead_stub(**kw):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(**{
+        "agency_id": "a", "name": "Анна", "segment": "family",
+        "budget_min": 4_000_000, "budget_max": 8_000_000, "buyer_profile": {},
+        "urgency": "hot", "purchase_goal": "own", **kw,
+    })
+
+
+def _property_stub(**kw):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(**{
+        "id": "p", "title": "2-к квартира", "price": 7_900_000, "rooms": 2,
+        "area_total": 54, "district": "Тонкий мыс", "ai_analysis": {},
+        "description_original": "", "property_type": "квартира", "address": "Тонкий мыс, 3",
+        "floor": 4, "floors_total": 9, "readiness_status": "ready", "amenities": [],
+        **kw,
+    })
+
+@pytest.mark.asyncio
+async def test_the_lead_magnet_uses_the_ai_pitch(monkeypatch):
+    """35.6: «POST /lm/lm1/result — AI-питч через SYSTEM_PROMPT_MATCHING_PITCH».
+    It was building the string "2-комн., 7 900 000 ₽" instead — the AI pitch
+    existed and worked, but only for leads that came in through the cabinet."""
+    from app.services.matching import generate_pitch
+
+    seen = {}
+
+    class _AI:
+        async def complete(self, system, user, module, agency_id="global"):
+            seen["module"] = module
+            seen["system"] = system
+            return '{"pitch_text": "До моря семь минут пешком, окна во двор.", ' \
+                   '"match_highlights": ["тихо", "рядом школа"]}'
+
+    pitch = await generate_pitch(_AI(), _lead_stub(), _property_stub())
+
+    from app.prompts.pitch_generator import SYSTEM_PROMPT_MATCHING_PITCH
+
+    assert seen["module"] == "matching_pitch"
+    assert seen["system"] == SYSTEM_PROMPT_MATCHING_PITCH
+    assert pitch["pitch_text"].startswith("До моря")
+    assert pitch["match_highlights"] == ["тихо", "рядом школа"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_pitch_does_not_lose_the_match():
+    """A pitch is worth less than the match it describes."""
+    from app.services.matching import generate_pitch
+
+    class _AI:
+        async def complete(self, *a, **kw):
+            raise RuntimeError("AI недоступен")
+
+    pitch = await generate_pitch(_AI(), _lead_stub(), _property_stub(title="Студия у моря"))
+
+    assert pitch["pitch_text"] == "Студия у моря"
+    assert pitch["match_highlights"] == []
+
+
+def test_the_tz_route_for_lm1_exists():
+    """The TZ calls it /lm/lm1/result; the code had grown another name.
+
+    Asked of the router rather than app.routes: this FastAPI version keeps
+    included routers wrapped instead of flattening their paths onto the app.
+    """
+    from app.routers.lead_magnets import router
+
+    paths = {r.path for r in router.routes}
+    assert "/lm1/result" in paths
+    assert "/lm1/start" in paths
+    assert "/property-finder/result" in paths, "старый путь не должен ломаться"

@@ -146,6 +146,7 @@ def _pitch(prop) -> str:
     return prop.title
 
 
+@router.post("/lm1/start")
 @router.post("/property-finder/start")
 async def lm1_start(req: LM1Start):
     session_id = req.session_id or str(uuid.uuid4())
@@ -153,6 +154,13 @@ async def lm1_start(req: LM1Start):
 
 
 @router.post(
+    "/lm1/result",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("lm_result", limit=10, window=60))],
+)
+@router.post(
+    # The name this endpoint has always had; the TZ (35.6) calls it /lm/lm1/result
+    # and integrations may already use either.
     "/property-finder/result",
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(rate_limit("lm_result", limit=10, window=60))],
@@ -188,22 +196,33 @@ async def lm1_submit(req: LM1Result, session=Depends(get_session)):
     session.add(lead)
     await session.flush()
 
-    from app.services.matching import MatchingEngine
+    from app.services.ai_service import AIService
+    from app.services.matching import MatchingEngine, generate_pitch
 
     scored = await MatchingEngine.find_matches(session, lead, limit=5, budget_max=req.budget_max)
     matches = []
-    for prop, score in scored:
-        pitch = _pitch(prop)
-        session.add(
-            LeadPropertyMatch(
-                lead_id=lead.id, property_id=prop.id, match_score=score,
-                generated_pitch=pitch, status="suggested",
+    ai = AIService()
+    try:
+        for prop, score in scored:
+            # The acceptance list (35.6) asks for the AI pitch here. It used to be
+            # a formatted price — "2-комн., 7 900 000 ₽" — so the person filling
+            # in the form got a price tag where a reason was promised.
+            pitch = await generate_pitch(ai, lead, prop)
+            text = pitch.get("pitch_text") or _pitch(prop)
+            session.add(
+                LeadPropertyMatch(
+                    lead_id=lead.id, property_id=prop.id, match_score=score,
+                    match_reasons=pitch.get("match_highlights", []),
+                    generated_pitch=text, status="suggested",
+                )
             )
-        )
-        matches.append(
-            {"property_id": str(prop.id), "title": prop.title, "price": prop.price,
-             "match_score": score, "pitch": pitch}
-        )
+            matches.append(
+                {"property_id": str(prop.id), "title": prop.title, "price": prop.price,
+                 "match_score": score, "pitch": text,
+                 "highlights": pitch.get("match_highlights", [])}
+            )
+    finally:
+        await ai.close()
 
     session.add(
         Task(

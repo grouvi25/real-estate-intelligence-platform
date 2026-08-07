@@ -95,6 +95,12 @@ celery_app.conf.beat_schedule = {
         # Offset from the Telegram run so the two do not contend for the worker.
         "schedule": crontab(minute="5-59/10"),  # every 10 min (no-op without VK token)
     },
+    "price-drop-sweep": {
+        # TZ 11.1 has this on a schedule; the PATCH endpoint covers the common
+        # case instantly, and this catches prices changed outside the API.
+        "task": "worker.tasks.matching_tasks.sweep_price_drops",
+        "schedule": crontab(hour=4, minute=20),  # 04:20 MSK daily
+    },
     "intent-scoring-batch": {
         "task": "worker.tasks.signal_tasks.score_intent_batch",
         "schedule": crontab(minute="*/5"),  # every 5 min (no-op without AI keys)

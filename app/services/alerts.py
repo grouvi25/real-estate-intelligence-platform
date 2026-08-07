@@ -25,3 +25,38 @@ async def send_critical_alert(message: str) -> bool:
         platform=BotPlatform.TELEGRAM,
         message=BotMessage(text=f"🚨 CRITICAL ALERT\n{message}", parse_mode="HTML"),
     )
+
+
+async def notify_owner_escalation(session, signal, reason: str | None = None) -> bool:
+    """Tell the agency's owner that a signal was handed upward.
+
+    An escalation nobody hears about is just a signal that stopped moving, which
+    is what the queue already had too much of.
+    """
+    from sqlalchemy import select
+
+    from app.models.manager import Manager
+    from app.services.bot_abstraction import bot_layer
+
+    owner = (await session.execute(
+        select(Manager).where(
+            Manager.agency_id == signal.agency_id,
+            Manager.role == "owner",
+            Manager.is_active.is_(True),
+        ).limit(1)
+    )).scalars().first()
+    if owner is None:
+        logger.info("Escalation has no owner to notify", signal_id=str(signal.id))
+        return False
+
+    quote = (signal.raw_text or "")[:180]
+    text = (f"⚠️ Сигнал передан вам\n\n«{quote}»\n\n"
+            f"Оценка: {signal.intent_score if signal.intent_score is not None else '—'}/100")
+    if reason:
+        text += f"\nПричина: {reason}"
+
+    try:
+        return bool(await bot_layer.notify_manager(owner.id, text))
+    except Exception as e:  # noqa: BLE001 - a failed notification must not undo the escalation
+        logger.warning("Escalation notice failed", signal_id=str(signal.id), error=str(e))
+        return False

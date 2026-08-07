@@ -102,7 +102,8 @@ async def send_signal_reply(session, signal, manager_id: Optional[str] = None) -
         return {"sent": False, "reason": "no_target", "channel": channel}
 
     result = await adapter.send_reply(target, signal.reply_draft)
-    signal.reply_status = "sent" if result.get("sent") else "failed"
+    # 'replied' is the addendum's word for a delivered answer (§5.2).
+    signal.reply_status = "replied" if result.get("sent") else "failed"
     signal.replied_at = datetime.now(timezone.utc)
     if manager_id:
         signal.replied_by_manager_id = uuid.UUID(str(manager_id))

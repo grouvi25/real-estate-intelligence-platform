@@ -53,7 +53,11 @@ class ReplyDraftRequest(BaseModel):
     reply_channel: Optional[str] = None
 
 
-REPLY_QUEUE_STATUSES = ("draft", "pending")
+# What still waits for a person. 'none' is in here because a freshly collected
+# signal has no reply state yet and is exactly what the triage queue is for --
+# the addendum calls that state 'pending' and treats it as the queue's entry
+# point (§5.2).
+REPLY_QUEUE_STATUSES = ("none", "pending", "draft")
 
 
 def _signal_dto(s: Signal) -> dict:
@@ -239,6 +243,10 @@ async def signal_reply_queue(
                 "reply_channel": s.reply_channel,
                 "reply_status": s.reply_status,
                 "reply_draft": s.reply_draft,
+                "signal_url": s.signal_url,
+                "score_reason": (s.ai_analysis or {}).get("reason")
+                    or (s.ai_analysis or {}).get("reasoning"),
+                "urgency": s.urgency,
                 "created_at": s.created_at.isoformat(),
             }
             for s in rows
@@ -263,6 +271,64 @@ async def set_reply_draft(
     signal.reply_status = "draft"
     await session.commit()
     return {"id": str(signal.id), "reply_status": signal.reply_status}
+
+
+class TriageRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+async def _scoped_signal(signal_id: uuid.UUID, current: CurrentManager, session) -> Signal:
+    signal = await session.get(Signal, signal_id)
+    if signal is None or str(signal.agency_id) != current.agency_id:
+        raise NotFoundError("Signal", str(signal_id))
+    return signal
+
+
+async def _triage(signal, status: str, manager_id: str, reason: Optional[str], session) -> dict:
+    signal.reply_status = status
+    signal.triage_reason = reason
+    signal.triaged_by_manager_id = uuid.UUID(manager_id) if manager_id else None
+    signal.triaged_at = datetime.now(timezone.utc)
+    await session.commit()
+    logger.info("Signal triaged", signal_id=str(signal.id), status=status)
+    return {"id": str(signal.id), "reply_status": signal.reply_status}
+
+
+@router.post("/{signal_id}/escalate")
+async def escalate_signal(
+    signal_id: uuid.UUID,
+    req: TriageRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Hand a signal to a senior manager (addendum §5.2 'escalated').
+
+    Without this a hard signal had nowhere to go: it either stayed in the queue
+    unanswered or was answered by whoever happened to see it first.
+    """
+    signal = await _scoped_signal(signal_id, current, session)
+    result = await _triage(signal, "escalated", current.manager_id, req.reason, session)
+
+    from app.services.alerts import notify_owner_escalation
+
+    await notify_owner_escalation(session, signal, req.reason)
+    return result
+
+
+@router.post("/{signal_id}/dismiss")
+async def dismiss_signal(
+    signal_id: uuid.UUID,
+    req: TriageRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Drop an irrelevant signal (addendum §5.2 'dismissed').
+
+    The queue could only grow before this: nothing removed a signal that was
+    never worth answering, so real ones sank under the noise.
+    """
+    signal = await _scoped_signal(signal_id, current, session)
+    return await _triage(signal, "dismissed", current.manager_id, req.reason, session)
 
 
 @router.post("/{signal_id}/send-reply")
