@@ -47,6 +47,9 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     consent_version: Mapped[str] = mapped_column(Text, default="1.0")
     consent_ip: Mapped[Optional[str]] = mapped_column(INET)
     consent_user_agent: Mapped[Optional[str]] = mapped_column(Text)
+    # When the subject's personal data was destroyed on request (152-ФЗ §21).
+    # The row survives: the anonymous deal record is the agency's accounting.
+    pd_erased_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
 
     segment: Mapped[Optional[str]] = mapped_column(Text)
     buyer_profile: Mapped[dict] = mapped_column(JSONB, default=dict)

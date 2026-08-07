@@ -117,6 +117,11 @@
     documentBlob: (key) => api.requestBlob(`/documents/${key}`),
     readiness: () => api.request('/health/readiness'),
 
+    // 152-ФЗ: what we hold about a person, and erasing it on their request
+    personalData: (id) => api.request(`/leads/${id}/personal-data`),
+    erasePersonalData: (id, reason) =>
+      api.request(`/leads/${id}/erase-personal-data`, 'POST', { reason }),
+
     // Deals (Knowledge Moat)
     recordOutcome: (leadId, body) => api.request(`/deals/${leadId}/outcome`, 'POST', body),
 

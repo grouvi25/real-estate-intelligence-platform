@@ -212,6 +212,15 @@ Screens.leadDetail = async function (params) {
           ? `<button class="btn btn--secondary btn--block mt-2" id="alt">${UI.icon('refresh')} Обработать альтернативу</button>` : ''}
         <button class="btn btn--danger btn--block mt-2" id="arch">${UI.icon('trash')} В архив</button>
 
+        <div class="section-title">Персональные данные · 152-ФЗ</div>
+        <div class="btn-row btn-row--equal">
+          <button class="btn btn--secondary btn--sm" id="pd-export">${UI.icon('file')} Выгрузить</button>
+          <button class="btn btn--danger btn--sm" id="pd-erase">${UI.icon('trash')} Удалить ПД</button>
+        </div>
+        <div class="item__meta mt-2">По требованию клиента: выгрузка — что о нём хранится,
+          удаление — стираются имя, телефон, почта и текст обращения. Статистика сделки
+          остаётся обезличенной.</div>
+
         <div class="section-head">
           <span class="section-title">Подборка объектов</span>
           <span class="item__meta">${(l.matches || []).length}</span>
@@ -236,6 +245,8 @@ function wire(l) {
     catch (e) { UI.toast('Ошибка: ' + e.message); }
   };
 
+  on('pd-export', (e) => UI.busy(e.currentTarget, () => pdExportSheet(l)));
+  on('pd-erase', () => pdEraseSheet(l));
   on('deal', () => dealSheet(l));
   on('kp', () => docSheet(l));
   on('contract', () => contractSheet(l));
@@ -246,6 +257,51 @@ function wire(l) {
     catch (e) { UI.toast('Ошибка: ' + e.message); }
   });
   document.querySelectorAll('[data-rej]').forEach((b) => b.onclick = () => rejectSheet(l, b.getAttribute('data-rej')));
+}
+
+// 152-ФЗ §14: the subject may ask what is stored about them.
+async function pdExportSheet(l) {
+  UI.sheet('Персональные данные', UI.skelCard(), async () => {
+    const body = document.querySelector('.sheet__body');
+    try {
+      const data = await API.personalData(l.id);
+      const json = JSON.stringify(data, null, 2);
+      body.innerHTML = `
+        <div class="item__sub">Всё, что система хранит об этом человеке. Можно отправить
+          ему по запросу.</div>
+        <div class="copyfield mt-3" style="max-height:40vh;overflow:auto;white-space:pre-wrap">${UI.esc(json)}</div>
+        <button class="btn btn--block mt-3" id="pd-copy">${UI.icon('copy')} Скопировать</button>`;
+      document.getElementById('pd-copy').onclick = async () => {
+        try { await navigator.clipboard.writeText(json); UI.toast('Скопировано'); }
+        catch (e) { UI.toast('Выделите текст и скопируйте вручную'); }
+      };
+    } catch (e) {
+      body.innerHTML = UI.errorState(e.message);
+    }
+  });
+}
+
+// 152-ФЗ §21: erasure on request. Irreversible, so it asks twice.
+function pdEraseSheet(l) {
+  UI.sheet('Удалить персональные данные', `
+    <div class="item__sub">Будут стёрты имя, телефон, почта, Telegram и текст исходного
+      обращения. Отменить нельзя.</div>
+    <div class="item__sub mt-2">Останется обезличенная запись: источник, статус, сумма
+      сделки — она нужна для отчётности агентства и никого не идентифицирует.</div>
+    <div class="field mt-3"><label for="pd-reason">Основание</label>
+      <input id="pd-reason" value="Запрос субъекта ПД"></div>
+    <button class="btn btn--danger btn--block" id="pd-go">${UI.icon('trash')} Удалить безвозвратно</button>`,
+    (close) => {
+      const go = document.getElementById('pd-go');
+      go.onclick = () => UI.busy(go, async () => {
+        try {
+          await API.erasePersonalData(l.id, document.getElementById('pd-reason').value.trim());
+          close();
+          UI.toast('Персональные данные удалены');
+          Router.go('leads');
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      });
+    });
 }
 
 const REJECT_CATS = [['price_too_high', 'Дорого'], ['wrong_location', 'Локация'],

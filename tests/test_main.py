@@ -54,3 +54,21 @@ def test_mini_app_served():
     r = client.get("/mini-app/")
     assert r.status_code == 200
     assert "Real Estate Intelligence" in r.text
+
+
+def test_the_api_schema_is_not_public_in_production(monkeypatch):
+    """/api/docs was closed and /openapi.json was left open — the same map of
+    every endpoint and every field, one URL away."""
+    from app.config import config
+
+    monkeypatch.setattr(config, "node_env", "production")
+    import importlib
+
+    import app.main as main
+    reloaded = importlib.reload(main)
+    try:
+        assert reloaded.app.openapi_url is None
+        assert reloaded.app.docs_url is None
+    finally:
+        monkeypatch.setattr(config, "node_env", "development")
+        importlib.reload(main)

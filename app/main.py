@@ -82,6 +82,9 @@ app = FastAPI(
     version="2.0.0",
     docs_url="/api/docs" if config.node_env == "development" else None,
     redoc_url="/api/redoc" if config.node_env == "development" else None,
+    # Closing the docs pages while leaving /openapi.json open publishes the same
+    # map of every endpoint and field to anyone who asks for it.
+    openapi_url="/openapi.json" if config.node_env == "development" else None,
     lifespan=lifespan,
 )
 

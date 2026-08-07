@@ -439,3 +439,45 @@ async def process_alternative(
 
     run_matching_for_lead.delay(str(lead.id), target_budget)
     return {"tasks_created": len(tasks), "target_budget": target_budget}
+
+
+# --- 152-ФЗ: the subject's own rights ----------------------------------------
+#
+# Consent was recorded from day one; the other half of the law — §14 "show me
+# what you hold" and §21 "erase it" — had no implementation at all, so the only
+# way to answer such a request was hand-written SQL.
+
+class EraseRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.get("/{lead_id}/personal-data")
+async def export_personal_data(
+    lead_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Everything held about this person, decrypted (152-ФЗ §14)."""
+    from app.services.consent_manager import export_lead_data
+
+    lead = await _get_scoped_lead(lead_id, current, session)
+    return await export_lead_data(session, lead)
+
+
+@router.post("/{lead_id}/erase-personal-data")
+async def erase_personal_data(
+    req: EraseRequest,
+    lead_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Destroy name, phone, email and the raw message (152-ФЗ §21).
+
+    The row stays: what is left — the source, the outcome, the commission —
+    identifies nobody and is the agency's own accounting.
+    """
+    from app.services.consent_manager import erase_lead_data
+
+    lead = await _get_scoped_lead(lead_id, current, session)
+    return await erase_lead_data(session, lead, manager_id=current.manager_id,
+                                 reason=req.reason or "Запрос субъекта ПД")
