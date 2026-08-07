@@ -188,3 +188,97 @@ def test_nothing_learned_yet_means_the_weights_from_the_tz():
     assert resolve_weights(None) == BASE_WEIGHTS
     assert resolve_weights({}) == BASE_WEIGHTS
     assert resolve_weights({"knowledge_moat_weights": {}}) == BASE_WEIGHTS
+
+
+# --- a price can drop without anyone calling the API -------------------------
+
+@pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
+@pytest.mark.asyncio
+async def test_a_drop_made_outside_the_api_is_still_caught(monkeypatch):
+    """The PATCH endpoint re-matches the moment a manager edits a price. An
+    import, a CRM sync or an edit in the database skipped it entirely, and the
+    buyer whose budget the flat had just dropped into never heard about it."""
+    import uuid as _uuid
+
+    import worker.tasks.matching_tasks as mt
+    from app.database import async_session, run_migrations
+    from app.models.agency import Agency
+    from app.models.property import Property
+
+    seen = []
+
+    async def fake_rematch(property_id, old_price, new_price):
+        seen.append((property_id, old_price, new_price))
+        return 0
+
+    from app.services.matching import MatchingEngine
+    monkeypatch.setattr(MatchingEngine, "rematch_on_price_change",
+                        staticmethod(fake_rematch))
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name=f"Price {_uuid.uuid4().hex[:6]}", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+        dropped = Property(agency_id=agency.id, title="Упала в цене", status="active",
+                           price=7_000_000, last_rematch_price=8_000_000)
+        nudged = Property(agency_id=agency.id, title="Чуть дешевле", status="active",
+                          price=7_900_000, last_rematch_price=8_000_000)
+        raised = Property(agency_id=agency.id, title="Подорожала", status="active",
+                          price=9_000_000, last_rematch_price=8_000_000)
+        s.add_all([dropped, nudged, raised])
+        await s.commit()
+        dropped_id, nudged_id = str(dropped.id), str(nudged.id)
+
+    await mt._sweep_price_drops()
+
+    ids = [x[0] for x in seen]
+    assert dropped_id in ids, "падение на 12,5% должно вызвать переподбор"
+    assert nudged_id not in ids, "падение на 1,25% — ниже порога ТЗ"
+    assert all(x[1] > x[2] for x in seen), "переподбор только на снижение"
+
+
+@pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
+@pytest.mark.asyncio
+async def test_the_sweep_does_not_repeat_itself(monkeypatch):
+    """Otherwise every night would re-notify the same leads about the same flat."""
+    import uuid as _uuid
+
+    import worker.tasks.matching_tasks as mt
+    from app.database import async_session, run_migrations
+    from app.models.agency import Agency
+    from app.models.property import Property
+    from app.services.matching import MatchingEngine
+
+    calls = []
+
+    async def fake_rematch(property_id, old_price, new_price):
+        calls.append(property_id)
+        return 0
+
+    monkeypatch.setattr(MatchingEngine, "rematch_on_price_change", staticmethod(fake_rematch))
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name=f"Once {_uuid.uuid4().hex[:6]}", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+        prop = Property(agency_id=agency.id, title="Раз и всё", status="active",
+                        price=6_000_000, last_rematch_price=8_000_000)
+        s.add(prop)
+        await s.commit()
+        prop_id = str(prop.id)
+
+    await mt._sweep_price_drops()
+    first = calls.count(prop_id)
+    await mt._sweep_price_drops()
+
+    assert first == 1
+    assert calls.count(prop_id) == 1, "второй проход не должен повторять тот же переподбор"
+
+
+def test_the_sweep_is_scheduled():
+    from worker.celery_app import celery_app
+
+    tasks = {e["task"] for e in celery_app.conf.beat_schedule.values()}
+    assert "worker.tasks.matching_tasks.sweep_price_drops" in tasks

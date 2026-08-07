@@ -29,6 +29,9 @@ class Property(CreatedAtMixin, UpdatedAtMixin, Base):
     address: Mapped[Optional[str]] = mapped_column(Text)
     district: Mapped[Optional[str]] = mapped_column(Text)
     price: Mapped[Optional[int]] = mapped_column(Integer)
+    # The price the last re-match ran on, so a drop made outside the API — an
+    # import, a CRM sync, raw SQL — is still noticed (migration 053).
+    last_rematch_price: Mapped[Optional[int]] = mapped_column(Integer)
     price_per_sqm: Mapped[Optional[int]] = mapped_column(Integer)
     area_total: Mapped[Optional[float]] = mapped_column(Float)
     area_living: Mapped[Optional[float]] = mapped_column(Float)

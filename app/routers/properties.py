@@ -110,6 +110,10 @@ async def update_property(
         from worker.tasks.matching_tasks import rematch_on_price_change
 
         rematch_on_price_change.delay(str(prop.id), old_price, req.price)
+        # The nightly sweep compares against this, so a re-match done here is not
+        # repeated tonight.
+        prop.last_rematch_price = req.price
+        await session.commit()
         logger.info("Price dropped >=5%, rematch queued", property_id=str(prop.id),
                     old_price=old_price, new_price=req.price)
 
