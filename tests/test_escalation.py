@@ -206,3 +206,47 @@ async def test_a_cold_lead_skips_the_4h_ping_but_still_advances(bot):
         lead = await s.get(Lead, lead_id)
     assert lead.escalation_stage == 4
     assert not any(str(lead_id)[:6] in text for _, text in bot.sent)
+
+
+@pytest.mark.asyncio
+async def test_one_lead_with_two_escalation_tasks_does_not_stop_the_sweep(bot):
+    """The whole run used to die on a single duplicate row.
+
+    Nothing in the schema stops a lead from having two escalation tasks — two
+    overlapping beat runs are enough. The existence check asked for exactly one
+    row, so the second one raised, the exception escaped before the commit, and
+    every lead in that run lost its update. SLA escalation would have been dead
+    for every agency, on every run, with nothing in the product looking broken.
+    """
+    from sqlalchemy import func, select
+
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from app.models.task import Task
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        broken = await _lead(s, hours_idle=50)
+        for _ in range(2):
+            s.add(Task(agency_id=broken.agency_id, lead_id=broken.id,
+                       manager_id=broken.assigned_to, task_type="escalation",
+                       title="дубль", status="pending"))
+        healthy = await _lead(s, hours_idle=5)
+        broken_id, healthy_id = broken.id, healthy.id
+        await s.commit()
+
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        healthy = await s.get(Lead, healthy_id)
+        broken = await s.get(Lead, broken_id)
+
+    # The neighbour still advanced — that is the whole point.
+    assert healthy.escalation_stage == 4
+    # And the duplicate did not silently gain a third task.
+    async with async_session() as s:
+        count = await s.scalar(
+            select(func.count()).select_from(Task).where(
+                Task.lead_id == broken_id, Task.task_type == "escalation"))
+    assert count == 2
