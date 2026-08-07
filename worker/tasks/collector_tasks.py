@@ -98,3 +98,54 @@ async def _collect_vk_sources(limit_per_source: int = 50) -> int:
 @shared_task(name="worker.tasks.collector_tasks.collect_vk_sources")
 def collect_vk_sources(limit_per_source: int = 50) -> int:
     return run_async(_collect_vk_sources(limit_per_source))
+
+
+async def _collect_web_sources(limit_per_source: int = 50) -> int:
+    """Read the sources that are neither a chat nor a group: feeds and YouTube.
+
+    Both source types were allowed by the schema from the first migration and
+    nothing ever read one, so a feed added on the Источники screen sat there for
+    ever. YouTube stays a no-op without YOUTUBE_API_KEY; a feed needs no key, so
+    the source list is its only switch.
+    """
+    from sqlalchemy import select
+
+    from app.collectors.rss_collector import RssCollector
+    from app.collectors.youtube_collector import YoutubeCollector
+    from app.database import async_session
+    from app.models.geo_location import GeoLocation
+    from app.models.source import Source
+
+    rss, youtube = RssCollector(), YoutubeCollector()
+    by_type = {("rss", "website"): rss, ("youtube",): youtube}
+
+    total = 0
+    try:
+        async with async_session() as session:
+            sources = (await session.execute(
+                select(Source).where(
+                    Source.status.in_(("active", "sandbox")),
+                    Source.source_type.in_(("rss", "website", "youtube")),
+                )
+            )).scalars().all()
+            for src in sources:
+                collector = next(
+                    (c for types, c in by_type.items() if src.source_type in types), None)
+                if collector is None or not collector.is_available():
+                    continue
+                keywords = {}
+                if src.geo_location_id:
+                    geo = await session.get(GeoLocation, src.geo_location_id)
+                    keywords = (geo.keywords if geo else {}) or {}
+                total += await collector.collect_from_source(
+                    session, src, keywords, limit=limit_per_source)
+    finally:
+        await rss.close()
+        await youtube.close()
+    logger.info("Web collection run complete", signals=total)
+    return total
+
+
+@shared_task(name="worker.tasks.collector_tasks.collect_web_sources")
+def collect_web_sources(limit_per_source: int = 50) -> int:
+    return run_async(_collect_web_sources(limit_per_source))

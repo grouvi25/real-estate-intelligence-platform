@@ -101,6 +101,12 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.matching_tasks.sweep_price_drops",
         "schedule": crontab(hour=4, minute=20),  # 04:20 MSK daily
     },
+    "collect-web-sources": {
+        # Feeds and YouTube move far slower than chats; hourly is plenty and
+        # keeps well inside the YouTube daily quota.
+        "task": "worker.tasks.collector_tasks.collect_web_sources",
+        "schedule": crontab(minute=35),  # hourly
+    },
     "intent-scoring-batch": {
         "task": "worker.tasks.signal_tasks.score_intent_batch",
         "schedule": crontab(minute="*/5"),  # every 5 min (no-op without AI keys)

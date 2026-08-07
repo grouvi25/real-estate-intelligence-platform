@@ -3,7 +3,12 @@ from app.services.channels import SUPPORTED_CHANNELS, get_channel_adapter
 
 
 def test_registry_has_all_channels():
-    assert set(SUPPORTED_CHANNELS) == {"avito", "cian", "telegram", "max", "vk"}
+    assert set(SUPPORTED_CHANNELS) == {
+        # answerable
+        "avito", "cian", "telegram", "max", "vk",
+        # read-only: collected from, never answered on
+        "youtube", "rss",
+    }
     assert get_channel_adapter("AVITO").channel == "avito"
     assert get_channel_adapter("unknown") is None
 

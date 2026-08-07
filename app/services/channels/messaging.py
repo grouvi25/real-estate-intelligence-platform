@@ -77,3 +77,40 @@ class MaxAdapter(ChannelAdapter):
 
         ok = await bot_layer.send_message(int(target), BotPlatform.MAX, BotMessage(text=text))
         return {"sent": ok, "channel": self.channel}
+
+
+class _ReadOnlyAdapter(ChannelAdapter):
+    """A source we can read and cannot answer on.
+
+    A YouTube comment is answered from the channel's own account and an RSS item
+    has no reply surface at all. The Signal Bus still needs an adapter for each
+    channel, or ingest_content drops the message with "unknown channel" — which
+    is what would have happened to everything these two collectors read.
+    """
+
+    def normalize(self, raw: dict) -> NormalizedContent:
+        return NormalizedContent(
+            channel=self.channel,
+            external_id=str(raw["id"]) if raw.get("id") is not None else None,
+            url=raw.get("url"),
+            content_type=raw.get("content_type", "post"),
+            raw_content=raw.get("text") or "",
+            author_hash=author_hash(self.channel, raw.get("author_id") or raw.get("id")),
+            author_display_name=raw.get("author_name"),
+            published_at=raw.get("published_at"),
+            meta={},
+        )
+
+    def reply_supported(self) -> bool:
+        return False
+
+    async def send_reply(self, target: str, text: str) -> dict:
+        return {"sent": False, "reason": "channel_is_read_only", "channel": self.channel}
+
+
+class YoutubeAdapter(_ReadOnlyAdapter):
+    channel = "youtube"
+
+
+class RssAdapter(_ReadOnlyAdapter):
+    channel = "rss"
