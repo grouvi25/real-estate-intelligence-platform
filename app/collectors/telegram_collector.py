@@ -20,6 +20,12 @@ from app.services.signal_bus import ingest_content
 
 logger = structlog.get_logger()
 
+# Signal Bus addendum §2.1: origin_system says which SYSTEM produced the signal
+# (open-source scouting here, the Content Engine later), not which platform --
+# the platform is reply_channel. Storing the channel here made every source look
+# like a separate system and left no way to tell scouting from content reactions.
+ORIGIN_SCOUTING = "reip_scouting"
+
 # Telegram serves MTProto on 443, 80 and 5222. The production host cannot reach
 # 149.154.167.0/24 (DC2 + DC4) on 443 or 80 -- those connections time out -- while
 # 5222 completes the handshake, and the other DCs answer on 443 normally. Telethon
@@ -218,7 +224,7 @@ class TelegramCollector:
                     author_hash=norm.author_hash,
                     author_display_name=norm.author_display_name,
                     signal_url=raw["url"],
-                    origin_system="telegram",
+                    origin_system=ORIGIN_SCOUTING,
                     reply_channel="telegram",
                     status="new",
                 ))

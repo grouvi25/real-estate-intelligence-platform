@@ -43,6 +43,12 @@ from app.services.intent_scoring import quick_filter
 
 logger = structlog.get_logger()
 
+# Signal Bus addendum §2.1: origin_system says which SYSTEM produced the signal
+# (open-source scouting here, the Content Engine later), not which platform --
+# the platform is reply_channel. Storing the channel here made every source look
+# like a separate system and left no way to tell scouting from content reactions.
+ORIGIN_SCOUTING = "reip_scouting"
+
 API_BASE = "https://api.vk.com/method"
 # What a service key gets on a method VK marks "user only". Verified against the
 # live API with a real service token: groups.search answers 15 "Access denied",
@@ -359,7 +365,7 @@ class VkCollector:
                 author_hash=norm.author_hash,
                 author_display_name=norm.author_display_name,
                 signal_url=norm.url,
-                origin_system="vk",
+                origin_system=ORIGIN_SCOUTING,
                 reply_channel="vk",
                 status="new",
             ))
