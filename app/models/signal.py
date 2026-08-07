@@ -53,6 +53,13 @@ class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
         UUID(as_uuid=True), ForeignKey("managers.id", ondelete="SET NULL")
     )
     replied_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    # Why a signal left the queue without an answer, and on whose call
+    # (addendum §5.2: escalated / dismissed). Migration 052.
+    triage_reason: Mapped[Optional[str]] = mapped_column(Text)
+    triaged_by_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("managers.id", ondelete="SET NULL")
+    )
+    triaged_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
 
     # One-directional convenience relationships (used by scoring/pipeline code).
     geo_location: Mapped[Optional[GeoLocation]] = relationship("GeoLocation", lazy="joined")

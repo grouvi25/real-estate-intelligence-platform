@@ -99,6 +99,9 @@
     generateReply: (id) => api.request(`/signals/${id}/generate-reply`, 'POST'),
     setReplyDraft: (id, body) => api.request(`/signals/${id}/reply-draft`, 'PATCH', body),
     sendReply: (id) => api.request(`/signals/${id}/send-reply`, 'POST'),
+    // Triage: the two ways a signal leaves the queue unanswered (дополнение §5.2)
+    escalateSignal: (id, reason) => api.request(`/signals/${id}/escalate`, 'POST', { reason }),
+    dismissSignal: (id, reason) => api.request(`/signals/${id}/dismiss`, 'POST', { reason }),
     createLead: (id, body) =>
       api.request(`/signals/${id}/create-lead`, 'POST', { ...body, ...(window._utm || {}) }),
 

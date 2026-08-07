@@ -94,8 +94,18 @@ async def run_migrations() -> None:
                 continue
 
             logger.info("Applying migration", file=migration_file.name)
-            for stmt in _split_sql(migration_file.read_text(encoding="utf-8")):
-                await conn.execute(text(stmt))
+            for number, stmt in enumerate(_split_sql(migration_file.read_text(encoding="utf-8")), 1):
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as e:  # noqa: BLE001 - re-raised with its address
+                    # A broken migration otherwise surfaces as a hundred unrelated
+                    # test failures somewhere else entirely; the one thing worth
+                    # knowing is which file and which statement.
+                    logger.error("Migration failed", file=migration_file.name,
+                                 statement=number, sql=stmt[:200], error=str(e))
+                    raise RuntimeError(
+                        f"{migration_file.name}: оператор {number} не выполнился: {e}"
+                    ) from e
 
             await conn.execute(
                 text(f'CREATE TABLE "{marker}" (applied_at TIMESTAMPTZ DEFAULT NOW())')
