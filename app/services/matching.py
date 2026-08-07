@@ -106,6 +106,33 @@ def calculate_match_score(lead: Any, prop: Any, weights: Any = None) -> int:
     return max(0, min(100, score))
 
 
+async def generate_pitch(ai: Any, lead: Any, prop: Any) -> dict:
+    """AI pitch for one pairing, per SYSTEM_PROMPT_MATCHING_PITCH.
+
+    Shared with the lead magnet: LM-1 was assembling its pitch as a string —
+    "2-комн., 7 900 000 ₽" — while the acceptance list (35.6) asks for this
+    prompt, and the person on the other side got a price tag instead of a reason.
+    """
+    from app.prompts.pitch_generator import (  # noqa: PLC0415
+        SYSTEM_PROMPT_MATCHING_PITCH,
+        USER_PROMPT_PITCH,
+    )
+    from app.services.ai_service import safe_ai_parse  # noqa: PLC0415
+
+    fallback = {"pitch_text": prop.title, "match_highlights": []}
+    try:
+        raw = await ai.complete(
+            SYSTEM_PROMPT_MATCHING_PITCH,
+            USER_PROMPT_PITCH.format(**_pitch_payload(lead, prop)),
+            "matching_pitch",
+            agency_id=str(lead.agency_id),
+        )
+        return safe_ai_parse(raw, fallback)
+    except Exception as e:  # noqa: BLE001 - a pitch is worth less than the match
+        logger.warning("Pitch generation failed", error=str(e), property_id=str(prop.id))
+        return fallback
+
+
 def _pitch_payload(lead: Any, prop: Any) -> dict:
     profile = lead.buyer_profile or {}
     analysis = prop.ai_analysis or {}
@@ -175,8 +202,7 @@ class MatchingEngine:
         from app.models.lead import Lead
         from app.models.match import LeadPropertyMatch
         from app.models.property import Property
-        from app.prompts.pitch_generator import SYSTEM_PROMPT_MATCHING_PITCH, USER_PROMPT_PITCH
-        from app.services.ai_service import AIService, safe_ai_parse
+        from app.services.ai_service import AIService
 
         created = 0
         async with async_session() as session:
@@ -214,17 +240,7 @@ class MatchingEngine:
                     score = calculate_match_score(scoring_lead, prop, weights)
                     if score < MATCH_THRESHOLD:
                         continue
-                    try:
-                        pitch_raw = await ai.complete(
-                            SYSTEM_PROMPT_MATCHING_PITCH,
-                            USER_PROMPT_PITCH.format(**_pitch_payload(lead, prop)),
-                            "matching_pitch",
-                            agency_id=str(lead.agency_id),
-                        )
-                        pitch = safe_ai_parse(pitch_raw, {"pitch_text": prop.title})
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("Pitch generation failed", error=str(e))
-                        pitch = {"pitch_text": prop.title, "match_highlights": []}
+                    pitch = await generate_pitch(ai, lead, prop)
 
                     session.add(
                         LeadPropertyMatch(
