@@ -3,6 +3,18 @@
 Weights (TZ): budget +30, segment +25, location +20, priorities +15, hot +10.
 Fix vs. TZ: the location bonus required geo ids to be equal, which also matched
 two NULL geos; now both must be non-null and equal.
+
+Scoring is arithmetic, not AI, and that is deliberate -- agreed with the client
+on 2026-08-08 (see docs/file_manifest.md, "Deviations"). The TZ file manifest
+lists a `match_scorer.py` prompt, but nothing else in the TZ refers to it: the
+acceptance list (35.7) asks for the weighted model spelled out above, and the
+TZ's own sample implementation of this module is a plain arithmetic function.
+The AI work already happened on both inputs -- `buyer_profile` extracted the
+buyer's priorities, `object_analysis` extracted the property's strengths -- so
+this function compares two AI-produced lists rather than guessing at raw text.
+Asking a model to re-judge that would cost one call per catalogue entry per
+lead, return a different number each run, and tell the manager nothing they
+could repeat back to a buyer.
 """
 from __future__ import annotations
 

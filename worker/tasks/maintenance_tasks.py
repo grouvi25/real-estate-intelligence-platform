@@ -138,7 +138,9 @@ async def _escalate_overdue_leads() -> int:
             )
         )).scalars().all()
 
-        for lead in leads:
+        async def advance(lead) -> int:
+            """Walk one lead up the ladder. Returns how many steps it took."""
+            taken = 0
             hrs = (now - lead.updated_at).total_seconds() / 3600
             done = lead.escalation_stage or 0
 
@@ -173,9 +175,17 @@ async def _escalate_overdue_leads() -> int:
                         await bot_layer.notify_manager(
                             str(owner.id), f"⚠️ Лид #{short} без контакта {int(hrs)}ч.")
                 else:
+                    # limit(1) because the question is "is there one", not "how
+                    # many". Without it a lead that ended up with two escalation
+                    # tasks -- nothing in the schema forbids it, and two beat runs
+                    # overlapping is enough -- made this raise MultipleResultsFound,
+                    # which escaped before the commit below and silently threw away
+                    # the whole sweep. One stray row would have stopped SLA
+                    # escalation for every agency, on every run, for good.
                     existing = (await session.execute(
-                        select(Task).where(
-                            Task.lead_id == lead.id, Task.task_type == "escalation")
+                        select(Task.id).where(
+                            Task.lead_id == lead.id,
+                            Task.task_type == "escalation").limit(1)
                     )).scalar_one_or_none()
                     if not existing:
                         session.add(Task(
@@ -187,7 +197,18 @@ async def _escalate_overdue_leads() -> int:
                         ))
 
                 await record(lead, step)
-                actions += 1
+                taken += 1
+            return taken
+
+        for lead in leads:
+            # One unusable row must cost one lead, not the run. This is a safety
+            # net, not a licence to ignore it: whatever lands here is a bug, so
+            # it is logged loudly with the lead that caused it.
+            try:
+                actions += await advance(lead)
+            except Exception as e:  # noqa: BLE001 - the sweep must outlive one bad row
+                logger.error("Escalation skipped a lead", lead_id=str(lead.id),
+                             error=str(e), error_type=type(e).__name__)
 
         await session.commit()
     logger.info("Overdue leads escalated", actions=actions)
