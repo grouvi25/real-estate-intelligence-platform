@@ -372,6 +372,12 @@ select { appearance: none; padding-right: 34px;
   padding: var(--s-3); -webkit-user-select: all; user-select: all;
 }
 
+/* A field and the action that runs it. `stretch` rather than a fixed height,
+   so the button matches whatever the input's padding works out to. */
+.searchbar { display: flex; align-items: stretch; gap: var(--s-2); }
+.searchbar input { flex: 1; min-width: 0; }
+.searchbar .btn { flex: 0 0 auto; }
+
 /* Segmented control ---------------------------------------------------- */
 .segmented {
   display: flex; gap: var(--s-1); background: var(--surface-2); border: 1px solid var(--hair);

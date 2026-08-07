@@ -44,21 +44,42 @@ Screens.leads = async function () {
     actionIcon: 'plus', actionLabel: 'Новый лид', onAction: () => Router.go('leads/new'),
   });
   let cur = Screens._leadTab || '';
+  // A 152-ФЗ request names a phone number, never a card. The number is
+  // encrypted, so the backend matches it through the blind index.
+  let phone = '';
 
-  const bar = () => `<div class="segmented" role="tablist">${LEAD_TABS.map(([v, l]) =>
-    `<button class="segmented__opt${v === cur ? ' segmented__opt--active' : ''}" role="tab"
-       aria-selected="${v === cur}" data-tab="${v}">${l}</button>`).join('')}</div>`;
+  const search = () => `
+    <div class="searchbar">
+      <input id="lead-phone" type="tel" inputmode="tel"
+             placeholder="Поиск по телефону" value="${UI.esc(phone)}"
+             aria-label="Поиск лида по телефону">
+      <button class="btn btn--secondary" id="lead-find" type="button">Найти</button>
+    </div>`;
+
+  const bar = () => (phone
+    ? `<div class="row between mt-3">
+         <span class="item__meta">Найдено по номеру ${UI.esc(phone)}</span>
+         <button class="btn btn--ghost btn--sm" id="lead-clear" type="button">Сбросить</button>
+       </div>`
+    : `<div class="segmented mt-3" role="tablist">${LEAD_TABS.map(([v, l]) =>
+        `<button class="segmented__opt${v === cur ? ' segmented__opt--active' : ''}" role="tab"
+           aria-selected="${v === cur}" data-tab="${v}">${l}</button>`).join('')}</div>`);
 
   function draw() {
-    UI.load(bar() + UI.skelList(4),
-      () => API.leads({ limit: 50, status: cur || undefined }),
+    UI.load(search() + bar() + UI.skelList(4),
+      () => (phone
+        ? API.leads({ phone })
+        : API.leads({ limit: 50, status: cur || undefined })),
       (data) => {
-        UI.render(bar() + UI.list(data.leads, leadCard, {
+        UI.render(search() + bar() + UI.list(data.leads, leadCard, {
           icon: 'leads',
-          title: cur ? 'В этом статусе пусто' : 'Лидов пока нет',
-          sub: cur ? 'Посмотрите другие вкладки'
-            : 'Квалифицируйте сигнал или заведите лида вручную',
-          actionLabel: cur ? null : 'Новый лид', actionIcon: 'plus', actionId: 'new-lead',
+          title: phone ? 'По этому номеру никого нет'
+            : cur ? 'В этом статусе пусто' : 'Лидов пока нет',
+          sub: phone ? 'Проверьте номер — искали точное совпадение'
+            : cur ? 'Посмотрите другие вкладки'
+              : 'Квалифицируйте сигнал или заведите лида вручную',
+          actionLabel: (phone || cur) ? null : 'Новый лид',
+          actionIcon: 'plus', actionId: 'new-lead',
         }), () => {
           Router.bindGo();
           document.querySelectorAll('[data-tab]').forEach((t) => {
@@ -66,6 +87,13 @@ Screens.leads = async function () {
           });
           const n = document.getElementById('new-lead');
           if (n) n.onclick = () => Router.go('leads/new');
+
+          const field = document.getElementById('lead-phone');
+          const run = () => { phone = field.value.trim(); draw(); };
+          document.getElementById('lead-find').onclick = run;
+          field.onkeydown = (e) => { if (e.key === 'Enter') run(); };
+          const clear = document.getElementById('lead-clear');
+          if (clear) clear.onclick = () => { phone = ''; draw(); };
         });
       });
   }

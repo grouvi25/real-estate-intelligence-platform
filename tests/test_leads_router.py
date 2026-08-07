@@ -70,3 +70,45 @@ async def test_leads_list_card_and_status(monkeypatch):
     async with async_session() as s:
         with pytest.raises(NotFoundError):
             await get_lead(lead_id, current=other, session=s)
+
+
+@pytest.mark.asyncio
+async def test_leads_are_found_by_phone():
+    """A 152-ФЗ request names a number, not a card id.
+
+    The phone is encrypted at rest, so this has to go through the blind index --
+    and it has to stay scoped to the agency like every other lead read.
+    """
+    from app.database import async_session, run_migrations
+    from app.dependencies import CurrentManager
+    from app.models.agency import Agency
+    from app.models.lead import Lead
+    from app.routers.leads import list_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = Agency(name="Phone Lookup", base_city="Геленджик")
+        s.add(agency)
+        await s.flush()
+        lead = Lead(agency_id=agency.id, source_type="manual", status="new")
+        lead.name = "Анна Соколова"
+        lead.phone = "+79181234567"
+        s.add(lead)
+        await s.commit()
+        agency_id = str(agency.id)
+        lead_id = lead.id
+
+    current = CurrentManager(manager_id="m1", agency_id=agency_id)
+
+    # Written the way a person writes it; the index normalises.
+    async with async_session() as s:
+        found = await list_leads(phone="+7 918 123-45-67", current=current, session=s)
+        assert [x["id"] for x in found["leads"]] == [str(lead_id)]
+
+    async with async_session() as s:
+        missing = await list_leads(phone="+79990000000", current=current, session=s)
+        assert missing["count"] == 0
+
+    other = CurrentManager(manager_id="m2", agency_id="00000000-0000-4000-8000-000000000000")
+    async with async_session() as s:
+        assert (await list_leads(phone="+79181234567", current=other, session=s))["count"] == 0

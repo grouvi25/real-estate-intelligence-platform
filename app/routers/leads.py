@@ -173,6 +173,7 @@ async def create_lead(
 async def list_leads(
     status: Optional[str] = None,
     segment: Optional[str] = None,
+    phone: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     current: CurrentManager = Depends(get_current_manager),
@@ -180,6 +181,15 @@ async def list_leads(
 ):
     limit = min(max(limit, 1), MAX_PAGE)
     offset = max(offset, 0)
+
+    # A 152-ФЗ request (§14 "what do you hold", §21 "erase it") arrives as a
+    # phone number, and the number is encrypted at rest -- so it cannot be
+    # matched with a LIKE. The blind index exists for exactly this lookup.
+    if phone:
+        from app.services.consent_manager import find_leads_by_phone
+
+        found = await find_leads_by_phone(session, uuid.UUID(current.agency_id), phone)
+        return {"count": len(found), "leads": [_lead_summary(lead) for lead in found]}
 
     stmt = select(Lead).where(Lead.agency_id == uuid.UUID(current.agency_id))
     if status is not None:
