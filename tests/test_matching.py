@@ -133,3 +133,58 @@ async def test_run_for_new_lead_creates_matches(monkeypatch):
             assert any(m.generated_pitch for m in matches)
     finally:
         await engine.dispose()
+
+
+# --- the moat has to reach the matcher --------------------------------------
+
+def test_the_agency_s_own_deals_change_the_ranking():
+    """update_knowledge_moat recomputed weights every Sunday and stored them on
+    the agency, and matching never read them: the system learned for weeks and
+    ranked exactly as it did on day one."""
+    from app.services.matching import calculate_match_score, resolve_weights
+
+    lead = SimpleNamespace(
+        budget_min=5_000_000, budget_max=8_000_000, segment="family",
+        geo_location_id=None, buyer_profile=None, urgency="cold",
+    )
+    in_budget = SimpleNamespace(price=7_000_000, target_segments=[], geo_location_id=None,
+                                ai_analysis=None)
+    right_segment = SimpleNamespace(price=20_000_000, target_segments=["family"],
+                                    geo_location_id=None, ai_analysis=None)
+
+    base = resolve_weights(None)
+    assert calculate_match_score(lead, in_budget, base) > \
+        calculate_match_score(lead, right_segment, base)
+
+    # An agency whose deals say segment matters more than price.
+    learned = resolve_weights({"knowledge_moat_weights": {
+        "budget_weight": 10, "segment_weight": 45}})
+    assert calculate_match_score(lead, right_segment, learned) > \
+        calculate_match_score(lead, in_budget, learned)
+
+
+def test_learned_weights_are_kept_within_reason():
+    """One unusual quarter must not be able to make budget irrelevant."""
+    from app.services.matching import WEIGHT_MAX, WEIGHT_MIN, resolve_weights
+
+    weights = resolve_weights({"knowledge_moat_weights": {
+        "budget_weight": 900, "segment_weight": 0.0001}})
+
+    assert weights["budget"] == WEIGHT_MAX
+    assert weights["segment"] == WEIGHT_MIN
+
+
+def test_a_share_and_a_point_value_mean_the_same_thing():
+    """The AI answers 0.3 as readily as 30."""
+    from app.services.matching import resolve_weights
+
+    assert resolve_weights({"knowledge_moat_weights": {"budget_weight": 0.3}})["budget"] == 30
+    assert resolve_weights({"knowledge_moat_weights": {"budget_weight": 30}})["budget"] == 30
+
+
+def test_nothing_learned_yet_means_the_weights_from_the_tz():
+    from app.services.matching import BASE_WEIGHTS, resolve_weights
+
+    assert resolve_weights(None) == BASE_WEIGHTS
+    assert resolve_weights({}) == BASE_WEIGHTS
+    assert resolve_weights({"knowledge_moat_weights": {}}) == BASE_WEIGHTS

@@ -38,32 +38,70 @@ async def all_excluded_ids(session, lead) -> set:
     return table_ids | profile_excluded_ids(lead)
 
 
-def calculate_match_score(lead: Any, prop: Any) -> int:
+# Weights from TZ 16.2. They are the starting point, not the last word: the
+# Knowledge Moat (TZ 21) recomputes them from the agency's own closed deals every
+# Sunday and stores them on the agency. Until this read them back, that loop was
+# open -- the moat learned every week and nothing ever used what it learned.
+BASE_WEIGHTS: dict[str, int] = {
+    "budget": 30,
+    "segment": 25,
+    "location": 20,
+    "priorities": 15,
+    "urgency": 10,
+}
+# A learned weight is a nudge, not a rewrite: one unusual quarter must not be
+# able to make budget irrelevant.
+WEIGHT_MIN, WEIGHT_MAX = 5, 45
+
+
+def resolve_weights(agency_settings: Any = None) -> dict[str, int]:
+    """Base weights, overridden by what the agency's own deals taught."""
+    weights = dict(BASE_WEIGHTS)
+    learned = (agency_settings or {}).get("knowledge_moat_weights") or {}
+    for key in BASE_WEIGHTS:
+        value = learned.get(f"{key}_weight", learned.get(key))
+        if isinstance(value, (int, float)) and value > 0:
+            # Stored either as a share (0.3) or as points (30).
+            points = value * 100 if value <= 1 else value
+            weights[key] = int(max(WEIGHT_MIN, min(WEIGHT_MAX, round(points))))
+    return weights
+
+
+async def agency_weights(session, agency_id) -> dict[str, int]:
+    """Weights for this agency: what its own closed deals taught, else the base."""
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    agency = await session.get(Agency, agency_id)
+    return resolve_weights(agency.settings if agency else None)
+
+
+def calculate_match_score(lead: Any, prop: Any, weights: Any = None) -> int:
     """Weighted 0-100 score for how well a property fits a lead."""
+    w = weights if isinstance(weights, dict) else BASE_WEIGHTS
     score = 0
 
     budget_min = lead.budget_min or 0
     budget_max = lead.budget_max or 0
     price = prop.price or 0
     if budget_min <= price <= budget_max and budget_max > 0:
-        score += 30
+        score += w.get("budget", 30)
     elif price and budget_max and (price < budget_min * 1.2 or price > budget_max * 1.5):
         score -= 15
 
     if lead.segment and prop.target_segments and lead.segment in prop.target_segments:
-        score += 25
+        score += w.get("segment", 25)
 
     if lead.geo_location_id is not None and lead.geo_location_id == prop.geo_location_id:
-        score += 20
+        score += w.get("location", 20)
 
     if lead.buyer_profile and prop.ai_analysis:
         priorities = lead.buyer_profile.get("priority_factors", []) or []
         strengths = prop.ai_analysis.get("strengths", []) or []
         overlap = len({p.lower() for p in priorities} & {s.lower() for s in strengths})
-        score += min(15, overlap * 5)
+        score += min(w.get("priorities", 15), overlap * 5)
 
     if lead.urgency == "hot":
-        score += 10
+        score += w.get("urgency", 10)
 
     return max(0, min(100, score))
 
@@ -114,6 +152,7 @@ class MatchingEngine:
         properties = (await session.execute(stmt)).scalars().all()
 
         excluded = await all_excluded_ids(session, lead)
+        weights = await agency_weights(session, lead.agency_id)
 
         cap = budget_max or lead.budget_max
         scored: list[tuple[Any, int]] = []
@@ -122,7 +161,7 @@ class MatchingEngine:
                 continue  # manager rejected this pairing
             if cap and prop.price and prop.price > cap * 1.5:
                 continue  # far over budget
-            scored.append((prop, calculate_match_score(lead, prop)))
+            scored.append((prop, calculate_match_score(lead, prop, weights)))
         scored.sort(key=lambda pair: pair[1], reverse=True)
         return scored[:limit]
 
@@ -168,10 +207,11 @@ class MatchingEngine:
                     urgency=lead.urgency,
                 )
 
+            weights = await agency_weights(session, lead.agency_id)
             ai = AIService()
             try:
                 for prop in properties:
-                    score = calculate_match_score(scoring_lead, prop)
+                    score = calculate_match_score(scoring_lead, prop, weights)
                     if score < MATCH_THRESHOLD:
                         continue
                     try:
