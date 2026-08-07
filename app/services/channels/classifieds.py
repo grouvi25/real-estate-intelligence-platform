@@ -10,7 +10,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
+import structlog
+
 from app.services.channels.base import ChannelAdapter, NormalizedContent, author_hash
+
+logger = structlog.get_logger()
 
 
 def _parse_ts(value: object) -> Optional[datetime]:
@@ -43,9 +47,36 @@ class _ClassifiedAdapter(ChannelAdapter):
         )
 
 
+    def reply_supported(self) -> bool:
+        return False
+
+    async def send_reply(self, target: str, text: str) -> dict:
+        """Refuse in words the manager can act on.
+
+        The addendum's acceptance list asks these adapters to block sending "с
+        понятной ошибкой в логах" when the agency has no professional account.
+        Falling through to the generic "reply_not_supported" left the signal
+        marked skipped with nothing said about why or what to do.
+        """
+        logger.warning(
+            "%s: ответ не отправлен — нужен профессиональный кабинет площадки "
+            "и доступ к её API; черновик сохранён для ручной отправки",
+            self.channel, extra={"channel": self.channel},
+        )
+        return {
+            "sent": False,
+            "reason": "account_required",
+            "channel": self.channel,
+            "detail": (f"{self.title} требует профессионального кабинета агентства "
+                       "и доступа к API. Черновик сохранён — отправьте вручную."),
+        }
+
+
 class AvitoAdapter(_ClassifiedAdapter):
     channel = "avito"
+    title = "Avito"
 
 
 class CianAdapter(_ClassifiedAdapter):
     channel = "cian"
+    title = "ЦИАН"

@@ -90,10 +90,20 @@ async def send_signal_reply(session, signal, manager_id: Optional[str] = None) -
         channel = cu.channel
 
     adapter = get_channel_adapter(channel or "")
-    if adapter is None or not adapter.reply_supported():
+    if adapter is None:
         signal.reply_status = "skipped"
         await session.commit()
-        return {"sent": False, "reason": "reply_not_supported", "channel": channel}
+        return {"sent": False, "reason": "unknown_channel", "channel": channel}
+    if not adapter.reply_supported():
+        # The adapter explains itself: Avito and ЦИАН need the agency's own
+        # professional account, a feed has no reply surface at all. "skipped"
+        # alone told the manager nothing about what to do with the draft.
+        signal.reply_status = "skipped"
+        await session.commit()
+        result = await adapter.send_reply("", signal.reply_draft)
+        logger.info("Signal reply not sent", signal_id=str(signal.id),
+                    channel=channel, reason=result.get("reason"))
+        return result
 
     target = cu.external_id if cu else None
     if not target:
