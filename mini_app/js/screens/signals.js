@@ -16,9 +16,8 @@ Screens.signals = async function () {
   let filter = '';
 
   function card(s) {
-    const tone = s.urgency === 'hot' ? ' card--hot' : s.urgency === 'warm' ? ' card--warm' : '';
-    return `
-      <div class="card card--tap${tone}" data-go="signals/${s.id}">
+      return `
+      <div class="card card--tap" data-go="signals/${s.id}">
         <div class="row row--wrap gap-2">
           ${UI.scoreEl(s.intent_score)}
           ${UI.urgencyChip(s.urgency)}
@@ -78,7 +77,7 @@ Screens.signalDetail = async function (params) {
     () => API.signal(params.id), (s) => {
       const qualified = s.status === 'qualified';
       UI.render(`
-        <div class="card${s.urgency === 'hot' ? ' card--hot' : ''}">
+        <div class="card">
           <div class="row row--wrap gap-2">
             ${UI.scoreEl(s.intent_score)}
             ${UI.urgencyChip(s.urgency)}

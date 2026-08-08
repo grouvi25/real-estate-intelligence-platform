@@ -152,3 +152,26 @@ def test_both_edges_of_the_app_are_made_of_the_same_material(css):
         for line in re.findall(r"[-\w]*backdrop-filter:[^;]+;", body)
     ]
     assert offenders == [], f"вернулось размытие: {offenders}"
+
+
+def test_no_coloured_bar_glued_to_the_side_of_a_card(css):
+    """Cards carried a 3px stripe of hot/warm down their left edge. It repeated
+    what the card already said in words — «Горячий», «срочно», «остановлен»,
+    «просрочено» are all there as chips — and a bar of accent colour on every
+    other block is the cheapest trick in the generated-interface playbook."""
+    semantic = ("--hot", "--warm", "--cold", "--danger", "--success", "--accent")
+    offenders = [
+        f"{selector}: {line.strip()}"
+        for selector, body in _rules(css)
+        for line in re.findall(r"border-(?:left|right):[^;]+;", body)
+        if any(colour in line for colour in semantic)
+    ]
+    assert offenders == [], f"вернулась цветная полоска: {offenders}"
+
+
+def test_focus_does_not_reshape_what_it_lands_on(css):
+    """The ring used to force border-radius, so a 6px button became 4px the
+    moment it took focus."""
+    body = _body(css, ":focus-visible")
+    assert body is not None
+    assert "border-radius" not in body, "кольцо фокуса снова меняет форму элемента"

@@ -112,11 +112,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* One ring for everything focusable, and only for keyboard users. */
+/* One ring for everything focusable, and only for keyboard users.
+   No border-radius here: the outline already follows the element's own corners,
+   and setting one made a 6px button snap to 4px the moment it took focus --
+   geometry changing on a state, which is the one thing this file forbids. */
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-  border-radius: var(--r-sm);
 }
 
 .icon { width: 20px; height: 20px; flex: none; display: block; }
@@ -200,8 +202,11 @@ body {
 @media (hover: hover) { .card--tap:hover { background: var(--hover); border-color: var(--hair-strong); } }
 .card--tap:active { background: var(--press); }
 /* A hot lead should read as hot before anything is read at all. */
-.card--hot { border-left: 3px solid var(--hot); }
-.card--warm { border-left: 3px solid var(--warm); }
+/* No coloured stripe down the side of a card. It repeated what the card
+   already said in words -- «Горячий», «срочно», «остановлен», «просрочено» are
+   all right there as chips -- and a bar of accent colour glued to the edge of
+   every other block is the cheapest trick in the generated-interface playbook.
+   Urgency is a word on this screen, not a decoration. */
 .card__title { font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
 
 /* Buttons — colour only, never geometry -------------------------------- */
