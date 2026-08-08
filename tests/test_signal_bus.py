@@ -3,6 +3,8 @@ import os
 
 import pytest
 
+from tests.helpers import unique_telegram_id
+
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL"
 )
@@ -145,7 +147,7 @@ async def test_an_irrelevant_signal_can_be_dropped(monkeypatch):
         s.add(agency)
         await s.flush()
         manager = Manager(agency_id=agency.id, name="М", role="manager",
-                          telegram_id=770000 + int(_uuid.uuid4().int % 90000), is_active=True)
+                          telegram_id=unique_telegram_id(), is_active=True)
         s.add(manager)
         signal = Signal(agency_id=agency.id, raw_text="Продам гараж", status="new",
                         origin_system="reip_scouting", intent_score=12)
@@ -205,9 +207,9 @@ async def test_escalation_reaches_the_owner(monkeypatch):
         s.add(agency)
         await s.flush()
         owner = Manager(agency_id=agency.id, name="Владелец", role="owner",
-                        telegram_id=780000 + int(_uuid.uuid4().int % 90000), is_active=True)
+                        telegram_id=unique_telegram_id(), is_active=True)
         staff = Manager(agency_id=agency.id, name="М", role="manager",
-                        telegram_id=790000 + int(_uuid.uuid4().int % 90000), is_active=True)
+                        telegram_id=unique_telegram_id(), is_active=True)
         s.add_all([owner, staff])
         signal = Signal(agency_id=agency.id, raw_text="Сложный запрос", status="new",
                         origin_system="reip_scouting", intent_score=77)

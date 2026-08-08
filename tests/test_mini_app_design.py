@@ -139,3 +139,16 @@ def test_the_way_out_of_a_screen_is_an_icon_not_a_button(css):
     assert body is not None
     assert "border: 0" in body, "у кнопки в шапке снова обводка"
     assert "background: none" in body, "у кнопки в шапке снова заливка"
+
+
+def test_both_edges_of_the_app_are_made_of_the_same_material(css):
+    """The bar at the bottom is a solid surface with a hairline; the header used
+    to be translucent behind a blur, so the two edges looked like different
+    applications — and text under a moving blur is harder to read, which is the
+    one thing a header is for."""
+    offenders = [
+        f"{selector}: {line.strip()}"
+        for selector, body in _rules(css)
+        for line in re.findall(r"[-\w]*backdrop-filter:[^;]+;", body)
+    ]
+    assert offenders == [], f"вернулось размытие: {offenders}"

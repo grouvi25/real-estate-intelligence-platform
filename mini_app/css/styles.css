@@ -146,9 +146,11 @@ body {
 /* Header --------------------------------------------------------------- */
 .header {
   position: sticky; top: 0; z-index: var(--z-header);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: saturate(1.4) blur(10px);
-  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  /* Solid, like the bar at the other end of the screen. It used to be
+     translucent behind a blur, which left the two edges of the app built out of
+     different materials -- and text under a moving blur is harder to read than
+     text on a plain surface, which is the whole job of a header. */
+  background: var(--bg);
   border-bottom: 1px solid var(--hair);
   padding: var(--s-3) var(--s-4);
   display: flex; align-items: center; gap: var(--s-3);
