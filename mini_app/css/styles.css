@@ -445,7 +445,7 @@ a { color: var(--accent); }
 a.btn, a.chip { text-decoration: none; }
 
 /* Skeletons ------------------------------------------------------------ */
-.skel { position: relative; overflow: hidden; background: var(--surface-2); border-radius: 8px; }
+.skel { position: relative; overflow: hidden; background: var(--surface-2); border-radius: var(--r-lg); }
 .skel::after {
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 6%, transparent), transparent);
@@ -489,6 +489,8 @@ a.btn, a.chip { text-decoration: none; }
 .nav__badge {
   position: absolute; top: 8px; left: 50%; margin-left: 4px;
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill);
+  /* White on a saturated red reads the same in both themes; this one is not
+     a theme colour and must not follow the palette. */
   background: var(--hot); color: #fff; font-size: 10px; font-weight: 700;
   display: grid; place-items: center;
 }
