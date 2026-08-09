@@ -41,6 +41,17 @@
   --success: #199a54;
   --danger: #d94436;
 
+  /* Categorical slots — the only place a colour means "which one", not "how
+     much". Fixed order: a source keeps its colour when the list changes, so a
+     reader who learned "ВК зелёный" is not misled tomorrow. Five is the cap;
+     the tail folds into «Другие» rather than growing a sixth hue.
+     Checked for colour blindness and contrast, light and dark. */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+
   /* Radii ------------------------------------------------------------------
      Deliberately tight. Rounder corners read as a consumer app; this one is
      looked at all day by someone working, and the squarer shape is calmer. */
@@ -91,6 +102,12 @@
     --surface: var(--tg-theme-secondary-bg-color, #171d27);
     --fg: var(--tg-theme-text-color, #eef1f6);
     --muted: var(--tg-theme-hint-color, #8c96a5);
+    /* Same five hues, stepped for the dark surface — not an automatic flip. */
+    --viz-1: #3987e5;
+    --viz-2: #d95926;
+    --viz-3: #199e70;
+    --viz-4: #c98500;
+    --viz-5: #d55181;
   }
 }
 
@@ -281,11 +298,18 @@ body {
 
 /* Stats ---------------------------------------------------------------- */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+/* Each counter leads to the screen it counts, so it has to look and behave like
+   something you can press — it sat there as decoration before. */
 .stat {
   background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
   padding: var(--s-3) var(--s-4);
   display: flex; align-items: center; gap: var(--s-3);
+  width: 100%; text-align: left; color: var(--fg); font: inherit; cursor: pointer;
+  min-height: var(--tap-min);
+  transition: background var(--tap), border-color var(--tap);
 }
+@media (hover: hover) { .stat:hover { background: var(--hover); border-color: var(--hair-strong); } }
+.stat:active { background: var(--press); }
 .stat__ico {
   width: 36px; height: 36px; border-radius: var(--r-sm); flex: none; display: grid; place-items: center;
   background: var(--accent-soft); color: var(--accent);
@@ -298,10 +322,27 @@ body {
 
 /* Hero figure (commission, totals) */
 .hero { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
-  padding: var(--s-4); }
+  padding: var(--s-4); position: relative; overflow: hidden; }
 .hero__l { font-size: var(--t-sm); color: var(--muted); }
 .hero__v { font-size: var(--t-2xl); font-weight: 800; letter-spacing: -.03em;
   font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+/* Six months of closed commission, sitting behind the figure. Background, so it
+   is faint on purpose: it answers "growing or stalling" at a glance and must
+   never compete with the number it stands behind. Anything precise is on the
+   Аналитика screen, where the same months are a real chart with labels. */
+/* The chart gets a strip of its own at the foot of the card, so the caption
+   above it never has bars running through the letters. */
+.hero--spark { padding-bottom: 56px; }
+.hero__spark {
+  position: absolute; right: 0; bottom: 0; left: 0; height: 44px;
+  display: flex; align-items: flex-end; gap: 3px; padding: 0 var(--s-4);
+  opacity: .13; pointer-events: none;
+}
+.hero__spark i { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
+/* Everything except the chart is lifted above it. The chart itself must keep
+   its absolute position — including it here is what put it above the label. */
+.hero > :not(.hero__spark) { position: relative; }
 
 /* Tiles (quick actions) */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
@@ -320,12 +361,52 @@ body {
 .tile__t { font-size: var(--t-md); }
 .tile__s { font-size: var(--t-sm); color: var(--muted); font-weight: 500; }
 
-/* Funnel --------------------------------------------------------------- */
-.funnel__row { margin: var(--s-3) 0; }
-.funnel__lbl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
-.funnel__track { height: 10px; border-radius: var(--r-sm); background: var(--surface-2); overflow: hidden; }
-.funnel__bar { height: 100%; border-radius: var(--r-sm); background: var(--accent);
-  transition: width var(--slide); }
+/* Charts ------------------------------------------------------------------
+   One measure per chart and one colour per chart: every bar is the same series,
+   so length is the only thing carrying the number. Darkening a bar because it is
+   bigger would spend the colour channel on what the length already says.
+
+   The value sits on the mark, which is why there is no axis and no gridlines:
+   with four columns or five rows a direct label is exact where an axis is a
+   guess. Bars are capped at 24px and rounded 4px at the data end only — square
+   where they meet the baseline, so the zero line stays honest. */
+
+/* Columns: few ordered categories (the funnel). */
+/* One hairline where the columns stand, so the eye has a zero to measure from —
+   the shortest column otherwise floats and reads as smaller than it is. */
+
+/* The one number the screen leads with. Larger than anything else here on
+   purpose: it is the answer, the charts underneath are the explanation. */
+.figure { font-size: 34px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05;
+  font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+/* Meter: one ratio against its limit. The track is a lighter step of the same
+   ramp, so the state reads across the whole bar rather than only where it fills. */
+.meter { height: 10px; background: var(--accent-soft); border-radius: var(--r-sm); }
+.meter__fill { height: 100%; min-width: 3px; background: var(--accent);
+  border-radius: var(--r-sm); transition: width var(--slide); }
+
+/* A chart owns a fixed box: Chart.js draws into a canvas, and without a height
+   the canvas grows on every redraw. */
+.chart { position: relative; width: 100%; }
+
+/* A ring and its legend read as one thing side by side: the eye goes from slice
+   to name without travelling down the card. Stacked, the same block was twice
+   as tall for no extra information. */
+.split { display: flex; align-items: center; gap: var(--s-4); }
+.split__chart { flex: 0 0 132px; min-width: 0; }
+.split .legend { flex: 1; min-width: 0; flex-direction: column; align-items: flex-start;
+  gap: var(--s-2); margin-top: 0; }
+
+.legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin-top: var(--s-3); }
+.legend--rows { flex-direction: column; gap: var(--s-1); }
+.legend__i { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); }
+.legend__k { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend__n { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.legend__p { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Rows: one bar per named thing (sources, managers). Long Russian names read
+   better along the bar than under a column. */
 
 /* Fields --------------------------------------------------------------- */
 .field { margin: var(--s-3) 0; }

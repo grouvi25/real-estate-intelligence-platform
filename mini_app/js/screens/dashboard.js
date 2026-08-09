@@ -13,27 +13,45 @@ Screens.dashboard = async function () {
   const skeleton = UI.skelStats() + '<div class="mt-3">' + UI.skelCard() + '</div>' +
     '<div class="section-title">Быстрые действия</div>' + UI.skelTiles();
 
-  UI.load(skeleton, () => Promise.all([API.overview(), API.tasksSummary().catch(() => null)]), ([o, t]) => {
-    const stat = (ic, n, l, tone) =>
-      `<div class="stat"><div class="stat__ico${tone ? ` stat__ico--${tone}` : ''}">${UI.icon(ic)}</div>` +
-      `<div class="grow"><div class="stat__n">${n ?? 0}</div><div class="stat__l">${l}</div></div></div>`;
+  UI.load(skeleton, () => Promise.all([
+    API.overview(),
+    API.tasksSummary().catch(() => null),
+    // Background decoration must never be the reason a screen fails to load.
+    API.timeline().catch(() => ({ months: [] })),
+  ]), ([o, t, tl]) => {
+    // Each counter goes to the screen it counts — a number you cannot act on is
+    // just wallpaper.
+    const stat = (ic, n, l, route, tone) =>
+      `<button class="stat" data-go="${route}"><div class="stat__ico${tone ? ` stat__ico--${tone}` : ''}">${UI.icon(ic)}</div>` +
+      `<div class="grow"><div class="stat__n">${n ?? 0}</div><div class="stat__l">${l}</div></div></button>`;
 
     const urgent = (t && t.urgent) || o.urgent_tasks || 0;
     const overdue = (t && t.overdue) || 0;
 
+    const months = (tl && tl.months) || [];
+    const topMonth = Math.max(...months.map((m) => m.commission), 0);
+    const spark = topMonth > 0
+      ? `<div class="hero__spark" aria-hidden="true">${months.map((m) =>
+          `<i style="height:${Math.max(4, Math.round((m.commission / topMonth) * 100))}%"
+              title="${UI.esc(UI.moneyShort(m.commission))}"></i>`).join('')}</div>`
+      : '';
+
     UI.render(
       `<div class="stats">
-         ${stat('leads', o.total_leads, 'Лиды')}
-         ${stat('properties', o.active_properties, 'Объекты')}
-         ${stat('handshake', o.deals_won, 'Сделки', 'success')}
-         ${stat('flame', urgent, 'Срочные', urgent ? 'hot' : '')}
+         ${stat('leads', o.total_leads, 'Лиды', 'leads')}
+         ${stat('properties', o.active_properties, 'Объекты', 'properties')}
+         ${stat('handshake', o.deals_won, 'Сделки', 'analytics', 'success')}
+         ${stat('flame', urgent, 'Срочные', 'tasks', urgent ? 'hot' : '')}
        </div>
 
-       <div class="hero mt-3">
+       <div class="hero mt-3${spark ? ' hero--spark' : ''}">
+         ${spark}
          <div class="between">
            <div>
              <div class="hero__l">Комиссия за сделки</div>
              <div class="hero__v">${UI.money(o.total_commission)}</div>
+             ${months.length && topMonth > 0
+               ? '<div class="item__meta mt-1">за последние 6 месяцев</div>' : ''}
            </div>
            <div class="stat__ico stat__ico--success">${UI.icon('ruble')}</div>
          </div>
@@ -69,6 +87,7 @@ Screens.dashboard = async function () {
          </button>
        </div>`,
       () => {
+        Router.bindGo();   // counters carry data-go
         const go = (id, route) => {
           const el = document.getElementById(id);
           if (el) el.onclick = () => Router.go(route);

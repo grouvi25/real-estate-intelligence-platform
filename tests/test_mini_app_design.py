@@ -13,9 +13,10 @@ import pytest
 CSS = Path(__file__).resolve().parent.parent / "mini_app" / "css" / "styles.css"
 SCREENS = Path(__file__).resolve().parent.parent / "mini_app" / "js" / "screens"
 
-# Only the funnel bar animates a size, and it animates on data, not on input.
+# Charts are drawn by Chart.js into a canvas and animate on data, not on input;
+# nothing in the stylesheet animates a size any more, so the allowance is empty.
 GEOMETRY = ("transform", "scale", "height", "margin", "padding", "top", "left", "font-size")
-ALLOWED_GEOMETRY_TRANSITIONS = {".funnel__bar"}
+ALLOWED_GEOMETRY_TRANSITIONS: set[str] = set()
 
 
 def _rules(css: str) -> list[tuple[str, str]]:

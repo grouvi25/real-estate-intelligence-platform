@@ -201,11 +201,16 @@ async def _escalate_overdue_leads() -> int:
             return taken
 
         for lead in leads:
-            # One unusable row must cost one lead, not the run. This is a safety
-            # net, not a licence to ignore it: whatever lands here is a bug, so
-            # it is logged loudly with the lead that caused it.
+            # One unusable row must cost one lead, not the run. Catching alone was
+            # not enough: a database error leaves the transaction aborted, so the
+            # commit below failed and every lead in the run lost its update --
+            # the same total loss the catch was added to prevent. Each lead gets
+            # a savepoint, so a failure rolls back that lead and nothing else.
+            # This is a safety net, not a licence to ignore it: whatever lands
+            # here is a bug, and it is logged with the lead that caused it.
             try:
-                actions += await advance(lead)
+                async with session.begin_nested():
+                    actions += await advance(lead)
             except Exception as e:  # noqa: BLE001 - the sweep must outlive one bad row
                 logger.error("Escalation skipped a lead", lead_id=str(lead.id),
                              error=str(e), error_type=type(e).__name__)

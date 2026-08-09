@@ -29,8 +29,59 @@ WON_OUTCOME = "deal_done"
 LOST_OUTCOMES = ("rejected", "lost_to_competitor", "expired")
 
 
+TIMELINE_MONTHS = 6
+
+
 def _agency_uuid(current: CurrentManager) -> uuid.UUID:
     return uuid.UUID(current.agency_id)
+
+
+@router.get("/timeline")
+async def analytics_timeline(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Won commission per month, oldest first — the last six months.
+
+    Every other endpoint here answers "how much in total", which cannot say
+    whether the agency is growing or stalling. Months with no deals are returned
+    as zeroes rather than skipped: a gap in a chart has to read as "nothing
+    closed", not as "we have no data for that month".
+    """
+    from datetime import date, datetime, timezone  # noqa: PLC0415
+
+    def month_start(anchor: date, back: int) -> date:
+        """`back` months before `anchor`'s month. Plain arithmetic rather than a
+        dependency: months are the one calendar unit timedelta cannot express."""
+        total = anchor.year * 12 + (anchor.month - 1) - back
+        return date(total // 12, total % 12 + 1, 1)
+
+    today = datetime.now(timezone.utc).date()
+    first = month_start(today, TIMELINE_MONTHS - 1)
+
+    month = func.date_trunc("month", DealOutcome.deal_closed_at)
+    stmt = (
+        select(month.label("month"),
+               func.coalesce(func.sum(DealOutcome.commission_amount), 0).label("commission"),
+               func.count(DealOutcome.id).label("deals"))
+        .where(DealOutcome.agency_id == _agency_uuid(current),
+               DealOutcome.outcome == WON_OUTCOME,
+               DealOutcome.deal_closed_at.isnot(None),
+               DealOutcome.deal_closed_at >= first)
+        .group_by(month)
+    )
+    found = {row.month.date().replace(day=1): row for row in (await session.execute(stmt)).all()}
+
+    months = []
+    for i in range(TIMELINE_MONTHS):
+        start = month_start(today, TIMELINE_MONTHS - 1 - i)
+        row = found.get(start)
+        months.append({
+            "month": start.isoformat(),
+            "commission": int(row.commission) if row else 0,
+            "deals": int(row.deals) if row else 0,
+        })
+    return {"months": months}
 
 
 @router.get("/overview")
