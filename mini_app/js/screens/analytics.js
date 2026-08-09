@@ -1,12 +1,61 @@
 // Screens: Analytics + Settings/Owner area.
+//
+// Every chart here comes from js/charts.js (Chart.js under the hood). The screen
+// decides what question each block answers and which form answers it; the
+// drawing, the colours and the theme are not its business.
 window.Screens = window.Screens || {};
 
+// Part-to-whole. Five colours is the cap — a sixth would be indistinguishable
+// from one of the five for a colour-blind reader, so the tail folds into «Другие».
+const SHARE_SLOTS = 5;
+
+function shareSlots(rows) {
+  const head = rows.slice(0, SHARE_SLOTS);
+  const tail = rows.slice(SHARE_SLOTS);
+  if (tail.length) {
+    head.push({ label: 'Другие', value: tail.reduce((sum, r) => sum + r.value, 0), muted: true });
+  }
+  return head;
+}
+
+// A ring says the proportions; the legend says which slice is what and how many.
+// Identity must never rest on colour alone.
+function shareLegend(slots) {
+  const total = slots.reduce((sum, r) => sum + r.value, 0) || 1;
+  return `<div class="legend">${slots.map((r, i) => `
+    <span class="legend__i">
+      <span class="legend__k" style="background:${r.muted ? 'var(--muted)' : `var(--viz-${i + 1})`}"></span>
+      ${UI.esc(r.label)} <span class="legend__n">${r.value}</span>
+      <span class="legend__p">${Math.round((r.value / total) * 100)}%</span>
+    </span>`).join('')}</div>`;
+}
+
+// Where the funnel actually leaks. One sentence beats a number on every column.
+function biggestDrop(stages) {
+  let worst = null;
+  for (let i = 1; i < stages.length; i++) {
+    const [, before] = stages[i - 1];
+    const [, after] = stages[i];
+    if (before <= 0) continue;
+    const lost = Math.round(((before - after) / before) * 100);
+    if (lost > 0 && (!worst || lost > worst.lost)) {
+      worst = { lost, from: stages[i - 1][0], to: stages[i][0] };
+    }
+  }
+  return worst;
+}
+
 Screens.analytics = async function () {
-  UI.setHeader('Аналитика', 'Воронка и источники');
-  UI.render(UI.skelCard() + UI.skelList(3));
-  let funnel, roi;
+  UI.setHeader('Аналитика', 'Откуда лиды и что приносит деньги');
+  UI.render(UI.skelCard() + '<div class="mt-3">' + UI.skelCard() + '</div>');
+
+  let over, funnel, roi, mgrs, tl;
   try {
-    [funnel, roi] = await Promise.all([API.funnel(), API.sourceRoi()]);
+    [over, funnel, roi, mgrs, tl] = await Promise.all([
+      API.overview(), API.funnel(), API.sourceRoi(),
+      API.managers().catch(() => ({ managers: [] })),
+      API.timeline().catch(() => ({ months: [] })),
+    ]);
   } catch (e) {
     UI.render(UI.errorState(e.message), () => {
       document.getElementById('retry').onclick = () => Screens.analytics();
@@ -14,41 +63,142 @@ Screens.analytics = async function () {
     return;
   }
 
-  const total = funnel.total || 1;
-  const bar = (label, n) => {
-    const pct = total ? Math.max(3, Math.round((n / total) * 100)) : 0;
-    return `<div class="funnel__row"><div class="funnel__lbl"><span>${label}</span><b>${n}</b></div>
-      <div class="funnel__track"><div class="funnel__bar" style="width:${pct}%"></div></div></div>`;
-  };
-  const st = funnel.stages || {};
-  const conv = (funnel.conversion && funnel.conversion.overall) || 0;
+  // --- Деньги и доля выигранных сделок --------------------------------------
+  const won = over.deals_won || 0;
+  const lost = over.deals_lost || 0;
+  const closed = won + lost;
+  const winRate = closed ? Math.round((won / closed) * 100) : 0;
 
-  const sources = UI.list(roi.sources, (s) => `
-    <div class="card">
-      <div class="between gap-2">
-        <span class="item__title ellipsis">${UI.esc(UI.utmSource(s.source))}</span>
-        <span class="chip chip--accent">${UI.count(s.leads, ['лид', 'лида', 'лидов'])}</span>
-      </div>
-      <div class="between mt-2">
-        <span class="muted">${UI.count(s.deals_won, ['сделка', 'сделки', 'сделок'])} · конверсия ${s.conversion_pct}%</span>
-        <span class="price">${UI.moneyShort(s.commission)}</span>
-      </div>
-    </div>`, { icon: 'analytics', title: 'Нет данных по источникам',
-               sub: 'Появятся, когда лиды начнут приходить по меткам' });
+  // --- Комиссия по месяцам ---------------------------------------------------
+  const MONTHS_RU = ['янв', 'фев', 'мар', 'апр', 'май', 'июн',
+                     'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const months = (tl && tl.months) || [];
+  const monthPeak = Math.max(...months.map((m) => m.commission), 0);
+  const monthPoints = months.map((m) => ({
+    label: MONTHS_RU[Number(m.month.slice(5, 7)) - 1] || '',
+    value: m.commission,
+  }));
+
+  // --- Воронка: столбец на этап, высота от самого большого этапа ------------
+  const st = funnel.stages || {};
+  const stages = [
+    ['Новые', st.new || 0], ['В работе', st.in_progress || 0],
+    ['Квалиф.', st.qualified || 0], ['Сделки', st.deal || 0],
+  ];
+  const conv = (funnel.conversion && funnel.conversion.overall) || 0;
+  const drop = biggestDrop(stages);
+
+  // --- Источники: сколько людей и сколько денег -----------------------------
+  // Два разных вопроса, поэтому две диаграммы, а не две шкалы на одной.
+  const src = (roi.sources || []).slice();
+  const share = src.slice().sort((a, b) => b.leads - a.leads)
+    .map((s) => ({ label: UI.utmSource(s.source), value: s.leads }));
+
+  const money = src.sort((a, b) => b.commission - a.commission).map((s) => ({
+    label: UI.utmSource(s.source),
+    value: s.commission,
+    note: `${UI.count(s.deals_won, ['сделка', 'сделки', 'сделок'])} · конверсия ${s.conversion_pct}%`,
+  }));
+
+  const team = (mgrs.managers || []).slice()
+    .sort((a, b) => b.commission - a.commission)
+    .map((m) => ({
+      label: m.name || 'Без имени',
+      value: m.commission,
+      note: UI.count(m.deals_won, ['сделка', 'сделки', 'сделок']),
+    }));
+
+  // Каждый график — свой вопрос и своя форма: время это линия, доля — кольцо,
+  // этапы — столбцы, сравнение названных вещей — полосы.
+  const chartMonths = monthPeak > 0
+    ? Charts.line(monthPoints, { format: (v) => UI.moneyShort(v) }) : null;
+  const chartFunnel = Charts.columns(stages.map(([label, n]) => ({ label, value: n })), {});
+  const chartShare = share.length
+    ? Charts.ring(shareSlots(share), {
+        centre: { value: share.reduce((sum, r) => sum + r.value, 0), label: 'лидов' },
+      })
+    : null;
+  const chartMoney = money.length
+    ? Charts.bars(money, { format: (v) => UI.moneyShort(v), note: (r) => r.note }) : null;
+  const chartTeam = team.length
+    ? Charts.bars(team, { format: (v) => UI.moneyShort(v), note: (r) => r.note }) : null;
 
   UI.render(`
     <div class="card">
-      <div class="between"><span class="card__title">Воронка</span>
-        <span class="chip chip--success">Конверсия ${conv}%</span></div>
-      <div style="margin-top:10px">
-        ${bar('Новые', st.new || 0)}${bar('В работе', st.in_progress || 0)}
-        ${bar('Квалифицированы', st.qualified || 0)}${bar('Сделки', st.deal || 0)}
-      </div>
+      <div class="hero__l">Комиссия за закрытые сделки</div>
+      <div class="figure">${UI.money(over.total_commission)}</div>
+      ${closed ? `
+        <div class="between mt-4">
+          <span class="item__meta">Доля выигранных</span>
+          <span class="item__meta"><b class="legend__n">${winRate}%</b> · ${won} из ${closed}</span>
+        </div>
+        <div class="meter mt-2" role="img"
+             aria-label="Выиграно ${won} сделок из ${closed}">
+          <div class="meter__fill" style="width:${winRate}%"></div>
+        </div>`
+      : '<div class="item__sub mt-3">Закрытых сделок пока нет — показатель появится после первой.</div>'}
     </div>
-    <div class="section-title">Источники · ROI</div>
-    ${sources}
-    <button class="btn btn--secondary btn--block" id="mkt" style="margin-top:14px">${UI.icon('sparkles')} Анализ рыночного события</button>`,
-    () => { document.getElementById('mkt').onclick = marketEventSheet; });
+
+    ${monthPeak > 0 ? `
+    <div class="section-head">
+      <span class="section-title">Комиссия по месяцам</span>
+      <span class="item__meta">последние 6</span>
+    </div>
+    <div class="card">${chartMonths ? chartMonths.html : ''}</div>` : ''}
+
+    <div class="section-head">
+      <span class="section-title">Воронка</span>
+      <span class="chip chip--success">довели ${conv}%</span>
+    </div>
+    <div class="card">
+      ${chartFunnel.html}
+      ${drop ? `<div class="item__sub mt-3">Больше всего теряем между «${drop.from}»
+        и «${drop.to}» — ${drop.lost}%.</div>` : ''}
+    </div>
+
+    <div class="section-head">
+      <span class="section-title">Откуда лиды</span>
+      <button class="btn btn--ghost btn--sm" data-go="sources">Источники</button>
+    </div>
+    <div class="card">
+      ${chartShare ? `<div class="split">
+          <div class="split__chart">${chartShare.html}</div>
+          ${shareLegend(shareSlots(share))}
+        </div>`
+        : UI.empty({ icon: 'analytics', title: 'Нет данных по источникам',
+                     sub: 'Появятся, когда лиды начнут приходить по меткам' })}
+    </div>
+
+    <div class="section-head">
+      <span class="section-title">Что приносит деньги</span>
+      <span class="item__meta">нажмите на полосу</span>
+    </div>
+    <div class="card">
+      ${chartMoney ? chartMoney.html
+        : UI.empty({ icon: 'analytics', title: 'Нет данных по источникам',
+                     sub: 'Появятся, когда лиды начнут приходить по меткам' })}
+    </div>
+
+    <div class="section-head">
+      <span class="section-title">Менеджеры</span>
+      <button class="btn btn--ghost btn--sm" data-go="tasks">Задачи команды</button>
+    </div>
+    <div class="card">
+      ${chartTeam ? chartTeam.html
+        : UI.empty({ icon: 'leads', title: 'Пока не с кем сравнивать',
+                     sub: 'Появится, когда менеджеры закроют первые сделки' })}
+    </div>
+
+    <div class="btn-row btn-row--equal mt-4">
+      <button class="btn btn--secondary btn--sm" data-go="leads">${UI.icon('leads')} Все лиды</button>
+      <button class="btn btn--secondary btn--sm" data-go="referrals">${UI.icon('handshake')} Рефералы</button>
+    </div>
+    <button class="btn btn--secondary btn--block mt-3" id="mkt">${UI.icon('sparkles')} Анализ рыночного события</button>`,
+    () => {
+      Charts.paint(chartMonths, chartFunnel, chartShare, chartMoney, chartTeam);
+      Router.bindGo();
+      document.getElementById('mkt').onclick = marketEventSheet;
+    });
 };
 
 function marketEventSheet() {
@@ -173,10 +323,6 @@ Screens.settings = async function () {
     <div style="height:8px"></div>
     <button class="btn btn--ghost btn--block" id="go-tasks">${UI.icon('check')} Задачи команды</button>
 
-    <div class="between" style="margin:18px 2px 8px">
-      <span class="section-title" style="margin:0">Команда</span></div>
-    <div id="mgrs">${UI.skelList(2)}</div>
-
     <button class="btn btn--danger btn--block" id="logout" style="margin-top:16px">${UI.icon('logout')} Выйти</button>`,
     () => {
       loadReadiness();
@@ -192,7 +338,7 @@ Screens.settings = async function () {
       document.getElementById('go-tasks').onclick = () => Router.go('tasks');
       const edit = document.getElementById('ag-edit');
       if (edit) edit.onclick = agencySheet;
-      loadGeos(); loadPartners(); loadMgrs(); loadInvite(); loadAiProvider();
+      loadGeos(); loadPartners(); loadInvite(); loadAiProvider();
     });
 };
 
@@ -315,17 +461,6 @@ async function loadAiProvider() {
       loadAiProvider();
     } catch (e) { UI.toast('Не удалось: ' + e.message); loadAiProvider(); }
   };
-}
-
-async function loadMgrs() {
-  try {
-    const m = await API.managers();
-    document.getElementById('mgrs').innerHTML = UI.list(m.managers, (x) => `
-      <div class="card"><div class="between"><span class="item__title">${UI.esc(x.name)}</span>
-        <span class="chip chip--accent">${UI.count(x.deals_won, ['сделка', 'сделки', 'сделок'])}</span></div>
-        <div class="item__sub" style="margin-top:4px">Комиссия: ${UI.money(x.commission)}</div></div>`,
-      { icon: 'leads', title: 'Нет менеджеров' });
-  } catch (e) { document.getElementById('mgrs').innerHTML = UI.errorState(e.message); }
 }
 
 async function loadGeos() {

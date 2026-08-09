@@ -146,6 +146,7 @@
     overview: () => api.request('/analytics/overview'),
     funnel: () => api.request('/analytics/funnel'),
     managers: () => api.request('/analytics/managers'),
+    timeline: () => api.request('/analytics/timeline'),
     sourceRoi: () => api.request('/analytics/source-roi'),
     marketEvent: (body) => api.request('/analytics/market-event', 'POST', body),
 
