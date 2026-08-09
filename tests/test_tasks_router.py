@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from tests.helpers import unique_telegram_id
+
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL"
 )
@@ -25,7 +27,7 @@ async def _fixture(s, *, urgent_due=None):
     s.add(agency)
     await s.flush()
 
-    manager = Manager(agency_id=agency.id, name="Менеджер", telegram_id=int(uuid.uuid4().int % 10**9))
+    manager = Manager(agency_id=agency.id, name="Менеджер", telegram_id=unique_telegram_id())
     lead = Lead(agency_id=agency.id, source_type="signal", urgency="hot")
     lead.name = "Иван"
     s.add_all([manager, lead])

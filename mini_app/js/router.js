@@ -8,7 +8,17 @@ const Router = (() => {
   };
   const setNotFound = (fn) => { notFound = fn; };
 
-  const parse = () => (location.hash || '#/').replace(/^#\/?/, '').split('/').filter(Boolean);
+  // Telegram opens a Mini App with its own payload in the hash
+  // (#tgWebAppData=...&tgWebAppVersion=...). It is not a route, and splitting it
+  // on "/" produced segments that matched nothing -- the first screen a person
+  // ever saw was "Экран не найден". Anything that does not start with "#/"
+  // belongs to somebody else; the app opens where it always opens.
+  const HOME = 'dashboard';
+  const parse = () => {
+    const raw = location.hash || '';
+    if (!raw.startsWith('#/')) return [];
+    return raw.replace(/^#\/?/, '').split('/').filter(Boolean);
+  };
 
   const match = (segs) => {
     for (const r of routes) {
@@ -26,7 +36,10 @@ const Router = (() => {
 
   const resolve = () => {
     const segs = parse();
-    const top = segs[0] || 'dashboard';
+    // The default used to be applied to the nav highlight only, so an empty
+    // hash lit up "Обзор" and then rendered "не найден" underneath it.
+    if (!segs.length) segs.push(HOME);
+    const top = segs[0];
     document.querySelectorAll('.nav__item').forEach((a) =>
       a.classList.toggle('nav__item--active', a.getAttribute('data-route') === top));
     try {

@@ -41,12 +41,14 @@
   --success: #199a54;
   --danger: #d94436;
 
-  /* Radii ----------------------------------------------------------------- */
-  --r-xl: 20px;
-  --r-lg: 16px;
-  --r-md: 12px;
-  --r-sm: 9px;
-  --r-pill: 999px;
+  /* Radii ------------------------------------------------------------------
+     Deliberately tight. Rounder corners read as a consumer app; this one is
+     looked at all day by someone working, and the squarer shape is calmer. */
+  --r-xl: 12px;
+  --r-lg: 8px;
+  --r-md: 6px;
+  --r-sm: 4px;
+  --r-pill: 999px;   /* counters and the sheet grab handle only */
 
   /* Spacing: one scale, used everywhere ----------------------------------- */
   --s-1: 4px;
@@ -65,18 +67,17 @@
   --t-xl: 20px;
   --t-2xl: 26px;
 
-  /* Elevation and motion --------------------------------------------------- */
-  --shadow-sm: 0 1px 2px color-mix(in srgb, #0b1220 6%, transparent);
-  --shadow: 0 1px 2px color-mix(in srgb, #0b1220 5%, transparent),
-            0 4px 16px color-mix(in srgb, #0b1220 6%, transparent);
-  --shadow-lg: 0 8px 30px color-mix(in srgb, #0b1220 18%, transparent),
-               0 2px 8px color-mix(in srgb, #0b1220 8%, transparent);
+  /* Depth and motion --------------------------------------------------------
+     There are no shadow tokens: depth is a 1px border and a change of surface.
+     Cards floating on soft shadows made every screen look like a feed of
+     notifications; a border says "this is a block" without pretending the
+     block is hovering. The one box-shadow left in this file is the focus ring,
+     which is a state, not decoration. */
   --tap: 120ms ease;
   --slide: 220ms cubic-bezier(.22, .61, .36, 1);
 
   --tap-min: 44px;
-  --nav-h: 60px;
-  --nav-inset: 14px;
+  --nav-h: 58px;
   --z-header: 20;
   --z-nav: 30;
   --z-overlay: 60;
@@ -90,9 +91,6 @@
     --surface: var(--tg-theme-secondary-bg-color, #171d27);
     --fg: var(--tg-theme-text-color, #eef1f6);
     --muted: var(--tg-theme-hint-color, #8c96a5);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
-    --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 4px 16px rgba(0, 0, 0, .35);
-    --shadow-lg: 0 8px 30px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
   }
 }
 
@@ -114,11 +112,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* One ring for everything focusable, and only for keyboard users. */
+/* One ring for everything focusable, and only for keyboard users.
+   No border-radius here: the outline already follows the element's own corners,
+   and setting one made a 6px button snap to 4px the moment it took focus --
+   geometry changing on a state, which is the one thing this file forbids. */
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-  border-radius: var(--r-sm);
 }
 
 .icon { width: 20px; height: 20px; flex: none; display: block; }
@@ -148,9 +148,11 @@ body {
 /* Header --------------------------------------------------------------- */
 .header {
   position: sticky; top: 0; z-index: var(--z-header);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: saturate(1.4) blur(10px);
-  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  /* Solid, like the bar at the other end of the screen. It used to be
+     translucent behind a blur, which left the two edges of the app built out of
+     different materials -- and text under a moving blur is harder to read than
+     text on a plain surface, which is the whole job of a header. */
+  background: var(--bg);
   border-bottom: 1px solid var(--hair);
   padding: var(--s-3) var(--s-4);
   display: flex; align-items: center; gap: var(--s-3);
@@ -159,18 +161,23 @@ body {
 .header__l { min-width: 0; flex: 1; }
 .header__title { font-size: 19px; font-weight: 700; letter-spacing: -.015em; margin: 0; }
 .header__sub { color: var(--muted); font-size: var(--t-sm); margin-top: 1px; }
+/* An icon, not a button in a ring. The circle and border made the gear and the
+   sheet's close cross look like actions competing with the screen's own; they
+   are ways out, not the point. The 44px box stays for the thumb. */
 .header__btn {
-  width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--hair);
-  background: var(--surface); color: var(--fg);
+  width: var(--tap-min); height: var(--tap-min); margin: -3px;
+  border: 0; background: none; color: var(--muted);
+  border-radius: var(--r-sm);
   display: grid; place-items: center; cursor: pointer;
-  transition: background var(--tap), border-color var(--tap);
+  transition: color var(--tap), background var(--tap);
 }
-@media (hover: hover) { .header__btn:hover { background: var(--hover); border-color: var(--hair-strong); } }
-.header__btn:active { background: var(--press); }
+.header__btn .icon { width: 22px; height: 22px; }
+@media (hover: hover) { .header__btn:hover { color: var(--fg); background: var(--hover); } }
+.header__btn:active { color: var(--fg); background: var(--press); }
 
 #view {
   padding: var(--s-4) var(--s-4)
-           calc(var(--nav-h) + var(--nav-inset) + 40px + env(safe-area-inset-bottom, 0px));
+           calc(var(--nav-h) + var(--s-5) + env(safe-area-inset-bottom, 0px));
 }
 .section-title {
   font-size: var(--t-sm); font-weight: 600; color: var(--muted);
@@ -185,7 +192,7 @@ body {
 /* Cards ---------------------------------------------------------------- */
 .card {
   background: var(--surface); border: 1px solid var(--hair);
-  border-radius: var(--r-lg); padding: var(--s-4); box-shadow: var(--shadow);
+  border-radius: var(--r-lg); padding: var(--s-4);
 }
 .card + .card { margin-top: var(--s-3); }
 .card--tap {
@@ -195,8 +202,11 @@ body {
 @media (hover: hover) { .card--tap:hover { background: var(--hover); border-color: var(--hair-strong); } }
 .card--tap:active { background: var(--press); }
 /* A hot lead should read as hot before anything is read at all. */
-.card--hot { border-left: 3px solid var(--hot); }
-.card--warm { border-left: 3px solid var(--warm); }
+/* No coloured stripe down the side of a card. It repeated what the card
+   already said in words -- «Горячий», «срочно», «остановлен», «просрочено» are
+   all right there as chips -- and a bar of accent colour glued to the edge of
+   every other block is the cheapest trick in the generated-interface playbook.
+   Urgency is a word on this screen, not a decoration. */
 .card__title { font-size: 15.5px; font-weight: 650; letter-spacing: -.01em; }
 
 /* Buttons — colour only, never geometry -------------------------------- */
@@ -239,7 +249,7 @@ body {
 /* Chips ---------------------------------------------------------------- */
 .chip {
   display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-xs); font-weight: 600;
-  padding: 4px 9px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--muted);
+  padding: 4px 8px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--muted);
   border: 1px solid var(--hair); white-space: nowrap;
 }
 .chip .icon { width: 13px; height: 13px; }
@@ -273,7 +283,7 @@ body {
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
 .stat {
   background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
-  padding: var(--s-3) var(--s-4); box-shadow: var(--shadow);
+  padding: var(--s-3) var(--s-4);
   display: flex; align-items: center; gap: var(--s-3);
 }
 .stat__ico {
@@ -288,7 +298,7 @@ body {
 
 /* Hero figure (commission, totals) */
 .hero { background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
-  padding: var(--s-4); box-shadow: var(--shadow); }
+  padding: var(--s-4); }
 .hero__l { font-size: var(--t-sm); color: var(--muted); }
 .hero__v { font-size: var(--t-2xl); font-weight: 800; letter-spacing: -.03em;
   font-variant-numeric: tabular-nums; margin-top: 2px; }
@@ -298,7 +308,7 @@ body {
 .tile {
   display: flex; flex-direction: column; gap: var(--s-2); text-align: left;
   background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
-  padding: var(--s-4); box-shadow: var(--shadow); cursor: pointer; min-height: 88px;
+  padding: var(--s-4); cursor: pointer; min-height: 88px;
   color: var(--fg); font: inherit; font-weight: 600;
   transition: background var(--tap), border-color var(--tap);
 }
@@ -313,8 +323,8 @@ body {
 /* Funnel --------------------------------------------------------------- */
 .funnel__row { margin: var(--s-3) 0; }
 .funnel__lbl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
-.funnel__track { height: 10px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }
-.funnel__bar { height: 100%; border-radius: var(--r-pill); background: var(--accent);
+.funnel__track { height: 10px; border-radius: var(--r-sm); background: var(--surface-2); overflow: hidden; }
+.funnel__bar { height: 100%; border-radius: var(--r-sm); background: var(--accent);
   transition: width var(--slide); }
 
 /* Fields --------------------------------------------------------------- */
@@ -328,7 +338,7 @@ input, textarea, select {
   font: inherit; width: 100%; padding: var(--s-3); min-height: var(--tap-min);
   color: var(--fg); background: var(--surface-2);
   border: 1px solid var(--hair); border-radius: var(--r-md); outline: none;
-  transition: border-color var(--tap), background var(--tap), box-shadow var(--tap);
+  transition: border-color var(--tap), background var(--tap), box-shadow var(--tap); /* box-shadow = кольцо фокуса */
 }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 @media (hover: hover) { input:hover, textarea:hover, select:hover { border-color: var(--hair-strong); } }
@@ -383,22 +393,30 @@ select { appearance: none; padding-right: 34px;
   display: flex; gap: var(--s-1); background: var(--surface-2); border: 1px solid var(--hair);
   padding: var(--s-1); border-radius: var(--r-md); overflow-x: auto;
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  /* It sat flush against the first card below it and read as one lump. */
+  margin-bottom: var(--s-3);
 }
 .segmented::-webkit-scrollbar { display: none; }
 .segmented__opt {
   flex: 1 0 auto; white-space: nowrap; text-align: center; font-size: 13px; font-weight: 600;
   padding: var(--s-2) var(--s-3); border-radius: var(--r-sm); color: var(--muted); cursor: pointer;
   min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  transition: background var(--tap), color var(--tap);
+  /* Transparent border on every option, so the active one gains a line without
+     gaining width — the row must not shift when the choice changes. */
+  border: 1px solid transparent;
+  transition: background var(--tap), color var(--tap), border-color var(--tap);
 }
 @media (hover: hover) { .segmented__opt:hover { color: var(--fg); } }
 .segmented__opt:active { background: var(--press); }
-.segmented__opt--active { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-sm); }
+.segmented__opt--active { background: var(--surface); color: var(--fg); border-color: var(--hair); }
 .segmented__n { font-size: var(--t-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .segmented__opt--active .segmented__n { color: var(--accent); }
 
 /* Filter chip row */
-.chips { display: flex; gap: var(--s-2); overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+/* A row of filters, like the segmented control, needs air under it: it sat on
+   the first card and the two read as one control. */
+.chips { display: flex; gap: var(--s-2); overflow-x: auto; scrollbar-width: none;
+  padding-bottom: 2px; margin-bottom: var(--s-3); }
 .chips::-webkit-scrollbar { display: none; }
 .chips > .chip { flex: none; min-height: 34px; }
 
@@ -427,7 +445,7 @@ a { color: var(--accent); }
 a.btn, a.chip { text-decoration: none; }
 
 /* Skeletons ------------------------------------------------------------ */
-.skel { position: relative; overflow: hidden; background: var(--surface-2); border-radius: 8px; }
+.skel { position: relative; overflow: hidden; background: var(--surface-2); border-radius: var(--r-lg); }
 .skel::after {
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 6%, transparent), transparent);
@@ -436,7 +454,7 @@ a.btn, a.chip { text-decoration: none; }
 @keyframes shimmer { 100% { transform: translateX(100%); } }
 .skel-line { height: 12px; margin: 7px 0; }
 .skel-line.sm { width: 40%; } .skel-line.md { width: 65%; } .skel-line.lg { width: 90%; }
-.skel-chip { height: 22px; width: 76px; border-radius: var(--r-pill); }
+.skel-chip { height: 22px; width: 76px; border-radius: var(--r-sm); }
 .skel-sq { width: 40px; height: 40px; border-radius: var(--r-md); }
 .skel-btn { height: 44px; border-radius: var(--r-md); }
 
@@ -444,15 +462,19 @@ a.btn, a.chip { text-decoration: none; }
 .divider { height: 1px; background: var(--hair); margin: var(--s-3) 0; border: 0; }
 
 /* Bottom nav ----------------------------------------------------------- */
+/* A bar, not a floating pill. It used to hover above the content on a large
+   shadow, behind a blur, with rounded ends and a marker line under the active
+   item -- five effects to say "you are here", which one colour says on its own.
+   Docked to the edge it also stops eating a strip of the screen. */
 .nav {
-  position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(var(--nav-inset) + env(safe-area-inset-bottom, 0px));
-  width: calc(100% - 28px); max-width: calc(var(--max-width) - 28px);
-  height: var(--nav-h); display: flex;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: saturate(1.6) blur(16px); -webkit-backdrop-filter: saturate(1.6) blur(16px);
-  border: 1px solid var(--hair); border-radius: var(--r-xl);
-  box-shadow: var(--shadow-lg); z-index: var(--z-nav); overflow: hidden;
+  position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto;
+  width: 100%; max-width: var(--max-width);
+  display: flex;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--surface);
+  border-top: 1px solid var(--hair);
+  z-index: var(--z-nav);
 }
 .nav__item {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
@@ -463,13 +485,12 @@ a.btn, a.chip { text-decoration: none; }
 @media (hover: hover) { .nav__item:hover { color: var(--fg); background: var(--hover); } }
 .nav__item:active { background: var(--press); }
 .nav__item--active { color: var(--accent); }
-.nav__item--active::after {
-  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  width: 22px; height: 2px; border-radius: 0 0 2px 2px; background: var(--accent);
-}
+
 .nav__badge {
   position: absolute; top: 8px; left: 50%; margin-left: 4px;
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill);
+  /* White on a saturated red reads the same in both themes; this one is not
+     a theme colour and must not follow the palette. */
   background: var(--hot); color: #fff; font-size: 10px; font-weight: 700;
   display: grid; place-items: center;
 }
@@ -501,11 +522,12 @@ a.btn, a.chip { text-decoration: none; }
 
 /* Toast ---------------------------------------------------------------- */
 .toast {
-  position: fixed; left: 50%; bottom: calc(var(--nav-h) + var(--nav-inset) + 28px);
+  position: fixed; left: 50%;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--s-4));
   transform: translateX(-50%);
   background: var(--fg); color: var(--bg); padding: var(--s-3) var(--s-4);
-  border-radius: var(--r-pill); font-size: 13.5px; font-weight: 600;
-  z-index: var(--z-toast); box-shadow: var(--shadow-lg); max-width: 90%; text-align: center;
+  border-radius: var(--r-md); font-size: 13.5px; font-weight: 600;
+  z-index: var(--z-toast); max-width: 90%; text-align: center;
   animation: toast-in var(--slide) both;
 }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }

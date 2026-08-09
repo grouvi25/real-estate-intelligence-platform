@@ -83,3 +83,95 @@ def test_screens_do_not_hard_code_colours():
             if re.search(r"#[0-9a-fA-F]{3,8}\b", line) and "var(--" not in line:
                 offenders.append(f"{path.name}:{n}")
     assert offenders == [], f"цвет мимо токенов: {offenders}"
+
+
+ROUTER = Path(__file__).resolve().parent.parent / "mini_app" / "js" / "router.js"
+
+
+def test_a_telegram_launch_opens_the_dashboard_not_an_error():
+    """Telegram appends its own payload to the URL (#tgWebAppData=...).
+
+    The router used to split that on "/" and match it against the route table,
+    which matched nothing — so the first screen a person ever saw was «Экран не
+    найден». Only "#/…" is ours; everything else opens the home screen.
+    """
+    src = ROUTER.read_text(encoding="utf-8")
+    assert 'startsWith(\'#/\')' in src or 'startsWith("#/")' in src, \
+        "роутер снова разбирает любой хеш как маршрут"
+    assert "segs.push(HOME)" in src, "пустой маршрут снова не ведёт на главную"
+
+
+def test_depth_is_a_border_not_a_shadow(css):
+    """Cards on soft shadows made every screen look like a feed of notifications.
+
+    The only box-shadow allowed is the focus ring, which is a state.
+    """
+    offenders = [
+        f"{selector}: {line.strip()}"
+        for selector, body in _rules(css)
+        for line in re.findall(r"box-shadow:[^;]+;", body)
+        if "var(--ring)" not in line
+    ]
+    assert offenders == [], f"вернулись тени: {offenders}"
+
+
+def _body(css: str, selector: str) -> str | None:
+    """Body of one rule. The selector captured by _rules carries the comment
+    that precedes it, so compare on the last line rather than the whole match."""
+    for sel, body in _rules(css):
+        if sel.strip().splitlines()[-1].strip() == selector:
+            return body
+    return None
+
+
+def test_switcher_rows_do_not_sit_on_the_content(css):
+    """A row of tabs or filters flush against the first card reads as one control."""
+    for selector in (".segmented", ".chips"):
+        body = _body(css, selector)
+        assert body is not None, f"{selector} пропал из стилей"
+        assert "margin-bottom" in body, f"{selector} снова прилипает к содержимому"
+
+
+def test_the_way_out_of_a_screen_is_an_icon_not_a_button(css):
+    """The gear and the sheet's close cross share .header__btn. A ring around
+    them made two ways out look like the screen's own actions."""
+    body = _body(css, ".header__btn")
+    assert body is not None
+    assert "border: 0" in body, "у кнопки в шапке снова обводка"
+    assert "background: none" in body, "у кнопки в шапке снова заливка"
+
+
+def test_both_edges_of_the_app_are_made_of_the_same_material(css):
+    """The bar at the bottom is a solid surface with a hairline; the header used
+    to be translucent behind a blur, so the two edges looked like different
+    applications — and text under a moving blur is harder to read, which is the
+    one thing a header is for."""
+    offenders = [
+        f"{selector}: {line.strip()}"
+        for selector, body in _rules(css)
+        for line in re.findall(r"[-\w]*backdrop-filter:[^;]+;", body)
+    ]
+    assert offenders == [], f"вернулось размытие: {offenders}"
+
+
+def test_no_coloured_bar_glued_to_the_side_of_a_card(css):
+    """Cards carried a 3px stripe of hot/warm down their left edge. It repeated
+    what the card already said in words — «Горячий», «срочно», «остановлен»,
+    «просрочено» are all there as chips — and a bar of accent colour on every
+    other block is the cheapest trick in the generated-interface playbook."""
+    semantic = ("--hot", "--warm", "--cold", "--danger", "--success", "--accent")
+    offenders = [
+        f"{selector}: {line.strip()}"
+        for selector, body in _rules(css)
+        for line in re.findall(r"border-(?:left|right):[^;]+;", body)
+        if any(colour in line for colour in semantic)
+    ]
+    assert offenders == [], f"вернулась цветная полоска: {offenders}"
+
+
+def test_focus_does_not_reshape_what_it_lands_on(css):
+    """The ring used to force border-radius, so a 6px button became 4px the
+    moment it took focus."""
+    body = _body(css, ":focus-visible")
+    assert body is not None
+    assert "border-radius" not in body, "кольцо фокуса снова меняет форму элемента"

@@ -51,7 +51,7 @@ Screens.tasks = async function () {
       </div>`;
 
     const body = UI.list(data.tasks, (t) => `
-      <div class="card${t.is_overdue ? ' card--hot' : t.is_urgent ? ' card--warm' : ''}">
+      <div class="card">
         <div class="row row--wrap gap-2">
           ${t.is_urgent ? `<span class="chip chip--hot">${UI.icon('flame')} срочно</span>` : ''}
           <span class="chip">${UI.esc(TASK_TYPE_RU[t.task_type] || t.task_type)}</span>

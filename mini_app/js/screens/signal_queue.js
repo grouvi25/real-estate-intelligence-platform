@@ -13,7 +13,7 @@ Screens.queue = async function () {
 
   UI.load(skeleton, () => API.signalQueue({ limit: 50 }), (data) => {
     UI.render(UI.list(data.signals, (s) => `
-      <div class="card${s.urgency === 'hot' ? ' card--hot' : ''}">
+      <div class="card">
         <div class="between gap-2">
           <div class="row gap-2">${UI.scoreEl(s.intent_score)}
             <span class="chip">${UI.esc(UI.channel(s.origin_system || s.reply_channel))}</span></div>

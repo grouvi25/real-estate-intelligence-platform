@@ -9,6 +9,8 @@ from urllib.parse import urlencode
 
 import pytest
 
+from tests.helpers import unique_telegram_id
+
 from app.config import config
 from app.routers.auth import (
     AuthRequest,
@@ -241,9 +243,9 @@ async def test_only_the_owner_hands_out_invitations():
             s.add(agency)
             await s.flush()
             owner = Manager(agency_id=agency.id, name="Владелец", role="owner",
-                            telegram_id=840000 + int(time.time()) % 10000, is_active=True)
+                            telegram_id=unique_telegram_id(), is_active=True)
             staff = Manager(agency_id=agency.id, name="Менеджер", role="manager",
-                            telegram_id=850000 + int(time.time()) % 10000, is_active=True)
+                            telegram_id=unique_telegram_id(), is_active=True)
             s.add_all([owner, staff])
             await s.commit()
             agency_id = str(agency.id)
@@ -283,7 +285,7 @@ async def test_the_owner_can_rename_the_agency_and_pick_a_crm():
             s.add(agency)
             await s.flush()
             owner = Manager(agency_id=agency.id, name="Владелец", role="owner",
-                            telegram_id=860000 + int(time.time()) % 10000, is_active=True)
+                            telegram_id=unique_telegram_id(), is_active=True)
             s.add(owner)
             await s.commit()
             ctx = CurrentManager(manager_id=str(owner.id), agency_id=str(agency.id))
@@ -326,7 +328,7 @@ async def test_an_unknown_crm_is_refused():
             s.add(agency)
             await s.flush()
             owner = Manager(agency_id=agency.id, name="В", role="owner",
-                            telegram_id=870000 + int(time.time()) % 10000, is_active=True)
+                            telegram_id=unique_telegram_id(), is_active=True)
             s.add(owner)
             await s.commit()
             ctx = CurrentManager(manager_id=str(owner.id), agency_id=str(agency.id))
@@ -357,7 +359,7 @@ async def test_a_manager_cannot_change_where_leads_are_exported():
             s.add(agency)
             await s.flush()
             staff = Manager(agency_id=agency.id, name="М", role="manager",
-                            telegram_id=880000 + int(time.time()) % 10000, is_active=True)
+                            telegram_id=unique_telegram_id(), is_active=True)
             s.add(staff)
             await s.commit()
             ctx = CurrentManager(manager_id=str(staff.id), agency_id=str(agency.id))

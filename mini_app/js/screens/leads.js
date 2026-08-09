@@ -13,10 +13,9 @@ function leadName(l) {
 }
 
 function leadCard(l) {
-  const tone = l.urgency === 'hot' ? ' card--hot' : l.urgency === 'warm' ? ' card--warm' : '';
   const budget = l.budget_max ? UI.moneyShort(l.budget_max) : '';
   return `
-    <div class="card card--tap${tone}" data-go="leads/${l.id}">
+    <div class="card card--tap" data-go="leads/${l.id}">
       <div class="item">
         <div class="avatar">${UI.esc(UI.initials(l.name || l.telegram_username || '?'))}</div>
         <div class="grow">
@@ -210,7 +209,7 @@ Screens.leadDetail = async function (params) {
       ].filter(Boolean).join('');
 
       UI.render(`
-        <div class="card${l.urgency === 'hot' ? ' card--hot' : ''}">
+        <div class="card">
           <div class="item">
             <div class="avatar">${UI.esc(UI.initials(l.name || l.telegram_username || '?'))}</div>
             <div class="grow">

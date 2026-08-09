@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from tests.helpers import unique_telegram_id
+
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL"
 )
@@ -44,7 +46,7 @@ async def _lead(s, *, hours_idle: float, urgency: str = "hot", stage: int = 0):
     s.add(agency)
     await s.flush()
     manager = Manager(agency_id=agency.id, name="Менеджер", role="owner",
-                      telegram_id=1000 + int(uuid.uuid4().int % 10000), is_active=True)
+                      telegram_id=unique_telegram_id(), is_active=True)
     s.add(manager)
     await s.flush()
 

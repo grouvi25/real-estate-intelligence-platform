@@ -39,7 +39,7 @@ Screens.dashboard = async function () {
          </div>
        </div>
 
-       ${overdue ? `<div class="card card--hot mt-3">
+       ${overdue ? `<div class="card mt-3">
          <div class="row"><span class="chip chip--hot">${UI.icon('clock')}просрочено ${overdue}</span></div>
          <div class="item__sub mt-2">Задачи с истёкшим сроком — лид ждёт ответа дольше обещанного.</div>
          <button class="btn btn--secondary btn--block mt-3" id="q-overdue">${UI.icon('check')} Разобрать</button>

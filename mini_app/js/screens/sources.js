@@ -42,7 +42,7 @@ Screens.sources = async function () {
       const isVk = String(s.source_type || '').startsWith('vk');
       const dead = s.status === 'active' && !s.signals_total;
       return `
-      <div class="card${s.status === 'active' ? '' : s.status === 'paused' || s.status === 'dead' ? ' card--warm' : ''}">
+      <div class="card">
         <div class="between gap-2">
           <span class="item__title clamp-2">${UI.esc(s.source_name || s.source_url)}</span>
           ${sourceStatusChip(s.status)}
