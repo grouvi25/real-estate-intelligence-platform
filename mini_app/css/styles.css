@@ -390,6 +390,12 @@ body {
    the canvas grows on every redraw. */
 .chart { position: relative; width: 100%; }
 
+/* A map is a picture of where the flat is, not a control surface: it keeps the
+   card's corners, and page scrolling wins over zooming so a thumb travelling
+   down the screen is never captured by it. */
+.map { width: 100%; margin-top: var(--s-3); border-radius: var(--r-md);
+  overflow: hidden; border: 1px solid var(--hair); background: var(--surface-2); }
+
 /* A ring and its legend read as one thing side by side: the eye goes from slice
    to name without travelling down the card. Stacked, the same block was twice
    as tall for no extra information. */

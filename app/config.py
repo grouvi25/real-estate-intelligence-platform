@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     vk_service_token: Optional[str] = Field(default=None, alias="VK_SERVICE_TOKEN")
     vk_api_version: str = Field(default="5.199", alias="VK_API_VERSION")
     youtube_api_key: Optional[str] = Field(default=None, alias="YOUTUBE_API_KEY")
+    # Yandex Maps JS API (ТЗ 2.3). The key is public by design — it is
+    # restricted by domain in the Yandex cabinet, not kept secret — so the
+    # cabinet may hand it to the browser.
+    yandex_maps_api_key: Optional[str] = Field(default=None, alias="YANDEX_MAPS_API_KEY")
     yookassa_shop_id: Optional[str] = Field(default=None, alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: Optional[str] = Field(default=None, alias="YOOKASSA_SECRET_KEY")
 

@@ -207,6 +207,10 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
             "role": manager.role,
             "agency_id": str(manager.agency_id),
         },
+        # Public front-end settings travel with the handshake rather than in
+        # their own endpoint: the Mini App already stores this response, and a
+        # domain-restricted maps key is not a secret.
+        "maps_key": config.yandex_maps_api_key,
         # The cabinet has to name the agency to a human; a UUID is not a name.
         "agency": {
             "id": str(manager.agency_id),

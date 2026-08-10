@@ -3,6 +3,23 @@
 // a chat. Before this screen the only way to stop a bad source was raw SQL.
 window.Screens = window.Screens || {};
 
+// A source card used to say "Telegram" for anything that was not VK, so a feed
+// or a YouTube channel was labelled as a chat it is not.
+const SOURCE_KINDS = {
+  telegram_chat: { name: 'Чат Telegram', icon: 'send', at: true },
+  telegram_channel: { name: 'Канал Telegram', icon: 'send', at: true },
+  vk_group: { name: 'ВКонтакте', icon: 'globe' },
+  youtube: { name: 'YouTube', icon: 'signals' },
+  rss: { name: 'Лента RSS', icon: 'globe' },
+  forum: { name: 'Форум', icon: 'globe' },
+  website: { name: 'Сайт', icon: 'globe' },
+};
+
+function sourceKind(type) {
+  const k = SOURCE_KINDS[type] || { name: type || 'Источник', icon: 'globe' };
+  return { ...k, handle: (id) => (k.at ? '@' + id : id) };
+}
+
 const SOURCE_STATUS_RU = {
   active: 'в работе',
   sandbox: 'песочница',
@@ -36,10 +53,10 @@ Screens.sources = async function () {
         <button class="chip chip--btn ${filter.status === 'sandbox' ? 'chip--accent' : ''}" data-s="sandbox">Песочница</button>
         <button class="chip chip--btn ${filter.status === 'paused' ? 'chip--accent' : ''}" data-s="paused">Остановлены</button>
       </div>
-      <button class="btn btn--secondary btn--block mt-3" id="add">${UI.icon('plus')} Добавить чат или группу</button>`;
+      <button class="btn btn--secondary btn--block mt-3" id="add">${UI.icon('plus')} Добавить источник</button>`;
 
     const body = UI.list(data.sources, (s) => {
-      const isVk = String(s.source_type || '').startsWith('vk');
+      const kind = sourceKind(s.source_type);
       const dead = s.status === 'active' && !s.signals_total;
       return `
       <div class="card">
@@ -47,8 +64,8 @@ Screens.sources = async function () {
           <span class="item__title clamp-2">${UI.esc(s.source_name || s.source_url)}</span>
           ${sourceStatusChip(s.status)}
         </div>
-        <div class="meta-row mt-1">${UI.icon(isVk ? 'globe' : 'send')}${isVk ? 'ВКонтакте' : 'Telegram'}
-          ${s.external_id ? `<span class="dot"></span>${UI.esc(isVk ? s.external_id : '@' + s.external_id)}` : ''}
+        <div class="meta-row mt-1">${UI.icon(kind.icon)}${kind.name}
+          ${s.external_id ? `<span class="dot"></span>${UI.esc(kind.handle(s.external_id))}` : ''}
           ${s.city_name ? `<span class="dot"></span>${UI.esc(s.city_name)}` : ''}</div>
         <div class="row row--wrap gap-1 mt-3">
           <span class="chip">оценка <span class="num">${s.score}</span></span>
@@ -113,9 +130,21 @@ Screens.sources = async function () {
             <select id="src-geo">${geos.map((g) => `<option value="${g.id}">${UI.esc(g.city_name)}</option>`).join('')}</select></div>` : '';
 
         UI.sheet('Добавить источник', `
-          <div class="field"><label>Ссылка на чат или группу</label>
-            <input id="src-url" placeholder="@gelendzhik_chat или vk.com/gel_realty"></div>
-          <div class="item__sub">Telegram и ВКонтакте — канал определяется по ссылке.</div>
+          <div class="field"><label>Ссылка</label>
+            <input id="src-url" placeholder="@gelendzhik_chat, vk.com/gel_realty, youtube.com/@channel"></div>
+          <div class="item__sub">Тип определяется по ссылке: Telegram, ВКонтакте, YouTube,
+            лента RSS или сайт. Если определился неверно — поправьте ниже.</div>
+          <div class="field"><label for="src-type">Тип</label>
+            <select id="src-type">
+              <option value="">Определить по ссылке</option>
+              <option value="telegram_chat">Чат Telegram</option>
+              <option value="telegram_channel">Канал Telegram</option>
+              <option value="vk_group">Группа ВКонтакте</option>
+              <option value="youtube">Канал YouTube</option>
+              <option value="rss">Лента RSS</option>
+              <option value="forum">Форум</option>
+              <option value="website">Сайт</option>
+            </select></div>
           <div class="field"><label>Название (необязательно)</label>
             <input id="src-name" placeholder="Барахолка Геленджик"></div>
           ${cityField}
@@ -126,10 +155,13 @@ Screens.sources = async function () {
               if (!url) { UI.toast('Укажите ссылку или @имя'); return; }
               const geoEl = document.getElementById('src-geo');
               try {
+                const typeEl = document.getElementById('src-type');
+                const chosen = typeEl && typeEl.value;
                 await API.createSource({
                   source_url: url,
                   source_name: document.getElementById('src-name').value.trim() || null,
                   geo_location_id: geoEl ? geoEl.value : null,
+                  ...(chosen ? { source_type: chosen } : {}),
                 });
                 UI.toast('Источник добавлен в песочницу');
                 close();
