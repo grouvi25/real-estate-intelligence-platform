@@ -376,6 +376,19 @@ async def _agency_crm(session, agency_id):
     )).scalars().first()
 
 
+@router.get("/config")
+async def public_config(current: CurrentManager = Depends(get_current_manager)):
+    """Front-end settings that are not secret.
+
+    The handshake carries these too, but the token outlives the session: a
+    manager who logged in yesterday never calls /auth/platform again, so anything
+    delivered only there never reaches them. This is where the app asks for what
+    it is missing. The geocoder key is deliberately absent — it is billed per
+    request and stays on the server.
+    """
+    return {"maps_key": config.yandex_maps_api_key}
+
+
 @router.get("/agency", response_model=AgencyResponse)
 async def get_agency(
     current: CurrentManager = Depends(get_current_manager),
