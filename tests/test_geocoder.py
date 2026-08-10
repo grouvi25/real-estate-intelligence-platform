@@ -137,6 +137,6 @@ def test_the_geocoder_key_never_reaches_the_browser():
     # Ищем вызов, а не слово: в шапке файла geocode упоминается объяснением,
     # почему его здесь нет.
     maps_js = (root / "mini_app" / "js" / "maps.js").read_text(encoding="utf-8")
-    code = [l for l in maps_js.splitlines()
-            if not l.strip().startswith(("//", "*", "/*"))]
+    code = [line for line in maps_js.splitlines()
+            if not line.strip().startswith(("//", "*", "/*"))]
     assert ".geocode(" not in chr(10).join(code), "фронт снова геокодирует сам"
