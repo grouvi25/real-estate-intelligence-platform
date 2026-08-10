@@ -117,7 +117,9 @@ async def _collect_web_sources(limit_per_source: int = 50) -> int:
     from app.models.source import Source
 
     rss, youtube = RssCollector(), YoutubeCollector()
-    by_type = {("rss", "website"): rss, ("youtube",): youtube}
+    # A forum is read as a feed: the ones worth watching publish one, and a
+    # source nobody collects is worse than one that quietly finds nothing.
+    by_type = {("rss", "website", "forum"): rss, ("youtube",): youtube}
 
     total = 0
     try:
@@ -125,7 +127,7 @@ async def _collect_web_sources(limit_per_source: int = 50) -> int:
             sources = (await session.execute(
                 select(Source).where(
                     Source.status.in_(("active", "sandbox")),
-                    Source.source_type.in_(("rss", "website", "youtube")),
+                    Source.source_type.in_(("rss", "website", "forum", "youtube")),
                 )
             )).scalars().all()
             for src in sources:

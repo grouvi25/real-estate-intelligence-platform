@@ -293,3 +293,57 @@ async def test_an_agency_with_no_city_is_told_to_add_one():
         with pytest.raises(ValidationError):
             await create_source(CreateSourceRequest(source_url="@no_geo_chat"),
                                 current=current, session=s)
+
+
+def test_a_link_says_which_kind_of_source_it_is():
+    """The form sends a link and nothing else, so the link has to be read.
+
+    Before this, anything that was not VK or Telegram was stored as a Telegram
+    chat: the YouTube and RSS collectors existed while there was no way to add a
+    source either of them would ever look at.
+    """
+    from app.routers.sources import _classify
+
+    cases = [
+        ("vk.com/gel_realty", "vk_group", "gel_realty"),
+        ("@gelendzhik_chat", "telegram_chat", "gelendzhik_chat"),
+        ("https://t.me/gel_news", "telegram_chat", "gel_news"),
+        ("https://youtube.com/@novostroyki", "youtube", None),
+        ("https://www.youtube.com/channel/UC123abc/videos", "youtube", "UC123abc"),
+        ("https://youtu.be/abc", "youtube", None),
+        ("https://kubnews.ru/rss/", "rss", None),
+        ("https://gelendzhik.ru/news/feed", "rss", None),
+        ("https://example.ru/index.xml", "rss", None),
+        ("https://forum-gelendzhik.ru/threads/", "website", None),
+    ]
+    for url, kind, handle in cases:
+        _, got_kind, got_handle = _classify(url, "telegram_chat")
+        assert got_kind == kind, f"{url}: ожидался {kind}, вышел {got_kind}"
+        assert got_handle == handle, f"{url}: ожидался идентификатор {handle}, вышел {got_handle}"
+
+
+def test_an_explicit_type_beats_the_guess():
+    """A manager who knows it is a forum should not be overruled by the URL."""
+    from app.routers.sources import _classify
+
+    _, kind, _ = _classify("https://forum-gelendzhik.ru/threads/", "forum")
+    assert kind == "forum"
+
+
+def test_every_source_type_is_read_by_some_collector():
+    """A type the schema allows and nothing collects is a source that sits for
+    ever — exactly what happened to rss and website before the web collector."""
+    import re
+    from pathlib import Path
+
+    from app.routers.sources import SOURCE_TYPES
+
+    root = Path(__file__).resolve().parent.parent
+    web = (root / "worker" / "tasks" / "collector_tasks.py").read_text(encoding="utf-8")
+    listed = re.findall(r"'(\w+)'|\"(\w+)\"", web.split("by_type = {")[1].split("}")[0])
+    collected = {a or b for a, b in listed}
+    collected |= {"telegram_chat", "telegram_channel"}   # collect_telegram_sources
+    collected |= {"vk_group"}                            # collect_vk_sources
+
+    orphans = SOURCE_TYPES - collected
+    assert orphans == set(), f"эти типы никто не собирает: {orphans}"

@@ -31,7 +31,10 @@ router = APIRouter()
 
 # migrations/001_init.sql + 008_status_extensions.sql
 VALID_STATUSES = {"sandbox", "active", "paused", "blocked", "dead"}
-SOURCE_TYPES = {"telegram_chat", "telegram_channel", "vk_group", "youtube", "rss", "forum"}
+SOURCE_TYPES = {"telegram_chat", "telegram_channel", "vk_group", "youtube",
+                "rss", "website", "forum"}
+# A link that ends in one of these is a feed, whatever the site calls itself.
+FEED_MARKERS = ("/rss", "/feed", "/atom", ".rss", ".xml", ".atom", "feed=rss", "format=rss")
 MAX_PAGE = 500
 
 
@@ -62,13 +65,23 @@ def _vk_screen_name(url: str) -> Optional[str]:
     return None
 
 
+def _youtube_channel(url: str) -> Optional[str]:
+    """Channel id from a /channel/<id> address; other YouTube forms have none."""
+    if "/channel/" not in url:
+        return None
+    tail = url.split("/channel/")[-1]
+    return tail.split("?")[0].split("/")[0].strip() or None
+
+
 def _classify(url: str, declared: str) -> tuple[str, str, Optional[str]]:
     """Work out the channel from the link. Returns (url, source_type, handle).
 
     The add-source form sends only a link, so the type fell back to
     telegram_chat -- a VK group pasted there would have been stored as a Telegram
-    chat and never read by anything. A link says which channel it is, so it wins
-    over the default; an explicit non-default type is still honoured.
+    chat and never read by anything, and the same was true of a YouTube channel
+    or a feed: collectors for both existed while there was no way to add one.
+    A link says which channel it is, so it wins over the default; an explicit
+    non-default type is still honoured.
     """
     # Managers paste "vk.com/..." as often as the full address; store a real URL.
     def _absolute(u: str) -> str:
@@ -87,6 +100,19 @@ def _classify(url: str, declared: str) -> tuple[str, str, Optional[str]]:
     if url.startswith("@"):
         name = url.lstrip("@")
         return f"https://t.me/{name}", declared if declared != "telegram_chat" else "telegram_chat", name
+
+    low = url.lower()
+    if "youtube.com" in low or "youtu.be" in low:
+        return _absolute(url), "youtube", _youtube_channel(url)
+
+    if any(mark in low for mark in FEED_MARKERS):
+        return _absolute(url), "rss", None
+
+    # Any other address is a site. It is read by the feed collector, which finds
+    # nothing unless the page is a feed -- better than storing it as a Telegram
+    # chat and having the userbot fail on it every ten minutes.
+    if low.startswith(("http://", "https://")) or "." in url.split("/")[0]:
+        return _absolute(url), declared if declared in ("forum", "website") else "website", None
 
     return url, declared, None
 

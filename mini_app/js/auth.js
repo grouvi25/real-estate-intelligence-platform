@@ -17,6 +17,10 @@ function inviteToken() {
 
 async function authenticate() {
   try { window._agency = JSON.parse(sessionStorage.getItem('agency') || 'null'); } catch (e) { /* ignore */ }
+  // The handshake carries the public settings, and the token is cached — so on a
+  // second open the settings have to come back from storage or the map would
+  // silently disappear for everyone who did not just log in.
+  try { Maps.setKey(sessionStorage.getItem(Maps.KEY_STORE)); } catch (e) { /* private mode */ }
   const cached = api.loadToken ? await api.loadToken() : null;
   if (cached) return cached;
   const res = await api.request('/auth/platform', 'POST', {
@@ -31,5 +35,10 @@ async function authenticate() {
     window._agency = res.agency;
     try { sessionStorage.setItem('agency', JSON.stringify(res.agency)); } catch (e) { /* private mode */ }
   }
+  Maps.setKey(res.maps_key);
+  try {
+    if (res.maps_key) sessionStorage.setItem(Maps.KEY_STORE, res.maps_key);
+    else sessionStorage.removeItem(Maps.KEY_STORE);
+  } catch (e) { /* private mode */ }
   return res.token;
 }

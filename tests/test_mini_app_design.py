@@ -176,3 +176,26 @@ def test_focus_does_not_reshape_what_it_lands_on(css):
     body = _body(css, ":focus-visible")
     assert body is not None
     assert "border-radius" not in body, "кольцо фокуса снова меняет форму элемента"
+
+
+MAPS = Path(__file__).resolve().parent.parent / "mini_app" / "js" / "maps.js"
+
+
+def test_the_map_is_credential_gated_like_every_other_integration():
+    """Without YANDEX_MAPS_API_KEY the block is not drawn at all.
+
+    An integration that renders an empty grey square when it is not configured
+    is worse than one that renders nothing: the manager reads it as broken.
+    """
+    src = MAPS.read_text(encoding="utf-8")
+    assert "const available = () => Boolean(key)" in src
+    assert "if (!available() || !query) return null" in src,         "блок карты рисуется без ключа"
+    assert "el.remove()" in src, "при сбое загрузки остаётся пустой контейнер"
+
+
+def test_the_map_is_loaded_only_when_a_screen_asks_for_one():
+    """200 KB of somebody else's script should not be downloaded by a manager
+    who only ever opens the queue."""
+    index = (Path(__file__).resolve().parent.parent / "mini_app" / "index.html").read_text(encoding="utf-8")
+    assert "api-maps.yandex.ru" not in index, "карты грузятся на старте, а не по требованию"
+    assert "api-maps.yandex.ru" in MAPS.read_text(encoding="utf-8")

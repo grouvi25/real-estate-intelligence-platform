@@ -194,8 +194,39 @@ async def get_property(
     current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
-    """Fetch one object. The Mini App used to pull the whole list and search it."""
-    return _property_summary(await _get_scoped_property(property_id, current, session))
+    """One property, in full.
+
+    The list needs a headline; the card needs the rest. This was answering with
+    the list shape, so the card asked for an address, a floor and a price per
+    square metre and quietly rendered nothing where each should have been.
+    """
+    prop = await _get_scoped_property(property_id, current, session)
+    city = None
+    if prop.geo_location_id:
+        from app.models.geo_location import GeoLocation  # noqa: PLC0415
+
+        geo = await session.get(GeoLocation, prop.geo_location_id)
+        city = geo.city_name if geo else None
+    return {
+        **_property_summary(prop),
+        "address": prop.address,
+        "city_name": city,
+        "price_per_sqm": prop.price_per_sqm,
+        "floor": prop.floor,
+        "floors_total": prop.floors_total,
+        "area_living": prop.area_living,
+        "property_type": prop.property_type,
+        "developer": prop.developer,
+        "year_built": prop.year_built,
+        "is_new_build": prop.is_new_build,
+        "readiness_status": prop.readiness_status,
+        "amenities": prop.amenities or [],
+        "target_segments": prop.target_segments or [],
+        "description_original": prop.description_original,
+        "source_url": prop.source_url,
+        "images": prop.images or [],
+        "ai_analysis": prop.ai_analysis or {},
+    }
 
 
 @router.post("/import")

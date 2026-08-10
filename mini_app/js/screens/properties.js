@@ -81,6 +81,11 @@ Screens.propertyDetail = async function (params) {
     (p.floor && p.floors_total) ? `${p.floor}/${p.floors_total} эт.` : null,
   ].filter(Boolean).join(' · ');
 
+  // «Тонкий мыс» is a district, not an address — the city has to be part of the
+  // query or the geocoder answers with the wrong Тонкий мыс.
+  const where = [p.address, p.district, p.city_name].filter(Boolean).join(', ');
+  const map = Maps.block(where, { height: 180 });
+
   UI.render(`
     <div class="card">
       <div class="between gap-2">
@@ -91,6 +96,11 @@ Screens.propertyDetail = async function (params) {
       <div class="hero__v mt-3">${UI.money(p.price)}</div>
       ${p.price_per_sqm ? `<div class="item__meta">${UI.money(p.price_per_sqm)} за м²</div>` : ''}
     </div>
+
+    ${p.address ? `<div class="card mt-3">
+      <div class="meta-row">${UI.icon('location')}${UI.esc(p.address)}</div>
+      ${map ? map.html : ''}
+    </div>` : ''}
 
     <div class="card mt-3">
       <div class="field"><label for="price">Цена, ₽</label>
@@ -105,6 +115,7 @@ Screens.propertyDetail = async function (params) {
     <button class="btn btn--secondary btn--block mt-2" id="listing">${UI.icon('sparkles')} Сгенерировать объявление</button>
     <button class="btn btn--secondary btn--block mt-2" id="checklist">${UI.icon('check')} Чек-лист документов</button>`,
     () => {
+      Maps.paint(map);
       const saveBtn = document.getElementById('save');
       saveBtn.onclick = () => UI.busy(saveBtn, async () => {
         const price = parseInt(document.getElementById('price').value, 10);
