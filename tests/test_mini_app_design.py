@@ -189,7 +189,7 @@ def test_the_map_is_credential_gated_like_every_other_integration():
     """
     src = MAPS.read_text(encoding="utf-8")
     assert "const available = () => Boolean(key)" in src
-    assert "if (!available() || !query) return null" in src,         "блок карты рисуется без ключа"
+    assert "if (!available()" in src, "блок карты рисуется без ключа"
     assert "el.remove()" in src, "при сбое загрузки остаётся пустой контейнер"
 
 

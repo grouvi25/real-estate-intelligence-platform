@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, Text
+from sqlalchemy import TIMESTAMP, Boolean, Date, Float, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,11 @@ class Property(CreatedAtMixin, UpdatedAtMixin, Base):
     deal_type: Mapped[str] = mapped_column(Text, default="sale")
     developer: Mapped[Optional[str]] = mapped_column(Text)
     address: Mapped[Optional[str]] = mapped_column(Text)
+    # Found once by the geocoder and kept: the answer does not change, and
+    # every lookup is a billed request (migration 054).
+    lat: Mapped[Optional[float]] = mapped_column(Float)
+    lon: Mapped[Optional[float]] = mapped_column(Float)
+    geocoded_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
     district: Mapped[Optional[str]] = mapped_column(Text)
     price: Mapped[Optional[int]] = mapped_column(Integer)
     # The price the last re-match ran on, so a drop made outside the API — an

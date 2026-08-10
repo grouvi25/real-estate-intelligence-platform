@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     # restricted by domain in the Yandex cabinet, not kept secret — so the
     # cabinet may hand it to the browser.
     yandex_maps_api_key: Optional[str] = Field(default=None, alias="YANDEX_MAPS_API_KEY")
+    # The geocoder is a separate product with its own key, even on the same
+    # account. It is billed per request and never leaves the server.
+    yandex_geocoder_api_key: Optional[str] = Field(
+        default=None, alias="YANDEX_GEOCODER_API_KEY")
     yookassa_shop_id: Optional[str] = Field(default=None, alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: Optional[str] = Field(default=None, alias="YOOKASSA_SECRET_KEY")
 

@@ -81,10 +81,9 @@ Screens.propertyDetail = async function (params) {
     (p.floor && p.floors_total) ? `${p.floor}/${p.floors_total} эт.` : null,
   ].filter(Boolean).join(' · ');
 
-  // «Тонкий мыс» is a district, not an address — the city has to be part of the
-  // query or the geocoder answers with the wrong Тонкий мыс.
-  const where = [p.address, p.district, p.city_name].filter(Boolean).join(', ');
-  const map = Maps.block(where, { height: 180 });
+  // Coordinates come with the property: the server found them once and kept
+  // them, so nothing is looked up while a person waits.
+  const map = Maps.block(p.lat, p.lon, { height: 180 });
 
   UI.render(`
     <div class="card">
