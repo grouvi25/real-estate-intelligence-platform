@@ -75,6 +75,34 @@ async def test_an_address_is_looked_up_once_and_kept(monkeypatch):
 
     # Город обязан попасть в запрос: «Тонкий мыс» без города — не адрес.
     assert "Геленджик" in fake.calls[0]
+    # А район — не должен: с ним Яндекс отвечает центром микрорайона вместо дома,
+    # и метка уезжает на пару километров.
+    assert "Тонкий мыс" not in fake.calls[0], f"район портит запрос: {fake.calls[0]}"
+    assert "ул. Мира, 15" in fake.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_without_a_street_the_district_is_better_than_nothing(monkeypatch):
+    """Not every catalogue row has a house number; the neighbourhood still puts
+    the pin in the right town."""
+    from app.database import async_session, run_migrations
+    from app.dependencies import CurrentManager
+    from app.routers import properties as router
+
+    await run_migrations()
+    async with async_session() as s:
+        agency, prop = await _property(s, address=None)
+        agency_id, prop_id = str(agency.id), prop.id
+
+    fake = _Counter()
+    monkeypatch.setattr("app.services.geocoder.is_available", fake.is_available)
+    monkeypatch.setattr("app.services.geocoder.geocode", fake.geocode)
+
+    async with async_session() as s:
+        await router.get_property(prop_id,
+                                  current=CurrentManager(manager_id="m1", agency_id=agency_id),
+                                  session=s)
+    assert fake.calls == ["Геленджик, Тонкий мыс"]
 
 
 @pytest.mark.asyncio

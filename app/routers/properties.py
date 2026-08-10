@@ -196,7 +196,9 @@ async def _ensure_coordinates(session, prop, city: Optional[str]) -> None:
     same twenty flats. `geocoded_at` is stamped even when nothing is found, so an
     address the geocoder cannot resolve is not retried on every open either.
     """
-    if prop.lat is not None or prop.geocoded_at is not None or not prop.address:
+    if prop.lat is not None or prop.geocoded_at is not None:
+        return
+    if not (prop.address or prop.district):
         return
 
     from datetime import datetime, timezone  # noqa: PLC0415
@@ -206,9 +208,14 @@ async def _ensure_coordinates(session, prop, city: Optional[str]) -> None:
     if not geocoder.is_available():
         return
 
-    # A district is not an address: "Тонкий мыс" without the city finds the wrong
-    # one, and there is more than one in Russia.
-    query = ", ".join(x for x in (city, prop.district, prop.address) if x)
+    # City first, then the street. Adding the district in between makes Yandex
+    # answer with the district's centre rather than the house: «Тонкий мыс» plus
+    # «улица Мира, 15» does not resolve as one address, so it falls back to the
+    # neighbourhood, which puts the pin a couple of kilometres out. The district
+    # earns its place only when there is no street address to use instead -- and
+    # never alone, because the same neighbourhood name exists in other towns.
+    parts = (city, prop.address) if prop.address else (city, prop.district)
+    query = ", ".join(x for x in parts if x)
     at = await geocoder.geocode(query)
     prop.geocoded_at = datetime.now(timezone.utc)
     if at:
