@@ -82,7 +82,9 @@ Screens.propertyDetail = async function (params) {
   ].filter(Boolean).join(' · ');
 
   // Coordinates come with the property: the server found them once and kept
-  // them, so nothing is looked up while a person waits.
+  // them, so nothing is looked up while a person waits. Not every catalogue row
+  // has a street address -- a row with only a district still has a point, and
+  // tying the block to the address text hid the map for exactly those.
   const map = Maps.block(p.lat, p.lon, { height: 180 });
 
   UI.render(`
@@ -96,8 +98,8 @@ Screens.propertyDetail = async function (params) {
       ${p.price_per_sqm ? `<div class="item__meta">${UI.money(p.price_per_sqm)} за м²</div>` : ''}
     </div>
 
-    ${p.address ? `<div class="card mt-3">
-      <div class="meta-row">${UI.icon('location')}${UI.esc(p.address)}</div>
+    ${(p.address || map) ? `<div class="card mt-3">
+      <div class="meta-row">${UI.icon('location')}${UI.esc(p.address || p.district || 'Место на карте')}</div>
       ${map ? map.html : ''}
     </div>` : ''}
 

@@ -168,3 +168,18 @@ def test_the_geocoder_key_never_reaches_the_browser():
     code = [line for line in maps_js.splitlines()
             if not line.strip().startswith(("//", "*", "/*"))]
     assert ".geocode(" not in chr(10).join(code), "фронт снова геокодирует сам"
+
+
+def test_the_map_block_follows_the_coordinates_not_the_address_text():
+    """A catalogue row with only a district still has a point on the map.
+
+    The block used to be wrapped in `p.address ? … : ''`, so a property geocoded
+    from its district got coordinates the card then refused to draw — the one
+    case the district fallback exists for.
+    """
+    from pathlib import Path
+
+    screen = (Path(__file__).resolve().parent.parent
+              / "mini_app" / "js" / "screens" / "properties.js").read_text(encoding="utf-8")
+    assert "${(p.address || map) ?" in screen, \
+        "блок карты снова показывается только при наличии адреса"
