@@ -79,57 +79,86 @@ async def geocode(address: str) -> Optional[tuple[float, float]]:
     return lat, lon
 
 
-# Search is biased towards where the agency works. Yandex matches a prefix only
-# inside a narrow window: with a box around the Black Sea coast "Гелен" finds
-# Геленджик, while a box covering all of Russia finds nothing at all. Outside the
-# box the query has to be nearly complete, which is fine — a partner in Kazan is
-# typed in full.
-_BOX_DEGREES = 3.0
-_centres: dict[str, tuple[float, float]] = {}
+# Search is biased towards where the agency works, and it took measuring to find
+# out how. Yandex matches a prefix only inside a bounding box, and only when the
+# country is named:
+#
+#   «Гелен»                        -> a town in the Netherlands
+#   «Гелен» + box                  -> nothing
+#   «Россия, Гелен» + box          -> Геленджик
+#   «Россия, Краснод» + box        -> посёлок Краснодарский   (the city loses)
+#   «Краснод» + box                -> Краснодар
+#
+# So neither spelling wins on its own: both are asked, the answers are merged,
+# and what the manager typed decides the order.
+_BOX_DEGREES = 2.0
+_centres: dict[str, tuple[float, float, str]] = {}
 
 
-async def _centre_of(city: str) -> Optional[tuple[float, float]]:
-    """Where to bias the search. Looked up once per city per process."""
+async def _centre_of(city: str) -> Optional[tuple[float, float, str]]:
+    """Where to bias the search, and which country to name. Looked up once."""
     if city in _centres:
         return _centres[city]
-    at = await geocode(city)
-    if at:
-        _centres[city] = at
-    return at
+    rows = await _localities(city, None, 1)
+    if not rows:
+        return None
+    row = rows[0]
+    found = (row["lat"], row["lon"], row["country"] or "")
+    _centres[city] = found
+    return found
+
+
+def _rank(rows: list[dict], query: str) -> list[dict]:
+    """A town whose name starts with what was typed comes first.
+
+    Without this «Краснод» answers «посёлок Краснодарский» before Краснодар:
+    both match, and the geocoder has no idea which one a person meant.
+    """
+    q = query.strip().lower()
+
+    def key(row: dict) -> tuple:
+        name = row["name"].lower()
+        return (0 if name.startswith(q) else 1, len(name), name)
+
+    return sorted(rows, key=key)
 
 
 async def suggest_cities(query: str, near: Optional[str] = None,
                          limit: int = 6) -> list[dict]:
-    """Towns matching what has been typed so far.
-
-    Two passes: close to home first, then the whole map. A manager adding a
-    neighbouring town types three letters; one adding a partner on the other side
-    of the country types the name out, and the second pass catches that.
-    """
+    """Towns matching what has been typed so far."""
     query = (query or "").strip()
     if not is_available() or len(query) < 2:
         return []
 
-    boxes: list[Optional[str]] = []
+    box = None
+    country = ""
     if near:
         centre = await _centre_of(near)
         if centre:
-            lat, lon = centre
-            boxes.append(f"{lon - _BOX_DEGREES},{lat - _BOX_DEGREES}~"
-                         f"{lon + _BOX_DEGREES},{lat + _BOX_DEGREES}")
-    boxes.append(None)
+            lat, lon, country = centre
+            box = (f"{lon - _BOX_DEGREES},{lat - _BOX_DEGREES}~"
+                   f"{lon + _BOX_DEGREES},{lat + _BOX_DEGREES}")
 
-    seen: set[str] = set()
+    attempts: list[tuple[str, Optional[str]]] = []
+    if box:
+        if country:
+            attempts.append((f"{country}, {query}", box))
+        attempts.append((query, box))
+
     found: list[dict] = []
-    for box in boxes:
-        for row in await _localities(query, box, limit):
-            if row["name"] in seen:
-                continue
-            seen.add(row["name"])
-            found.append(row)
-        if found:
-            break
-    return found[:limit]
+    seen: set[str] = set()
+    for text, bbox in attempts:
+        for row in await _localities(text, bbox, limit):
+            if row["name"] not in seen:
+                seen.add(row["name"])
+                found.append(row)
+
+    # Nothing nearby: somebody is adding a partner on the other side of the
+    # country, and there the name has to be typed out in full.
+    if not found:
+        found = await _localities(query, None, limit)
+
+    return _rank(found, query)[:limit]
 
 
 async def _localities(query: str, bbox: Optional[str], limit: int) -> list[dict]:
