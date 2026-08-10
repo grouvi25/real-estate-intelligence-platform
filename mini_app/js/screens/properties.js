@@ -173,17 +173,33 @@ Screens.propertyDetail = async function (params) {
                   tone: document.getElementById('lg-tone').value,
                 });
                 const l = r.listing || {};
-                const text = l.text || l.body || l.description || (typeof l === 'string' ? l : JSON.stringify(l, null, 2));
-                const title = l.title || l.headline || '';
+                // The prompt asks for the ad split into parts plus `full_text`,
+                // the finished thing to post. The screen used to look for
+                // `text`/`body`/`description`, found none of them and printed the
+                // raw JSON — a manager was shown the machine's notes instead of
+                // an advert. Parts are only assembled when full_text is missing.
+                const assembled = [l.lead_paragraph, l.key_facts, l.infrastructure, l.closing]
+                  .filter(Boolean).join('\n\n');
+                const text = l.full_text || assembled || l.text || l.body || l.description
+                  || (typeof l === 'string' ? l : '');
+                const title = l.headline || l.title || '';
+                const tags = Array.isArray(l.tags) ? l.tags.filter(Boolean) : [];
                 out.innerHTML =
-                  (title ? `<div class="card__title" style="margin-bottom:6px">${UI.esc(title)}</div>` : '') +
-                  `<textarea id="lg-text" rows="10" style="width:100%">${UI.esc(text)}</textarea>` +
-                  `<button class="btn btn--secondary btn--block" id="lg-copy" style="margin-top:8px">${UI.icon('file')} Копировать</button>`;
+                  (title ? `<div class="field"><label for="lg-title">Заголовок</label>
+                     <input id="lg-title" value="${UI.esc(title)}"></div>` : '') +
+                  `<div class="field"><label for="lg-text">Текст объявления</label>
+                     <textarea id="lg-text" rows="10">${UI.esc(text)}</textarea></div>` +
+                  (tags.length ? `<div class="row row--wrap gap-1">${tags.map((t) =>
+                     `<span class="chip">${UI.esc(t)}</span>`).join('')}</div>` : '') +
+                  `<button class="btn btn--secondary btn--block mt-3" id="lg-copy">${UI.icon('file')} Копировать</button>`;
                 document.getElementById('lg-copy').onclick = () => {
+                  // A listing is a headline plus a body; copying only the body
+                  // means retyping the headline on the other side.
+                  const head = document.getElementById('lg-title');
                   const ta = document.getElementById('lg-text');
-                  ta.select();
-                  try { navigator.clipboard.writeText(ta.value); UI.toast('Скопировано'); }
-                  catch (e) { document.execCommand('copy'); UI.toast('Скопировано'); }
+                  const whole = [head && head.value.trim(), ta.value].filter(Boolean).join('\n\n');
+                  try { navigator.clipboard.writeText(whole); UI.toast('Скопировано'); }
+                  catch (e) { ta.select(); document.execCommand('copy'); UI.toast('Скопировано'); }
                 };
               } catch (e) { out.innerHTML = UI.errorState(e.message); }
             };

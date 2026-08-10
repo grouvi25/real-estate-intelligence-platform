@@ -206,3 +206,32 @@ def test_the_maps_key_survives_a_cached_token():
     assert '@router.get("/config")' in auth_py
     assert "yandex_geocoder_api_key" not in auth_py, \
         "ключ геокодера уехал бы в браузер через /auth/config"
+
+
+def test_the_advert_is_shown_as_an_advert_not_as_json():
+    """The prompt returns the ad split into parts plus `full_text`, the finished
+    thing to post. The screen looked for `text`/`body`/`description`, found none
+    of them, and printed the raw JSON — the machine's notes instead of an advert.
+    """
+    from pathlib import Path
+
+    screen = (Path(__file__).resolve().parent.parent
+              / "mini_app" / "js" / "screens" / "properties.js").read_text(encoding="utf-8")
+    assert "l.full_text" in screen, "экран снова не читает готовый текст объявления"
+    assert "l.headline" in screen, "заголовок объявления снова не читается"
+    assert "JSON.stringify(l" not in screen, "сырой JSON снова может попасть на экран"
+
+
+def test_a_city_is_picked_from_a_list_not_typed_from_memory():
+    """The same town used to arrive as «Геленджик», «геленжик» and «г. Геленджик»
+    — three places as far as the database is concerned."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    analytics = (root / "mini_app" / "js" / "screens" / "analytics.js").read_text(encoding="utf-8")
+    for field in ("me-city", "g-city", "p-city", "e-city"):
+        assert f"UI.cityField('{field}'" in analytics, f"{field} снова вводится вручную"
+        assert f"UI.bindCityField('{field}')" in analytics, f"{field} без подсказок"
+
+    geo = (root / "app" / "routers" / "geo.py").read_text(encoding="utf-8")
+    assert '@router.get("/suggest")' in geo

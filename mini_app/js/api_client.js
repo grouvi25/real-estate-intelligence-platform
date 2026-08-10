@@ -176,6 +176,7 @@
 
     // The agency's own record: name, city, and where leads are exported
     appConfig: () => api.request('/auth/config'),
+    suggestCities: (q) => api.request('/geo/suggest' + qs({ q })),
     agency: () => api.request('/auth/agency'),
     updateAgency: (body) => api.request('/auth/agency', 'PATCH', body),
 

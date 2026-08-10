@@ -98,6 +98,32 @@ async def _create_geo(session, agency_id: uuid.UUID, req: CreateGeoRequest):
     }
 
 
+@router.get("/suggest")
+async def suggest_cities(
+    q: str,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Towns matching what has been typed, for the city fields.
+
+    Every screen that needs a city asked the manager to type it out and hope for
+    the best, so the database collected «геленджик», «Геленжик» and «г. Геленджик»
+    as three different places. Picking from a list makes the name canonical.
+
+    Biased towards where the agency already works: Yandex only matches a prefix
+    inside a narrow window, and the agency's own city is the best guess at one.
+    """
+    from app.models.agency import Agency  # noqa: PLC0415
+    from app.services import geocoder  # noqa: PLC0415
+
+    if not geocoder.is_available():
+        return {"cities": []}
+
+    agency = await session.get(Agency, uuid.UUID(current.agency_id))
+    near = agency.base_city if agency else None
+    return {"cities": await geocoder.suggest_cities(q, near=near)}
+
+
 @router.get("")
 async def list_geo(
     current: CurrentManager = Depends(get_current_manager),

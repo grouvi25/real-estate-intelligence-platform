@@ -203,7 +203,7 @@ Screens.analytics = async function () {
 
 function marketEventSheet() {
   UI.sheet('Анализ рыночного события', `
-    <div class="field"><label>Город</label><input id="me-city" placeholder="напр. Геленджик"></div>
+    ${UI.cityField('me-city', { label: 'Город' })}
     <div class="field"><label>Тип события</label>
       <select id="me-type">
         <option value="price_change">Изменение цен</option>
@@ -217,6 +217,7 @@ function marketEventSheet() {
     <button class="btn btn--block" id="me-go">${UI.icon('sparkles')} Проанализировать</button>
     <div id="me-out" style="margin-top:12px"></div>`,
     () => {
+      UI.bindCityField('me-city');
       document.getElementById('me-go').onclick = async () => {
         const city = document.getElementById('me-city').value.trim();
         const data = document.getElementById('me-data').value.trim();
@@ -495,12 +496,14 @@ async function loadPartners() {
 
 function geoSheet() {
   UI.sheet('Добавить город',
-    `<div class="field"><label>Город</label><input id="g-city" placeholder="напр. Сочи"></div>
+    UI.cityField('g-city', { label: 'Город' }) +
+     `
      <div class="field"><label>Регион</label><input id="g-region" placeholder="напр. Краснодарский край"></div>
      <div class="field"><label>Тип рынка</label><select id="g-type">
        <option value="urban">Город</option><option value="resort">Курорт</option><option value="suburban">Пригород</option></select></div>
      <button class="btn btn--block" id="g-save">${UI.icon('check')} Добавить</button>`,
     (close) => {
+      UI.bindCityField('g-city');
       document.getElementById('g-save').onclick = async () => {
         const city = document.getElementById('g-city').value.trim();
         const region = document.getElementById('g-region').value.trim();
@@ -554,11 +557,12 @@ function partnerOfferSheet({ city, region, marketType, res }) {
 function partnerSheet() {
   UI.sheet('Добавить партнёра',
     `<div class="field"><label>Название</label><input id="p-name" placeholder="Агентство-партнёр"></div>
-     <div class="field"><label>Город</label><input id="p-city" placeholder="напр. Краснодар"></div>
+     ${UI.cityField('p-city', { label: 'Город' })}
      <div class="field"><label>Telegram (chat id или @)</label><input id="p-tg" placeholder="напр. 123456789"></div>
      <div class="field"><label>Комиссия, %</label><input id="p-com" type="number" inputmode="decimal" placeholder="напр. 30"></div>
      <button class="btn btn--block" id="p-save">${UI.icon('check')} Добавить</button>`,
     (close) => {
+      UI.bindCityField('p-city');
       document.getElementById('p-save').onclick = async () => {
         const name = document.getElementById('p-name').value.trim();
         const city = document.getElementById('p-city').value.trim();
@@ -661,7 +665,7 @@ Screens.partnerDetail = async function (params) {
 function editPartnerSheet(p) {
   UI.sheet('Изменить партнёра', `
     <div class="field"><label>Название</label><input id="e-name" value="${UI.esc(p.partner_name)}"></div>
-    <div class="field"><label>Город</label><input id="e-city" value="${UI.esc(p.partner_city)}"></div>
+    ${UI.cityField('e-city', { label: 'Город', value: p.partner_city })}
     <div class="field"><label>Регион</label><input id="e-region" value="${UI.esc(p.partner_region || '')}"></div>
     <div class="field"><label>Контакт (имя)</label><input id="e-cname" value="${UI.esc(p.contact_name || '')}"></div>
     <div class="field"><label>Telegram (chat id или @)</label><input id="e-tg" value="${UI.esc(p.contact_telegram || '')}"></div>
@@ -676,6 +680,7 @@ function editPartnerSheet(p) {
     (close) => {
       document.getElementById('e-ctype').value = p.commission_type || 'percent';
       document.getElementById('e-trust').value = p.trust_level || 'standard';
+      UI.bindCityField('e-city');
       document.getElementById('e-save').onclick = async () => {
         const name = document.getElementById('e-name').value.trim();
         const city = document.getElementById('e-city').value.trim();
