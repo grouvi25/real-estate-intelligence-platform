@@ -390,6 +390,25 @@ body {
    the canvas grows on every redraw. */
 .chart { position: relative; width: 100%; }
 
+/* City suggestions drop out of the field they belong to. Absolute rather than
+   in flow, so the form below does not jump down as answers arrive. */
+.cityfield { position: relative; }
+.cityfield__list {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: var(--z-overlay);
+  margin-top: 4px; background: var(--surface); border: 1px solid var(--hair);
+  border-radius: var(--r-md); overflow: hidden;
+}
+.cityfield__opt {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+  width: 100%; min-height: var(--tap-min); padding: var(--s-2) var(--s-3);
+  text-align: left; cursor: pointer; font-size: var(--t-md); color: var(--fg);
+  transition: background var(--tap);
+}
+.cityfield__opt + .cityfield__opt { border-top: 1px solid var(--hair); }
+@media (hover: hover) { .cityfield__opt:hover { background: var(--hover); } }
+.cityfield__opt:active { background: var(--press); }
+.cityfield__where { color: var(--muted); font-size: var(--t-sm); flex: none; }
+
 /* A map is a picture of where the flat is, not a control surface: it keeps the
    card's corners, and page scrolling wins over zooming so a thumb travelling
    down the screen is never captured by it. */

@@ -180,6 +180,63 @@ const UI = (() => {
     }
   };
 
+  // A city field that suggests instead of trusting the typing. Every screen that
+  // wanted a city asked for it as free text, so the same town arrived as
+  // «Геленджик», «геленжик» and «г. Геленджик» — three places as far as the
+  // database was concerned. Picking from a list makes the name canonical.
+  //
+  // The list appears under the field rather than in a <datalist>: native
+  // datalists are unreliable inside Telegram's webview, and this way the region
+  // can be shown beside the name — there is more than one Красноармейск.
+  const cityField = (id, { label = 'Город', value = '', hint = '' } = {}) => `
+    <div class="field cityfield">
+      <label for="${id}">${esc(label)}</label>
+      <input id="${id}" autocomplete="off" value="${esc(value || '')}"
+             placeholder="начните вводить название">
+      <div class="cityfield__list hidden" id="${id}-list"></div>
+      ${hint ? `<div class="field__hint">${esc(hint)}</div>` : ''}
+    </div>`;
+
+  // Wires a field built by `cityField`. Returns nothing; the input's value is
+  // the answer, exactly as before, so callers read it the way they always did.
+  const bindCityField = (id) => {
+    const input = document.getElementById(id);
+    const list = document.getElementById(`${id}-list`);
+    if (!input || !list) return;
+    let timer = null;
+    let last = '';
+
+    const hide = () => { list.classList.add('hidden'); list.innerHTML = ''; };
+
+    const show = (cities) => {
+      if (!cities.length) { hide(); return; }
+      list.innerHTML = cities.map((c) => `
+        <button type="button" class="cityfield__opt" data-city="${esc(c.name)}">
+          ${esc(c.name)}${c.region ? `<span class="cityfield__where">${esc(c.region)}</span>` : ''}
+        </button>`).join('');
+      list.classList.remove('hidden');
+      list.querySelectorAll('[data-city]').forEach((b) => {
+        b.onclick = () => { input.value = b.getAttribute('data-city'); hide(); };
+      });
+    };
+
+    const ask = async () => {
+      const q = input.value.trim();
+      if (q.length < 2 || q === last) { if (q.length < 2) hide(); return; }
+      last = q;
+      try {
+        const r = await API.suggestCities(q);
+        // The answer may arrive after more typing; only draw it if it still fits.
+        if (input.value.trim() === q) show((r && r.cities) || []);
+      } catch (e) { hide(); }
+    };
+
+    // Typing is faster than the network; asking on every keystroke would send a
+    // billed request per letter.
+    input.oninput = () => { clearTimeout(timer); timer = setTimeout(ask, 350); };
+    input.onblur = () => setTimeout(hide, 150);   // let a click on an option land
+  };
+
   const render = (html, wire) => {
     const v = document.getElementById('view');
     if (v) { v.innerHTML = html; v.scrollTop = 0; }
@@ -255,7 +312,7 @@ const UI = (() => {
     skelCard, skelList, skelFeed, skelStats, skelTiles, skelForm,
     urgencyChip, statusChip, seg, taskType, channel, channelChip, geoType, utmSource, scoreEl,
     list, empty, errorState, load, busy,
-    render, setHeader, toast, sheet,
+    render, setHeader, toast, sheet, cityField, bindCityField,
   };
 })();
 
