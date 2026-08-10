@@ -183,3 +183,26 @@ def test_the_map_block_follows_the_coordinates_not_the_address_text():
               / "mini_app" / "js" / "screens" / "properties.js").read_text(encoding="utf-8")
     assert "${(p.address || map) ?" in screen, \
         "блок карты снова показывается только при наличии адреса"
+
+
+def test_the_maps_key_survives_a_cached_token():
+    """The token lives in Telegram's CloudStorage and outlives the session.
+
+    The key used to live in sessionStorage, so a manager who had logged in before
+    skipped the handshake, never received it, and saw no map — while a first-time
+    visitor saw one. Both storages must be the same, and the app must be able to
+    ask for what it is missing.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    auth_js = (root / "mini_app" / "js" / "auth.js").read_text(encoding="utf-8")
+    assert "sessionStorage" not in auth_js.split("Maps.KEY_STORE")[0][-400:], \
+        "ключ карт снова в sessionStorage"
+    assert "StorageAdapter.get(Maps.KEY_STORE)" in auth_js
+    assert "refreshConfig" in auth_js, "нет добора настроек при кэшированном токене"
+
+    auth_py = (root / "app" / "routers" / "auth.py").read_text(encoding="utf-8")
+    assert '@router.get("/config")' in auth_py
+    assert "yandex_geocoder_api_key" not in auth_py, \
+        "ключ геокодера уехал бы в браузер через /auth/config"

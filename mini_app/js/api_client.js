@@ -175,6 +175,7 @@
     rotateInvite: () => api.request('/auth/invite/rotate', 'POST'),
 
     // The agency's own record: name, city, and where leads are exported
+    appConfig: () => api.request('/auth/config'),
     agency: () => api.request('/auth/agency'),
     updateAgency: (body) => api.request('/auth/agency', 'PATCH', body),
 

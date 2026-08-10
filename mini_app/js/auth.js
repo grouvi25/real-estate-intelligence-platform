@@ -15,14 +15,35 @@ function inviteToken() {
   return String(value).startsWith('inv_') ? value : null;
 }
 
+async function rememberMapsKey(key) {
+  Maps.setKey(key);
+  try {
+    if (key) await StorageAdapter.set(Maps.KEY_STORE, key);
+    else await StorageAdapter.remove(Maps.KEY_STORE);
+  } catch (e) { /* storage refused; the key simply is not kept */ }
+}
+
+// Asks for the settings the cached-token path skips. A failure here costs a map,
+// never the session — the cabinet must open whatever the answer is.
+async function refreshConfig() {
+  try {
+    const cfg = await API.appConfig();
+    await rememberMapsKey(cfg && cfg.maps_key);
+  } catch (e) { /* ignore */ }
+}
+
 async function authenticate() {
   try { window._agency = JSON.parse(sessionStorage.getItem('agency') || 'null'); } catch (e) { /* ignore */ }
-  // The handshake carries the public settings, and the token is cached — so on a
-  // second open the settings have to come back from storage or the map would
-  // silently disappear for everyone who did not just log in.
-  try { Maps.setKey(sessionStorage.getItem(Maps.KEY_STORE)); } catch (e) { /* private mode */ }
+  // The key lives wherever the token lives. It used to sit in sessionStorage
+  // while the token sat in Telegram's CloudStorage, which outlives the session:
+  // a manager who logged in yesterday skipped the handshake, so the key never
+  // arrived and the map quietly vanished for everyone but a first-time visitor.
+  try { Maps.setKey(await StorageAdapter.get(Maps.KEY_STORE)); } catch (e) { /* ignore */ }
   const cached = api.loadToken ? await api.loadToken() : null;
-  if (cached) return cached;
+  if (cached) {
+    if (!Maps.available()) await refreshConfig();
+    return cached;
+  }
   const res = await api.request('/auth/platform', 'POST', {
     platform: PlatformSDK.platform,
     init_data: PlatformSDK.initData,
@@ -35,10 +56,6 @@ async function authenticate() {
     window._agency = res.agency;
     try { sessionStorage.setItem('agency', JSON.stringify(res.agency)); } catch (e) { /* private mode */ }
   }
-  Maps.setKey(res.maps_key);
-  try {
-    if (res.maps_key) sessionStorage.setItem(Maps.KEY_STORE, res.maps_key);
-    else sessionStorage.removeItem(Maps.KEY_STORE);
-  } catch (e) { /* private mode */ }
+  await rememberMapsKey(res.maps_key);
   return res.token;
 }
