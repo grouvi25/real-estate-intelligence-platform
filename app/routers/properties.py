@@ -188,6 +188,34 @@ async def generate_listing(
     return {"listing": safe_ai_parse(res, {"text": res})}
 
 
+async def _ensure_coordinates(session, prop, city: Optional[str]) -> None:
+    """Find the property on the map once, then remember where it is.
+
+    Geocoding is a billed request, and the answer for a fixed address never
+    changes -- doing it on every open would spend the daily quota re-finding the
+    same twenty flats. `geocoded_at` is stamped even when nothing is found, so an
+    address the geocoder cannot resolve is not retried on every open either.
+    """
+    if prop.lat is not None or prop.geocoded_at is not None or not prop.address:
+        return
+
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    from app.services import geocoder  # noqa: PLC0415
+
+    if not geocoder.is_available():
+        return
+
+    # A district is not an address: "Тонкий мыс" without the city finds the wrong
+    # one, and there is more than one in Russia.
+    query = ", ".join(x for x in (city, prop.district, prop.address) if x)
+    at = await geocoder.geocode(query)
+    prop.geocoded_at = datetime.now(timezone.utc)
+    if at:
+        prop.lat, prop.lon = at
+    await session.commit()
+
+
 @router.get("/{property_id}")
 async def get_property(
     property_id: uuid.UUID,
@@ -207,10 +235,15 @@ async def get_property(
 
         geo = await session.get(GeoLocation, prop.geo_location_id)
         city = geo.city_name if geo else None
+
+    await _ensure_coordinates(session, prop, city)
+
     return {
         **_property_summary(prop),
         "address": prop.address,
         "city_name": city,
+        "lat": prop.lat,
+        "lon": prop.lon,
         "price_per_sqm": prop.price_per_sqm,
         "floor": prop.floor,
         "floors_total": prop.floors_total,

@@ -5,16 +5,16 @@
 // out entirely rather than drawing an empty grey square.
 //
 // The API is loaded on demand — the first screen that asks for a map pays for it,
-// and a manager who only ever looks at the queue never downloads it at all.
+// and a manager who only ever opens the queue never downloads it at all.
 //
-// There are no coordinates in the catalogue, so a placemark is found by geocoding
-// the address. That is one request per card, cached for the session, and it fails
-// quietly: a card without a findable address shows everything else as before.
+// Nothing here geocodes. Coordinates arrive with the property, found once on the
+// server and kept: the geocoder is a separate, billed product whose key has no
+// business in a page anyone can open, and Telegram's webview does not reliably
+// send the Referer that Yandex checks.
 window.Maps = (() => {
   const KEY_STORE = 'maps_key';
   let key = null;
   let loading = null;
-  const found = new Map();
 
   const setKey = (k) => { key = k || null; };
   const available = () => Boolean(key);
@@ -32,24 +32,11 @@ window.Maps = (() => {
     return loading;
   }
 
-  async function geocode(ymaps, query) {
-    if (found.has(query)) return found.get(query);
-    const res = await ymaps.geocode(query, { results: 1 });
-    const first = res.geoObjects.get(0);
-    const at = first ? first.geometry.getCoordinates() : null;
-    found.set(query, at);
-    return at;
-  }
-
-  /** Container HTML. Returns null when there is no key or nothing to look up. */
-  function block(query, { height = 180 } = {}) {
-    if (!available() || !query) return null;
+  /** Container HTML, or null when there is no key or no point to show. */
+  function block(lat, lon, { height = 180 } = {}) {
+    if (!available() || typeof lat !== 'number' || typeof lon !== 'number') return null;
     const id = `map-${Math.random().toString(36).slice(2, 9)}`;
-    return {
-      id,
-      query,
-      html: `<div class="map" id="${id}" style="height:${height}px"></div>`,
-    };
+    return { id, at: [lat, lon], html: `<div class="map" id="${id}" style="height:${height}px"></div>` };
   }
 
   /** Draw a block returned by `block`. Silent on failure — a map is never the
@@ -60,13 +47,11 @@ window.Maps = (() => {
     if (!el) return;
     try {
       const ymaps = await load();
-      const at = await geocode(ymaps, spec.query);
-      if (!at) { el.remove(); return; }
       const map = new ymaps.Map(el, {
-        center: at, zoom: 15, controls: ['zoomControl'],
+        center: spec.at, zoom: 15, controls: ['zoomControl'],
       }, { suppressMapOpenBlock: true });
       map.behaviors.disable('scrollZoom');   // the page must still scroll
-      map.geoObjects.add(new ymaps.Placemark(at, {}, { preset: 'islands#blueDotIcon' }));
+      map.geoObjects.add(new ymaps.Placemark(spec.at, {}, { preset: 'islands#blueDotIcon' }));
     } catch (e) {
       el.remove();
     }
