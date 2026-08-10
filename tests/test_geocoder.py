@@ -235,3 +235,21 @@ def test_a_city_is_picked_from_a_list_not_typed_from_memory():
 
     geo = (root / "app" / "routers" / "geo.py").read_text(encoding="utf-8")
     assert '@router.get("/suggest")' in geo
+
+
+def test_a_town_that_starts_with_what_was_typed_comes_first():
+    """«Краснод» matches both Краснодар and посёлок Краснодарский, and the
+    geocoder has no idea which one a person meant. The one whose name begins
+    with what was typed does."""
+    from app.services.geocoder import _rank
+
+    rows = [
+        {"name": "посёлок Краснодарский"},
+        {"name": "Краснодар"},
+        {"name": "село Краснодарское"},
+    ]
+    assert [r["name"] for r in _rank(rows, "Краснод")][0] == "Краснодар"
+
+    # Ties on the prefix break on length: a city beats a village of the same name.
+    kazan = [{"name": "деревня Казань"}, {"name": "Казань"}]
+    assert _rank(kazan, "Казань")[0]["name"] == "Казань"
