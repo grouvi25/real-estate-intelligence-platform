@@ -32,6 +32,19 @@ async function refreshConfig() {
   } catch (e) { /* ignore */ }
 }
 
+// Telegram Desktop can inject its bridge a moment after the page has run, and
+// then initData is an empty string only because we asked too early. Ask again
+// before concluding anything: three short waits cost a person nothing and save
+// them a screen that says the app is not in Telegram while it plainly is.
+async function launchSignature() {
+  let value = PlatformSDK.initData;
+  for (let i = 0; i < 3 && !value && PlatformSDK.inTelegram; i++) {
+    await new Promise((r) => setTimeout(r, 300));
+    value = PlatformSDK.initData;
+  }
+  return value;
+}
+
 async function authenticate() {
   try { window._agency = JSON.parse(sessionStorage.getItem('agency') || 'null'); } catch (e) { /* ignore */ }
   // The key lives wherever the token lives. It used to sit in sessionStorage
@@ -46,7 +59,7 @@ async function authenticate() {
   }
   const res = await api.request('/auth/platform', 'POST', {
     platform: PlatformSDK.platform,
-    init_data: PlatformSDK.initData,
+    init_data: await launchSignature(),
     invite: inviteToken(),
   });
   api.setToken(res.token);

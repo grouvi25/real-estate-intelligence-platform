@@ -37,14 +37,9 @@
       this.token = null;
       try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
     }
-    if (!res.ok) {
-      // The import reports per-row problems in the body; surface them instead
-      // of a bare status code.
-      let detail = `API ${res.status}`;
-      try { const body = await res.json(); detail = body.detail || body.message || detail; }
-      catch (e) { /* keep the status */ }
-      throw new Error(detail);
-    }
+    // The import reports per-row problems in the body; api.failure surfaces
+    // them instead of a bare status code.
+    if (!res.ok) throw await api.failure(res);
     return res.json();
   };
 
@@ -63,7 +58,7 @@
       this.token = null;
       try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
     }
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res.ok) throw await api.failure(res);
     return URL.createObjectURL(await res.blob());
   };
 
@@ -80,7 +75,7 @@
       this.token = null;
       try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
     }
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res.ok) throw await api.failure(res);
     return res.text();
   };
 
