@@ -40,6 +40,15 @@ _CITY_PREFIX_LEN = 5
 # different way a local chat might name itself. The first live run over
 # Геленджик surfaced 18 candidates from five queries and only one of them was
 # about buying property -- narrow phrasing was part of why.
+#
+# «объявления», «барахолка» and «квартиры» used to be in here, and they worked
+# exactly as asked: Discovery found eight classified-ad boards, the scorer
+# correctly parked them in the sandbox, and over a week the collector read 2169
+# messages off them and produced two signals. Sampling 400 of those messages
+# found purchase intent in four, and the closest to a buyer was looking to rent.
+# An ad board is where sellers post; a buyer asks about districts and schools
+# before they ever write "куплю". So the search asks for conversation now. A
+# board that is genuinely good can still be added by hand.
 _QUERY_TEMPLATES = (
     "{city} недвижимость",
     "{city} недвижимость чат",
@@ -47,11 +56,12 @@ _QUERY_TEMPLATES = (
     "{city} куплю квартиру",
     "{city} новостройки",
     "{city} ЖК",
-    "{city} квартиры",
-    "{city} объявления",
-    "{city} барахолка",
+    "{city} ипотека",
     "{city} чат",
+    "{city} чат жителей",
+    "{city} форум",
     "{city} переезд",
+    "переезд в {city}",
     "Недвижимость {city}",
 )
 

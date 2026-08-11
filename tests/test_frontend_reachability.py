@@ -137,13 +137,32 @@ def test_every_route_has_an_entry_point():
     assert not orphans, f"экран без входа: {orphans}"
 
 
+# A shared component returns markup for somebody else to insert, so it cannot
+# bind anything itself -- the rule for it is that every caller binds. Listed by
+# name rather than by "anything in components.js" so a new component that draws
+# navigation and forgets about it still fails.
+CALLER_BOUND = {"UI.setupCard"}
+
+
 @pytest.mark.parametrize("path", [f for f in JS])
 def test_screens_bind_navigation_after_rendering(path: Path):
     """data-go only works once bindGo() has attached the handlers."""
     src = path.read_text(encoding="utf-8")
     if "data-go=" not in src:
         pytest.skip("no navigation markup")
-    assert "Router.bindGo" in src, f"{path.name} рисует data-go, но не вызывает Router.bindGo()"
+    if "Router.bindGo" in src:
+        return
+    drawn_for_callers = [name for name in CALLER_BOUND if f"{name} = function" in src]
+    assert drawn_for_callers, f"{path.name} рисует data-go, но не вызывает Router.bindGo()"
+
+    # Then the promise has to hold: everyone who uses it binds.
+    for name in drawn_for_callers:
+        for other in JS:
+            body = other.read_text(encoding="utf-8")
+            if f"{name}(" in body and f"{name} = function" not in body:
+                assert "Router.bindGo" in body, (
+                    f"{other.name} зовёт {name}, но не вызывает Router.bindGo() — "
+                    "кнопки в карточке будут мёртвыми")
 
 
 def test_screens_do_not_depend_on_each_other():

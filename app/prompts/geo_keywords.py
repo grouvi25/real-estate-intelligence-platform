@@ -13,6 +13,15 @@ false for every real message and yields zero signals. It also produced
 marketing-style phrases ("купить недвижимость в Краснодарском крае") that never
 occur verbatim in a chat. TZ 35 expects ["Геленджик"] and ["ищу квартиру",
 "купить"] instead.
+
+search_queries earned its own rules by measurement. The first live vocabulary
+asked for «Геленджик объявления» and «Геленджик барахолка», so Source Discovery
+found eight classified-ad boards -- and the scorer, which is right to send those
+to the sandbox, had nothing better to choose between. Over one week the
+collector read 2169 messages from them and produced two signals; of 400 sampled
+messages, four contained any purchase intent at all and the one that came
+closest was looking to rent. Ad boards are where sellers post. Buyers ask about
+districts, schools and the move, so that is what the queries look for now.
 """
 
 SYSTEM_PROMPT_GEO_KEYWORDS = """
@@ -43,6 +52,11 @@ financial_terms или property_terms. Сравнение — простое в�
   нужно отсеять («сдам», «аренда», «посуточно», «работа»).
 - search_queries: наоборот, полноценные поисковые фразы С НАЗВАНИЕМ ГОРОДА,
   по которым ищут сами чаты и группы («Геленджик недвижимость чат»).
+  Ищи места, где ЛЮДИ РАЗГОВАРИВАЮТ, а не где публикуют объявления:
+  чаты жителей, переезд и релокация, обсуждение районов, школ и садов,
+  новостройки и ЖК, ипотека, форумы города.
+  НЕ проси «объявления», «барахолку», «доску», «куплю-продам»: там сидят
+  продавцы и посредники, и покупатель туда почти не пишет.
 - Минимум по 5 элементов в каждом списке.
 
 ВОЗВРАЩАЙ СТРОГО JSON БЕЗ MARKDOWN:

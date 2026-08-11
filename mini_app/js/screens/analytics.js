@@ -365,7 +365,7 @@ async function loadSetup() {
   if (!box) return;
   try {
     const o = await API.overview();
-    box.innerHTML = Screens.setupCard(o.setup, { always: true })
+    box.innerHTML = UI.setupCard(o.setup, { always: true })
       || '<div class="card"><div class="item__sub">Всё готово.</div></div>';
     Router.bindGo();
   } catch (e) {
