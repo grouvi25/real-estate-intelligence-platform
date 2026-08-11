@@ -186,11 +186,16 @@ def test_search_queries_do_not_duplicate_a_template_the_ai_already_produced():
 
 def test_search_queries_cover_several_angles():
     """Telegram search matches chat titles, so the templates have to guess the
-    different ways a local chat names itself."""
+    different ways a local chat names itself.
+
+    «объявления» was one of these angles until a week of live collection showed
+    what it brings in -- see
+    test_the_search_does_not_go_looking_for_classified_ad_boards. The angles now
+    are the ones a buyer's chat names itself by."""
     from app.discovery.keyword_builder import _QUERY_TEMPLATES
 
     joined = " ".join(_QUERY_TEMPLATES).lower()
-    for angle in ("недвижимость", "куплю квартиру", "новостройки", "жк", "объявления"):
+    for angle in ("недвижимость", "куплю квартиру", "новостройки", "жк", "переезд", "форум"):
         assert angle in joined
     assert len(_QUERY_TEMPLATES) >= 10
 
@@ -201,3 +206,24 @@ def test_collector_uses_more_than_a_handful_of_queries():
     from app.collectors.telegram_collector import TelegramCollector
 
     assert TelegramCollector.MAX_QUERIES >= 12
+
+
+def test_the_search_does_not_go_looking_for_classified_ad_boards():
+    """Where we look decides who we find, and boards are where sellers post.
+
+    «объявления» and «барахолка» were templates until a week of live collection
+    settled it: eight boards found, 2169 messages read off them, two signals. Of
+    400 sampled messages four contained any purchase intent, and the nearest to
+    a buyer wanted to rent. A board can still be added by hand; it is no longer
+    what the robot goes out looking for.
+    """
+    from app.discovery.keyword_builder import _sanitize
+
+    kw = _sanitize({}, "Геленджик")
+    queries = " ".join(kw["search_queries"]["telegram"]).lower()
+
+    assert "объявления" not in queries
+    assert "барахолка" not in queries
+    # And it does ask about the things a buyer talks about before they buy.
+    assert "переезд" in queries
+    assert "чат" in queries
