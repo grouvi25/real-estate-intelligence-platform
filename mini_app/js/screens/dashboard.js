@@ -16,7 +16,8 @@ Screens.setupCard = function (s, opts) {
   if (!s || (!always && s.done >= s.total)) return '';
   const step = (x) => `
     <button class="item mt-3" data-go="${x.route}"${x.done ? ' disabled' : ''}
-            style="width:100%;text-align:left;background:none;border:0;padding:0">
+            style="width:100%;text-align:left;background:none;border:0;
+                   padding:0;min-height:var(--tap-min)">
       <div class="stat__ico${x.done ? ' stat__ico--success' : ''}">
         ${UI.icon(x.done ? 'check' : 'plus')}</div>
       <div class="grow">
