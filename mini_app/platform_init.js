@@ -3,53 +3,107 @@
 // replacing the TZ's Vite `import.meta.env.VITE_API_URL`.
 
 const PlatformSDK = (() => {
-  const initPlatform = () => {
-    if (window.Telegram && window.Telegram.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-      return {
-        platform: 'telegram',
-        user: tg.initDataUnsafe && tg.initDataUnsafe.user,
-        initData: tg.initData,
-        theme: tg.colorScheme,
-        showMainButton: (text, cb) => {
-          tg.MainButton.setText(text);
-          tg.MainButton.show();
-          tg.MainButton.onClick(cb);
-        },
-        close: () => tg.close()
-      };
-    }
-    if (window.MAX && window.MAX.WebApp) {
-      const max = window.MAX.WebApp;
-      max.ready();
-      return {
-        platform: 'max',
-        user: max.initDataUnsafe && max.initDataUnsafe.user,
-        initData: max.initData,
-        theme: max.theme || 'light',
-        showMainButton: (text, cb) => {
-          if (max.MainButton) {
-            max.MainButton.setText(text);
-            max.MainButton.show();
-            max.MainButton.onClick(cb);
+  const tgApp = () => (window.Telegram && window.Telegram.WebApp) || null;
+  const maxApp = () => (window.MAX && window.MAX.WebApp) || null;
+
+  // Telegram hands the signed launch payload to the page in the URL fragment
+  // (#tgWebAppData=...); telegram-web-app.js is what turns it into
+  // WebApp.initData. That script is fetched from telegram.org, so when the
+  // request does not arrive -- a blocked resolver, a captive network, an ad
+  // blocker -- no bridge appears and the app declares itself "not in Telegram"
+  // while the signature is sitting in the address bar, untouched.
+  //
+  // Read once, at load: the router rewrites the hash to #/dashboard as soon as
+  // it starts, and a token that expires an hour later must still be able to
+  // re-authenticate.
+  const LAUNCH = (() => {
+    const out = {};
+    const take = (source) => {
+      try {
+        new URLSearchParams(source).forEach((value, key) => {
+          // URLSearchParams decodes once, which is exactly right: the value is
+          // the initData string, percent-encoded. Decoding a second time turns
+          // a name that legitimately contains "%" into an exception.
+          if (!(key in out) && (key.indexOf('tgWebApp') === 0 || key === 'WebAppData')) {
+            out[key] = value;
           }
-        },
-        close: () => max.close()
-      };
-    }
-    // Browser fallback for local dev.
-    return {
-      platform: 'web',
-      user: { id: 0, first_name: 'TestDev' },
-      initData: 'mock',
-      theme: 'light',
-      showMainButton: () => {},
-      close: () => {}
+        });
+      } catch (e) { /* malformed URL; nothing to take */ }
     };
+    const hash = location.hash || '';
+    take(hash.startsWith('#') ? hash.slice(1) : hash);
+    take(location.search || '');
+    return out;
+  })();
+
+  // Whoever is asking, the answer must not be a value captured before the
+  // bridge existed: on Desktop it can be injected a moment after the page runs.
+  const personFrom = (initData) => {
+    try {
+      const raw = new URLSearchParams(initData).get('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
   };
-  return initPlatform();
+
+  const telegram = {
+    platform: 'telegram',
+    get inTelegram() { return true; },
+    get initData() {
+      const tg = tgApp();
+      return (tg && tg.initData) || LAUNCH.tgWebAppData || '';
+    },
+    get user() {
+      const tg = tgApp();
+      return (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) || personFrom(this.initData);
+    },
+    get theme() { const tg = tgApp(); return (tg && tg.colorScheme) || 'light'; },
+    showMainButton: (text, cb) => {
+      const tg = tgApp();
+      if (!tg || !tg.MainButton) return;
+      tg.MainButton.setText(text);
+      tg.MainButton.show();
+      tg.MainButton.onClick(cb);
+    },
+    close: () => { const tg = tgApp(); if (tg) tg.close(); },
+  };
+
+  if (tgApp()) {
+    try { tgApp().ready(); tgApp().expand(); } catch (e) { /* older client */ }
+    return telegram;
+  }
+  // No bridge, but Telegram's own launch parameters are in the URL. This is
+  // still Telegram, and the signature it left is enough to sign in.
+  if (LAUNCH.tgWebAppData || LAUNCH.tgWebAppPlatform) return telegram;
+
+  if (maxApp()) {
+    const max = maxApp();
+    max.ready();
+    return {
+      platform: 'max',
+      inTelegram: false,
+      user: max.initDataUnsafe && max.initDataUnsafe.user,
+      get initData() { return max.initData || LAUNCH.WebAppData || ''; },
+      theme: max.theme || 'light',
+      showMainButton: (text, cb) => {
+        if (max.MainButton) {
+          max.MainButton.setText(text);
+          max.MainButton.show();
+          max.MainButton.onClick(cb);
+        }
+      },
+      close: () => max.close()
+    };
+  }
+  // Browser fallback for local dev.
+  return {
+    platform: 'web',
+    inTelegram: false,
+    user: { id: 0, first_name: 'TestDev' },
+    initData: 'mock',
+    theme: 'light',
+    showMainButton: () => {},
+    close: () => {}
+  };
 })();
 
 const API_BASE = (window.REIP_CONFIG && window.REIP_CONFIG.apiUrl) || '';
@@ -106,6 +160,24 @@ window._utm = (() => {
 
 const api = {
   token: null,
+  // One place where a failed response becomes an Error. There are four call
+  // sites and they used to disagree about whether the server's words were worth
+  // keeping; the one used for signing in kept nothing, so a manager refused for
+  // having no invitation -- explained in Russian, in the body -- was shown the
+  // app's default advice instead, which sent him to Telegram to fix a problem
+  // that was never Telegram's.
+  //
+  // The server names its own refusals under "error" (AppException) and
+  // FastAPI's arrive under "detail".
+  async failure(res) {
+    let body = null;
+    try { body = await res.json(); } catch (e) { /* not JSON, or no body */ }
+    const said = body && (body.error || body.detail || body.message);
+    const err = new Error(typeof said === 'string' && said ? said : `API ${res.status}`);
+    err.status = res.status;
+    err.code = body && body.code;
+    return err;
+  },
   async request(endpoint, method = 'GET', body = null) {
     const build = () => {
       const headers = { 'Content-Type': 'application/json' };
@@ -123,7 +195,7 @@ const api = {
       this.token = null;
       try { await authenticate(); res = await build(); } catch (e) { /* fall through */ }
     }
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res.ok) throw await this.failure(res);
     return res.json();
   }
 };

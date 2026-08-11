@@ -165,6 +165,11 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
         else verify_max_init_data(req.init_data)
     )
     if not user or user.get("id") is None:
+        # Refusals are logged with their reason because the only record we had
+        # of a manager being turned away was a status code in the access log,
+        # and 401 and 403 there mean two completely different conversations.
+        logger.warning("Вход отклонён: подпись платформы не сошлась",
+                       platform=req.platform, init_data_len=len(req.init_data or ""))
         raise HTTPException(status_code=401, detail="Invalid platform signature")
 
     platform = BotPlatform(req.platform)
@@ -181,7 +186,13 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
         # manager of PLATFORM_OWNER_AGENCY_ID and saw that agency's signals,
         # leads and their clients' personal data. Joining now requires the
         # owner's invite link, and the token in it decides which agency.
-        agency_id = await _agency_for_invite(session, req.invite)
+        try:
+            agency_id = await _agency_for_invite(session, req.invite)
+        except AppException as e:
+            logger.warning("Вход отклонён: приглашение не принято",
+                           platform=req.platform, platform_user_id=platform_user_id,
+                           has_invite=bool(req.invite), code=e.code)
+            raise
         manager = Manager(
             agency_id=agency_id,
             name=user.get("first_name", "Unknown"),
