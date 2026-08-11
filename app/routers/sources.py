@@ -12,6 +12,7 @@ Manager-scoped: the agency always comes from the JWT, never from client input.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from app.config import config
 from app.database import get_session
 from app.dependencies import CurrentManager, get_current_manager
 from app.exceptions import AppException, NotFoundError, ValidationError
@@ -177,6 +179,109 @@ async def list_sources(
         ],
         "count": len(sources),
     }
+
+
+# How often each family of sources is actually visited. Kept beside the beat
+# schedule in worker/celery_app.py -- a person looking at an empty screen wants
+# to know whether to wait ten minutes or until Monday.
+CHANNELS = (
+    ("telegram", "Telegram", ("telegram_chat", "telegram_channel"), "каждые 10 минут"),
+    ("vk", "ВКонтакте", ("vk_group",), "каждые 10 минут"),
+    ("web", "Ленты, YouTube и сайты", ("youtube", "rss", "forum", "website"), "раз в час"),
+)
+COLLECTED_STATUSES = ("active", "sandbox")
+
+
+def _channel_ready(key: str) -> tuple[bool, str]:
+    """Whether a channel can collect at all, and what to say about it.
+
+    Every collector is credential-gated and returns quietly when it is not
+    configured, which is right -- but it means a channel can be switched off for
+    weeks without anything on screen ever saying so.
+    """
+    if key == "telegram":
+        if config.telethon_api_id and config.telethon_api_hash:
+            return True, "читает чаты через отдельный аккаунт"
+        return False, "нет аккаунта-коллектора: задайте TELETHON_API_ID, TELETHON_API_HASH и номер"
+    if key == "vk":
+        if config.vk_service_token:
+            return True, "сервисный ключ на месте"
+        return False, "нет сервисного ключа ВК (VK_SERVICE_TOKEN)"
+    if config.youtube_api_key:
+        return True, "ленты читаются всегда, YouTube — по ключу"
+    return True, "ленты читаются; для YouTube нужен YOUTUBE_API_KEY"
+
+
+@router.get("/collection")
+async def collection_status(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """What the robot has actually been doing, and whether it is finding anyone.
+
+    This exists because a screen showing nothing looks the same whether the
+    collector is off, or running and finding nothing, or running and finding
+    plenty that the filter drops. Those are three different problems with three
+    different answers, and until now telling them apart meant SSH.
+    """
+    from app.models.content_unit import ContentUnit  # noqa: PLC0415
+
+    agency_id = uuid.UUID(current.agency_id)
+    day = datetime.now(timezone.utc) - timedelta(days=1)
+    week = datetime.now(timezone.utc) - timedelta(days=7)
+
+    async def _count(model, since=None):
+        stmt = select(func.count(model.id)).where(model.agency_id == agency_id)
+        if since is not None:
+            stmt = stmt.where(model.created_at >= since)
+        return int(await session.scalar(stmt) or 0)
+
+    collected = {"total": await _count(ContentUnit), "day": await _count(ContentUnit, day),
+                 "week": await _count(ContentUnit, week)}
+    signals = {"total": await _count(Signal), "day": await _count(Signal, day),
+               "week": await _count(Signal, week)}
+
+    sources = (await session.execute(
+        select(Source).where(Source.agency_id == agency_id)
+    )).scalars().all()
+
+    channels = []
+    for key, name, types, cadence in CHANNELS:
+        mine = [s for s in sources if s.source_type in types]
+        working = [s for s in mine if s.status in COLLECTED_STATUSES]
+        seen = [s.last_checked_at for s in working if s.last_checked_at]
+        ready, detail = _channel_ready(key)
+        channels.append({
+            "key": key, "name": name, "ready": ready, "detail": detail,
+            "sources": len(mine), "working": len(working), "cadence": cadence,
+            "last_checked_at": max(seen).isoformat() if seen else None,
+        })
+
+    # The one sentence a person actually needs. Ordered by what to fix first.
+    if not any(c["working"] for c in channels):
+        verdict = {"tone": "blocker", "text": "Ни один источник не в работе — собирать пока неоткуда.",
+                   "action": "Добавьте источники или дождитесь еженедельного поиска (понедельник, 02:00)."}
+    elif any(c["working"] and not c["ready"] for c in channels):
+        off = ", ".join(c["name"] for c in channels if c["working"] and not c["ready"])
+        verdict = {"tone": "blocker", "text": f"Источники есть, но канал не настроен: {off}.",
+                   "action": "Пока канал выключен, его источники не читаются вообще."}
+    elif not collected["week"]:
+        verdict = {"tone": "blocker", "text": "За неделю не прочитано ни одного сообщения.",
+                   "action": "Проверьте, доступны ли источники — возможно, чаты закрыли."}
+    elif not signals["week"]:
+        verdict = {"tone": "warning",
+                   "text": f"Прочитано сообщений за неделю: {collected['week']}, "
+                           "покупателей среди них не нашлось.",
+                   "action": "Обычно это значит, что чаты не те: в барахолках и досках "
+                             "объявлений сидят продавцы. Ищите чаты, где обсуждают переезд "
+                             "и районы."}
+    else:
+        verdict = {"tone": "ok",
+                   "text": f"За неделю: {collected['week']} сообщений, {signals['week']} сигналов.",
+                   "action": ""}
+
+    return {"collected": collected, "signals": signals, "channels": channels,
+            "verdict": verdict}
 
 
 async def _default_geo(session, agency_id: uuid.UUID) -> uuid.UUID:

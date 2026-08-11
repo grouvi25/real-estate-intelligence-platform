@@ -181,6 +181,7 @@
 
     // Monitoring sources (TZ 30 /admin/sources)
     sources: (f) => api.request('/sources' + qs(f)),
+    collection: () => api.request('/sources/collection'),
     createSource: (body) => api.request('/sources', 'POST', body),
     updateSource: (id, body) => api.request(`/sources/${id}`, 'PATCH', body),
     deleteSource: (id) => api.request(`/sources/${id}`, 'DELETE'),

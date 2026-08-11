@@ -49,17 +49,21 @@ Screens.signals = async function () {
       UI.render(bar + UI.list(items, card, {
         icon: 'signals',
         title: filter ? 'В этом фильтре пусто' : 'Пока нет сигналов',
+        // An empty list looks the same whether the collector is off, or working
+        // and finding nobody. Send the person where that question is answered
+        // instead of to the source list, which shows neither.
         sub: filter ? 'Снимите фильтр, чтобы увидеть остальные'
-          : 'Появятся, когда источники начнут собирать',
-        actionLabel: filter ? null : 'Настроить источники',
-        actionIcon: 'settings', actionId: 'to-sources',
+          : 'Робот читает чаты и оставляет только тех, кто похож на покупателя. '
+            + 'Посмотрите, сколько он прочитал и что отсеял.',
+        actionLabel: filter ? null : 'Как идёт сбор',
+        actionIcon: 'signals', actionId: 'to-sources',
       }), () => {
         Router.bindGo();
         document.querySelectorAll('[data-f]').forEach((b) => {
           b.onclick = () => { filter = b.getAttribute('data-f'); draw(); };
         });
         const a = document.getElementById('to-sources');
-        if (a) a.onclick = () => Router.go('sources');
+        if (a) a.onclick = () => Router.go('collection');
       });
     });
   }

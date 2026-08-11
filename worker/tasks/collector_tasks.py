@@ -6,12 +6,25 @@ Telethon session is configured.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import structlog
 from celery import shared_task
 
 from worker.async_runner import run_async
 
 logger = structlog.get_logger()
+
+
+def _stamp(src) -> None:
+    """Remember that this source was visited, whatever came of it.
+
+    The column and the API field for it shipped from the start and nothing ever
+    wrote to either, so "last checked" was null on every source and the only way
+    to tell a working collector from a stopped one was to read the worker's log.
+    Stamped before the fetch so a source that fails is still visibly attempted.
+    """
+    src.last_checked_at = datetime.now(timezone.utc)
 
 
 async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
@@ -41,8 +54,11 @@ async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
                 if src.geo_location_id:
                     geo = await session.get(GeoLocation, src.geo_location_id)
                     keywords = (geo.keywords if geo else {}) or {}
+                _stamp(src)
                 total += await collector.collect_from_source(
                     session, src, keywords, limit=limit_per_source)
+            # The stamp has to survive a source that threw before its own commit.
+            await session.commit()
     finally:
         await collector.close()
     logger.info("Telegram collection run complete", signals=total)
@@ -87,8 +103,11 @@ async def _collect_vk_sources(limit_per_source: int = 50) -> int:
                 if src.geo_location_id:
                     geo = await session.get(GeoLocation, src.geo_location_id)
                     keywords = (geo.keywords if geo else {}) or {}
+                _stamp(src)
                 total += await collector.collect_from_source(
                     session, src, keywords, limit=limit_per_source)
+            # The stamp has to survive a source that threw before its own commit.
+            await session.commit()
     finally:
         await collector.close()
     logger.info("VK collection run complete", signals=total)
@@ -139,8 +158,11 @@ async def _collect_web_sources(limit_per_source: int = 50) -> int:
                 if src.geo_location_id:
                     geo = await session.get(GeoLocation, src.geo_location_id)
                     keywords = (geo.keywords if geo else {}) or {}
+                _stamp(src)
                 total += await collector.collect_from_source(
                     session, src, keywords, limit=limit_per_source)
+            # The stamp has to survive a source that threw before its own commit.
+            await session.commit()
     finally:
         await rss.close()
         await youtube.close()
