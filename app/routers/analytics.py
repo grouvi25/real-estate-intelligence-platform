@@ -151,13 +151,21 @@ async def _setup_steps(session, aid: uuid.UUID) -> dict:
     from app.models.geo_location import GeoLocation  # noqa: PLC0415
     from app.models.source import Source  # noqa: PLC0415
 
+    from app.services.readiness import SEED_CATALOGUE_MAX  # noqa: PLC0415
+
+    async def _count(model, *where) -> int:
+        return int(await session.scalar(
+            select(func.count()).select_from(model).where(model.agency_id == aid, *where)) or 0)
+
     async def _has(model, *where) -> bool:
-        return bool(await session.scalar(
-            select(func.count()).select_from(model).where(model.agency_id == aid, *where)))
+        return await _count(model, *where) > 0
 
     done = {
         "geo": await _has(GeoLocation),
-        "properties": await _has(Property),
+        # A handful of rows is what a demo looks like, not a catalogue -- the
+        # readiness check has always said so, and the step that asks for one
+        # should not tick on the same data readiness calls suspicious.
+        "properties": await _count(Property) > SEED_CATALOGUE_MAX,
         "sources": await _has(Source, Source.status.in_(("active", "sandbox"))),
         "managers": (await session.scalar(
             select(func.count()).select_from(Manager).where(Manager.agency_id == aid))) > 1,
