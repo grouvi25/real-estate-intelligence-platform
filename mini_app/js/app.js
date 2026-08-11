@@ -44,6 +44,7 @@
     ['referrals', () => Screens.referrals()],
     ['tasks', () => Screens.tasks()],
     ['sources', () => Screens.sources()],
+    ['collection', () => Screens.collection()],
   ];
 
   const NAV = [

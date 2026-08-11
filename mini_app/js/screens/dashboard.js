@@ -28,6 +28,30 @@ Screens.dashboard = async function () {
     const urgent = (t && t.urgent) || o.urgent_tasks || 0;
     const overdue = (t && t.overdue) || 0;
 
+    // The first day. An owner who signs in to four zeroes has no way of knowing
+    // that the catalogue is what makes matching possible, or that the robot
+    // reads only the cities it has been given. The card names the four things
+    // in the order they have to happen, and disappears the moment they are done
+    // -- an onboarding that outstays its welcome is just clutter.
+    const s = o.setup;
+    const setup = (s && s.done < s.total) ? `
+      <div class="card mt-3">
+        <div class="between">
+          <span class="card__title">С чего начать</span>
+          <span class="chip">${s.done} из ${s.total}</span>
+        </div>
+        ${s.steps.map((x) => `
+          <button class="item mt-3" data-go="${x.route}"${x.done ? ' disabled' : ''}
+                  style="width:100%;text-align:left;background:none;border:0;padding:0">
+            <div class="stat__ico${x.done ? ' stat__ico--success' : ''}">
+              ${UI.icon(x.done ? 'check' : 'plus')}</div>
+            <div class="grow">
+              <div class="item__title"${x.done ? ' style="opacity:.55"' : ''}>${UI.esc(x.title)}</div>
+              <div class="item__meta">${UI.esc(x.hint)}</div>
+            </div>
+          </button>`).join('')}
+      </div>` : '';
+
     const months = (tl && tl.months) || [];
     const topMonth = Math.max(...months.map((m) => m.commission), 0);
     const spark = topMonth > 0
@@ -62,6 +86,8 @@ Screens.dashboard = async function () {
          <div class="item__sub mt-2">Задачи с истёкшим сроком — лид ждёт ответа дольше обещанного.</div>
          <button class="btn btn--secondary btn--block mt-3" id="q-overdue">${UI.icon('check')} Разобрать</button>
        </div>` : ''}
+
+       ${setup}
 
        <div class="section-title">Быстрые действия</div>
        <div class="tiles">

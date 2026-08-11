@@ -130,6 +130,45 @@ async def analytics_overview(
         "deals_won": won.deals,
         "deals_lost": lost,
         "total_commission": int(won.commission or 0),
+        "setup": await _setup_steps(session, aid),
+    }
+
+
+# What has to exist before the agency can actually work, in the order it has to
+# exist in. Nothing here was ever explained to a new owner: they signed in, saw
+# four zeroes, and had to guess that the catalogue is what makes matching
+# possible and that the collector reads only the cities it has been given.
+SETUP_STEPS = (
+    ("geo", "Укажите города", "Робот ищет только там, где вы работаете", "settings"),
+    ("properties", "Загрузите каталог", "Без объектов лиду нечего предложить", "properties/import"),
+    ("sources", "Включите источники", "Откуда читать разговоры покупателей", "sources"),
+    ("managers", "Позовите менеджеров", "Ссылка-приглашение в профиле", "settings"),
+)
+
+
+async def _setup_steps(session, aid: uuid.UUID) -> dict:
+    """Which of the four first-day steps are done. Empty once they all are."""
+    from app.models.geo_location import GeoLocation  # noqa: PLC0415
+    from app.models.source import Source  # noqa: PLC0415
+
+    async def _has(model, *where) -> bool:
+        return bool(await session.scalar(
+            select(func.count()).select_from(model).where(model.agency_id == aid, *where)))
+
+    done = {
+        "geo": await _has(GeoLocation),
+        "properties": await _has(Property),
+        "sources": await _has(Source, Source.status.in_(("active", "sandbox"))),
+        "managers": (await session.scalar(
+            select(func.count()).select_from(Manager).where(Manager.agency_id == aid))) > 1,
+    }
+    return {
+        "done": sum(done.values()),
+        "total": len(SETUP_STEPS),
+        "steps": [
+            {"key": k, "title": t, "hint": h, "route": r, "done": done[k]}
+            for k, t, h, r in SETUP_STEPS
+        ],
     }
 
 

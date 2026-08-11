@@ -53,7 +53,10 @@ Screens.sources = async function () {
         <button class="chip chip--btn ${filter.status === 'sandbox' ? 'chip--accent' : ''}" data-s="sandbox">Песочница</button>
         <button class="chip chip--btn ${filter.status === 'paused' ? 'chip--accent' : ''}" data-s="paused">Остановлены</button>
       </div>
-      <button class="btn btn--secondary btn--block mt-3" id="add">${UI.icon('plus')} Добавить источник</button>`;
+      <button class="btn btn--secondary btn--block mt-3" id="add">${UI.icon('plus')} Добавить источник</button>
+      <div class="item__meta mt-2">Читаются и «в работе», и «песочница» — разница только в доверии:
+        в песочницу робот кладёт то, что нашёл сам, пока вы не подтвердили.
+        «Остановлен» не читается вовсе.</div>`;
 
     const body = UI.list(data.sources, (s) => {
       const kind = sourceKind(s.source_type);
@@ -180,4 +183,74 @@ Screens.sources = async function () {
 
   UI.setHeader('Источники', 'Откуда берутся сигналы', { back: true });
   await draw();
+};
+
+// Screen: Сбор — is the robot working, and is it finding anyone.
+//
+// Written after a week in which the collector read three and a half thousand
+// messages and produced two signals. Nothing on any screen said so: "сигналов
+// нет" looks identical whether the collector is switched off, or running and
+// finding nothing, or running and finding plenty that the filter drops. Those
+// are three different problems with three different answers, and telling them
+// apart used to mean SSH into the server.
+const CHANNEL_ICON = { telegram: 'send', vk: 'globe', web: 'signals' };
+
+Screens.collection = async function () {
+  UI.setHeader('Сбор', 'Что робот успел прочитать', { back: true });
+
+  UI.load(UI.skelStats() + '<div class="mt-3">' + UI.skelCard() + '</div>',
+    () => API.collection(),
+    (d) => {
+      const tone = d.verdict.tone;
+      // Two numbers, side by side, because the whole point is the gap between
+      // them: everything read, and the little that looked like a buyer.
+      const pair = (n, label, sub) =>
+        `<div class="stat"><div class="grow"><div class="stat__n">${n}</div>
+           <div class="stat__l">${label}</div>
+           <div class="item__meta">${sub}</div></div></div>`;
+
+      const channel = (c) => `
+        <div class="card">
+          <div class="between gap-2">
+            <span class="item__title">${UI.icon(CHANNEL_ICON[c.key] || 'globe')} ${UI.esc(c.name)}</span>
+            <span class="chip${c.ready ? ' chip--success' : ' chip--hot'}">
+              ${c.ready ? 'работает' : 'выключен'}</span>
+          </div>
+          <div class="item__sub mt-1">${UI.esc(c.detail)}</div>
+          <div class="row row--wrap gap-1 mt-3">
+            <span class="chip">источников <span class="num">${c.sources}</span></span>
+            <span class="chip${c.working ? '' : ' chip--warm'}">читается <span class="num">${c.working}</span></span>
+            <span class="chip">${UI.esc(c.cadence)}</span>
+          </div>
+          <div class="item__meta mt-2">${c.last_checked_at
+            ? 'последний обход: ' + UI.esc(UI.ago(c.last_checked_at))
+            : 'ещё ни разу не заходил'}</div>
+        </div>`;
+
+      // Colour goes on the word, not on the card. A stripe down the edge of
+      // every block says nothing the sentence does not already say.
+      const word = { ok: ['check', 'всё идёт', 'var(--success)'],
+                     warning: ['clock', 'внимание', 'var(--warm)'],
+                     blocker: ['flame', 'не работает', 'var(--hot)'] }[tone];
+
+      UI.render(
+        `<div class="card">
+           <div class="meta-row">${UI.icon(word[0])}
+             <span style="color:${word[2]}">${word[1]}</span></div>
+           <div class="card__title mt-1">${UI.esc(d.verdict.text)}</div>
+           ${d.verdict.action ? `<div class="item__sub mt-2">${UI.esc(d.verdict.action)}</div>` : ''}
+         </div>
+
+         <div class="stats mt-3">
+           ${pair(d.collected.week, 'Прочитано за неделю', `всего ${d.collected.total}`)}
+           ${pair(d.signals.week, 'Из них сигналов', `всего ${d.signals.total}`)}
+         </div>
+
+         <div class="section-title">Каналы</div>
+         ${d.channels.map(channel).join('')}
+
+         <button class="btn btn--secondary btn--block mt-3" id="go-src">
+           ${UI.icon('settings')} Настроить источники</button>`,
+        () => { document.getElementById('go-src').onclick = () => Router.go('sources'); });
+    });
 };

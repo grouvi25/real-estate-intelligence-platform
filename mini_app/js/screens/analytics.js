@@ -320,6 +320,8 @@ Screens.settings = async function () {
 
     <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Мониторинг</span></div>
+    <button class="btn btn--ghost btn--block" id="go-collection">${UI.icon('signals')} Как идёт сбор</button>
+    <div style="height:8px"></div>
     <button class="btn btn--ghost btn--block" id="go-sources">${UI.icon('settings')} Источники сигналов</button>
     <div style="height:8px"></div>
     <button class="btn btn--ghost btn--block" id="go-tasks">${UI.icon('check')} Задачи команды</button>
@@ -335,6 +337,7 @@ Screens.settings = async function () {
       document.getElementById('add-geo').onclick = geoSheet;
       document.getElementById('add-partner').onclick = partnerSheet;
       document.getElementById('go-refs').onclick = () => Router.go('referrals');
+      document.getElementById('go-collection').onclick = () => Router.go('collection');
       document.getElementById('go-sources').onclick = () => Router.go('sources');
       document.getElementById('go-tasks').onclick = () => Router.go('tasks');
       const edit = document.getElementById('ag-edit');
