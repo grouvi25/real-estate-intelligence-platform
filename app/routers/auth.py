@@ -181,6 +181,17 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
         stmt = select(Manager).where(Manager.max_user_id == platform_user_id)
     manager = (await session.execute(stmt)).scalar_one_or_none()
 
+    # The name is only ever set once, at the moment a manager first signs in --
+    # so a row created any other way (an owner added by hand before their first
+    # visit) kept whatever placeholder it was given, forever, on every screen
+    # that names a person. Nothing in the product lets anyone edit it either, so
+    # Telegram is the only source of truth there is; keep it in step.
+    if manager is not None:
+        first_name = (user.get("first_name") or "").strip()
+        if first_name and manager.name != first_name:
+            manager.name = first_name
+            await session.commit()
+
     if manager is None:
         # Until this check existed, any Telegram user who found the bot became a
         # manager of PLATFORM_OWNER_AGENCY_ID and saw that agency's signals,
