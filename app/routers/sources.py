@@ -190,6 +190,10 @@ CHANNELS = (
     ("web", "Ленты, YouTube и сайты", ("youtube", "rss", "forum", "website"), "раз в час"),
 )
 COLLECTED_STATUSES = ("active", "sandbox")
+# Below one signal per this many messages, the sources are the suspect rather
+# than the filter. Only applied once there is enough of a week to judge.
+YIELD_FLOOR = 200
+MIN_WEEK_SAMPLE = 200
 
 
 def _channel_ready(key: str) -> tuple[bool, str]:
@@ -268,16 +272,20 @@ async def collection_status(
     elif not collected["week"]:
         verdict = {"tone": "blocker", "text": "За неделю не прочитано ни одного сообщения.",
                    "action": "Проверьте, доступны ли источники — возможно, чаты закрыли."}
-    elif not signals["week"]:
+    # A handful of signals out of thousands of messages is the same problem as
+    # none at all, and reporting it as "всё идёт" is how it went unnoticed for a
+    # week. Below one in two hundred, the sources are the suspect.
+    elif collected["week"] >= MIN_WEEK_SAMPLE and signals["week"] * YIELD_FLOOR < collected["week"]:
         verdict = {"tone": "warning",
-                   "text": f"Прочитано сообщений за неделю: {collected['week']}, "
-                           "покупателей среди них не нашлось.",
+                   "text": f"Прочитано за неделю: {collected['week']}, "
+                           f"похожих на покупателя — {signals['week']}.",
                    "action": "Обычно это значит, что чаты не те: в барахолках и досках "
-                             "объявлений сидят продавцы. Ищите чаты, где обсуждают переезд "
-                             "и районы."}
+                             "объявлений сидят продавцы. Нужны чаты, где обсуждают переезд, "
+                             "районы и школы."}
     else:
         verdict = {"tone": "ok",
-                   "text": f"За неделю: {collected['week']} сообщений, {signals['week']} сигналов.",
+                   "text": f"За неделю прочитано {collected['week']}, "
+                           f"из них сигналов — {signals['week']}.",
                    "action": ""}
 
     return {"collected": collected, "signals": signals, "channels": channels,

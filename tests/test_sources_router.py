@@ -347,3 +347,105 @@ def test_every_source_type_is_read_by_some_collector():
 
     orphans = SOURCE_TYPES - collected
     assert orphans == set(), f"эти типы никто не собирает: {orphans}"
+
+
+def _collector_configured(monkeypatch):
+    """The collector has its credentials.
+
+    conftest pins every optional credential to absent, which is the honest
+    default -- but it also means a channel reads as "выключен" and the verdict
+    becomes "канал не настроен" before it ever looks at the numbers. A test
+    about yield has to say that the collector is running.
+    """
+    from app.config import config
+
+    monkeypatch.setattr(config, "telethon_api_id", 1, raising=False)
+    monkeypatch.setattr(config, "telethon_api_hash", "hash", raising=False)
+
+
+async def _seed_collection(s, agency, geo, *, messages: int, signals: int, status="sandbox"):
+    """A week's worth of reading, with however much of it looked promising."""
+    from app.models.content_unit import ContentUnit
+    from app.models.signal import Signal
+    from app.models.source import Source
+
+    src = Source(agency_id=agency.id, geo_location_id=geo.id, source_type="telegram_chat",
+                 source_url="https://t.me/chat", external_id="chat", status=status)
+    s.add(src)
+    await s.flush()
+    for i in range(messages):
+        s.add(ContentUnit(agency_id=agency.id, source_id=src.id, channel="telegram",
+                          external_id=f"m{i}", raw_content="текст"))
+    for i in range(signals):
+        s.add(Signal(agency_id=agency.id, source_id=src.id, geo_location_id=geo.id,
+                     raw_text="ищу квартиру", status="new"))
+    await s.commit()
+    return src
+
+
+@pytest.mark.asyncio
+async def test_a_trickle_of_signals_is_reported_as_a_problem_not_as_health(monkeypatch):
+    """Two signals out of two thousand messages is the problem, not the norm.
+
+    Live, the collector read 2050 messages in a week and produced 2 signals, and
+    every screen said "нет сигналов" -- which reads as "wait a bit longer". It
+    is not: at that yield the chats are the suspect.
+    """
+    from app.database import async_session, run_migrations
+    from app.routers.sources import collection_status
+
+    _collector_configured(monkeypatch)
+    await run_migrations()
+    async with async_session() as s:
+        agency, geo = await _agency_with_geo(s)
+        await s.commit()
+        current = _current(agency)
+        await _seed_collection(s, agency, geo, messages=400, signals=1)
+
+    async with async_session() as s:
+        d = await collection_status(current=current, session=s)
+
+    assert d["verdict"]["tone"] == "warning"
+    assert "чаты не те" in d["verdict"]["action"]
+    assert d["collected"]["week"] == 400
+    assert d["signals"]["week"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_working_yield_is_left_alone(monkeypatch):
+    from app.database import async_session, run_migrations
+    from app.routers.sources import collection_status
+
+    _collector_configured(monkeypatch)
+    await run_migrations()
+    async with async_session() as s:
+        agency, geo = await _agency_with_geo(s)
+        await s.commit()
+        current = _current(agency)
+        await _seed_collection(s, agency, geo, messages=400, signals=8)
+
+    async with async_session() as s:
+        d = await collection_status(current=current, session=s)
+    assert d["verdict"]["tone"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_a_paused_source_means_nothing_is_being_read(monkeypatch):
+    """Sources that exist but are all stopped is a different answer again."""
+    from app.database import async_session, run_migrations
+    from app.routers.sources import collection_status
+
+    _collector_configured(monkeypatch)
+    await run_migrations()
+    async with async_session() as s:
+        agency, geo = await _agency_with_geo(s)
+        await s.commit()
+        current = _current(agency)
+        await _seed_collection(s, agency, geo, messages=0, signals=0, status="paused")
+
+    async with async_session() as s:
+        d = await collection_status(current=current, session=s)
+
+    assert d["verdict"]["tone"] == "blocker"
+    telegram = next(c for c in d["channels"] if c["key"] == "telegram")
+    assert telegram["sources"] == 1 and telegram["working"] == 0
