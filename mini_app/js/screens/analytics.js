@@ -298,6 +298,9 @@ Screens.settings = async function () {
       <button class="btn btn--secondary btn--block mt-3" id="ag-edit">${UI.icon('edit')} Настройки агентства</button>
     </div>
 
+    <div class="section-title" style="margin:18px 2px 8px">С чего начать</div>
+    <div id="setup">${UI.skelCard()}</div>
+
     <div class="section-title" style="margin:18px 2px 8px">Готовность к работе</div>
     <div id="readiness">${UI.skelCard()}</div>
 
@@ -326,13 +329,21 @@ Screens.settings = async function () {
     <div style="height:8px"></div>
     <button class="btn btn--ghost btn--block" id="go-tasks">${UI.icon('check')} Задачи команды</button>
 
-    <button class="btn btn--danger btn--block" id="logout" style="margin-top:16px">${UI.icon('logout')} Выйти</button>`,
+    <button class="btn btn--secondary btn--block" id="logout" style="margin-top:16px">${UI.icon('logout')} Закрыть кабинет</button>`,
     () => {
       loadReadiness();
+      loadSetup();
+      // «Выйти» could not do what it said. Who you are comes from Telegram, not
+      // from a session: dropping the token and reloading made the app ask
+      // /auth/platform again, get a new one straight away, and land on the same
+      // screen -- a button that looked broken because it was promising something
+      // a Mini App cannot give. Closing is what a person means by "выйти" here.
+      // The cached token still goes, so the next open re-does the handshake.
       document.getElementById('logout').onclick = async () => {
         await StorageAdapter.remove('jwt_token');
         api.token = null;
-        location.reload();
+        if (PlatformSDK.inTelegram) PlatformSDK.close();
+        else location.reload();
       };
       document.getElementById('add-geo').onclick = geoSheet;
       document.getElementById('add-partner').onclick = partnerSheet;
@@ -345,6 +356,22 @@ Screens.settings = async function () {
       loadGeos(); loadPartners(); loadInvite(); loadAiProvider();
     });
 };
+
+// The dashboard drops this card the moment the four steps are done. Here it
+// stays: an owner still wants to see what was asked of them, and a screen that
+// exists only while you are unprepared cannot be gone back to.
+async function loadSetup() {
+  const box = document.getElementById('setup');
+  if (!box) return;
+  try {
+    const o = await API.overview();
+    box.innerHTML = Screens.setupCard(o.setup, { always: true })
+      || '<div class="card"><div class="item__sub">Всё готово.</div></div>';
+    Router.bindGo();
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="item__sub">${UI.esc(e.message)}</div></div>`;
+  }
+}
 
 async function loadInvite() {
   // The link IS the invitation: anyone holding it joins this agency, and nobody

@@ -5,6 +5,36 @@
 // figure that gets size, and the actions say what they are for.
 window.Screens = window.Screens || {};
 
+// The first day, as four steps in the order they have to happen. An owner who
+// signs in to four zeroes has no way of knowing that the catalogue is what makes
+// matching possible, or that the robot reads only the cities it has been given.
+//
+// `always` is what the Профиль passes: the dashboard hides a finished list, the
+// Профиль keeps it, so the list stays readable after it stops being urgent.
+Screens.setupCard = function (s, opts) {
+  const always = opts && opts.always;
+  if (!s || (!always && s.done >= s.total)) return '';
+  const step = (x) => `
+    <button class="item mt-3" data-go="${x.route}"${x.done ? ' disabled' : ''}
+            style="width:100%;text-align:left;background:none;border:0;
+                   padding:0;min-height:var(--tap-min)">
+      <div class="stat__ico${x.done ? ' stat__ico--success' : ''}">
+        ${UI.icon(x.done ? 'check' : 'plus')}</div>
+      <div class="grow">
+        <div class="item__title"${x.done ? ' style="opacity:.55"' : ''}>${UI.esc(x.title)}</div>
+        <div class="item__meta">${UI.esc(x.hint)}</div>
+      </div>
+    </button>`;
+  return `
+    <div class="card mt-3">
+      <div class="between">
+        <span class="card__title">С чего начать</span>
+        <span class="chip${s.done >= s.total ? ' chip--success' : ''}">${s.done} из ${s.total}</span>
+      </div>
+      ${s.steps.map(step).join('')}
+    </div>`;
+};
+
 Screens.dashboard = async function () {
   UI.setHeader('Обзор', 'Агентство сегодня', {
     actionIcon: 'settings', actionLabel: 'Профиль', onAction: () => Router.go('settings'),
@@ -28,29 +58,12 @@ Screens.dashboard = async function () {
     const urgent = (t && t.urgent) || o.urgent_tasks || 0;
     const overdue = (t && t.overdue) || 0;
 
-    // The first day. An owner who signs in to four zeroes has no way of knowing
-    // that the catalogue is what makes matching possible, or that the robot
-    // reads only the cities it has been given. The card names the four things
-    // in the order they have to happen, and disappears the moment they are done
-    // -- an onboarding that outstays its welcome is just clutter.
-    const s = o.setup;
-    const setup = (s && s.done < s.total) ? `
-      <div class="card mt-3">
-        <div class="between">
-          <span class="card__title">С чего начать</span>
-          <span class="chip">${s.done} из ${s.total}</span>
-        </div>
-        ${s.steps.map((x) => `
-          <button class="item mt-3" data-go="${x.route}"${x.done ? ' disabled' : ''}
-                  style="width:100%;text-align:left;background:none;border:0;padding:0">
-            <div class="stat__ico${x.done ? ' stat__ico--success' : ''}">
-              ${UI.icon(x.done ? 'check' : 'plus')}</div>
-            <div class="grow">
-              <div class="item__title"${x.done ? ' style="opacity:.55"' : ''}>${UI.esc(x.title)}</div>
-              <div class="item__meta">${UI.esc(x.hint)}</div>
-            </div>
-          </button>`).join('')}
-      </div>` : '';
+    // On the dashboard it appears only while there is something left to do --
+    // an onboarding that outstays its welcome is just clutter. The Профиль keeps
+    // a permanent copy, because an owner who has finished still wants to check
+    // what the list asked for, and there is no way back to a screen that only
+    // exists while you are unprepared.
+    const setup = Screens.setupCard(o.setup);
 
     const months = (tl && tl.months) || [];
     const topMonth = Math.max(...months.map((m) => m.commission), 0);
