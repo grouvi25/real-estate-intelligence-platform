@@ -189,7 +189,7 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
         try:
             agency_id = await _agency_for_invite(session, req.invite)
         except AppException as e:
-            logger.warning("Вход отклонён: новый пользователь без приглашения",
+            logger.warning("Вход отклонён: приглашение не принято",
                            platform=req.platform, platform_user_id=platform_user_id,
                            has_invite=bool(req.invite), code=e.code)
             raise
