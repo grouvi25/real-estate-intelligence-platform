@@ -107,3 +107,14 @@ async def test_telethon_auth_pause_sets_six_hour_ttl_and_alerts(monkeypatch):
     await _pause_telethon(SessionRevokedError(None))
     assert calls["redis"] == ("telethon:paused_until", 6 * 3600, "1")
     assert "telethon_login.py" in calls["alert"]
+
+
+def test_admin_landing_matches_tz_route():
+    from pathlib import Path
+    app = Path("mini_app/js/app.js").read_text(encoding="utf-8")
+    admin = Path("mini_app/js/screens/admin.js").read_text(encoding="utf-8")
+    assert "['admin', () => Screens.admin()]" in app
+    assert "Screens.admin = async function" in admin
+    assert 'data-go="admin/geo"' in admin
+    assert 'data-go="admin/sources"' in admin
+    assert "role === 'owner'" in admin

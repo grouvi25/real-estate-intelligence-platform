@@ -45,6 +45,7 @@
     ['tasks', () => Screens.tasks()],
     ['sources', () => Screens.sources()],
     ['collection', () => Screens.collection()],
+    ['admin', () => Screens.admin()],
     ['admin/geo', () => Screens.adminGeo()],
     ['admin/geo/new', () => Screens.adminGeoNew()],
     ['admin/sources', () => Screens.adminSources()],
@@ -61,7 +62,7 @@
   function shell() {
     const nav = [...NAV];
     if (window._manager && window._manager.role === 'owner') {
-      nav.push(['admin/geo', 'settings', 'Управление']);
+      nav.push(['admin', 'settings', 'Управление']);
     }
     document.body.innerHTML =
       '<header class="header" id="hdr"></header>' +
