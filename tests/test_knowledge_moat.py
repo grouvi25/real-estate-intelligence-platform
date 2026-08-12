@@ -99,7 +99,10 @@ async def test_update_knowledge_moat_ai_weights(monkeypatch):
     from worker.tasks.knowledge_tasks import _update_knowledge_moat
 
     async def fake_complete(self, system, user, module, agency_id="global"):
-        return '{"segment_weight": 0.4, "budget_weight": 0.3}'
+        return (
+            '{"budget_weight":30,"segment_weight":25,"location_weight":20,'
+            '"priorities_weight":15,"urgency_weight":10}'
+        )
 
     monkeypatch.setattr(AIService, "complete", fake_complete)
 
@@ -119,4 +122,5 @@ async def test_update_knowledge_moat_ai_weights(monkeypatch):
     async with async_session() as s:
         agency = await s.get(Agency, agency_id)
         assert "knowledge_moat_weights" in (agency.settings or {})
-        assert agency.settings["knowledge_moat_weights"]["segment_weight"] == 0.4
+        assert agency.settings["knowledge_moat_weights"]["segment_weight"] == 25
+        assert agency.settings["knowledge_moat_updated_at"]

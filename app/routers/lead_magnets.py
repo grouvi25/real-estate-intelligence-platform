@@ -499,3 +499,94 @@ async def lm6_subscribe(req: LM6SubscribeRequest, session=Depends(get_session)):
     )
     res["roi_result"] = roi
     return res
+
+
+# ---------------------------------------------------------------------------
+# LM-5: personalized market report (TZ 29.3).
+# ---------------------------------------------------------------------------
+
+VALID_LM5_SEGMENTS = {"family", "investor", "relocant", "remote_worker", "senior"}
+
+
+class LM5ReportRequest(BaseModel):
+    city: str = Field(..., min_length=2)
+    segment: str
+    budget_min: Optional[int] = Field(default=None, ge=0)
+    budget_max: Optional[int] = Field(default=None, ge=0)
+    goal: str = "own"
+
+
+class LM5SubscribeRequest(UTMFields):
+    agency_id: uuid.UUID
+    city: str = Field(..., min_length=2)
+    segment: str
+    budget_min: Optional[int] = Field(default=None, ge=0)
+    budget_max: Optional[int] = Field(default=None, ge=0)
+    goal: str = "own"
+    contact_name: str
+    contact_phone: str
+    telegram_username: Optional[str] = None
+    consent_given: bool = False
+    consent_text: str = ""
+
+
+def _validate_lm5(req: LM5ReportRequest | LM5SubscribeRequest) -> None:
+    if req.segment not in VALID_LM5_SEGMENTS:
+        raise ValidationError("segment", f"неизвестный сегмент: {req.segment}")
+    if req.budget_min is not None and req.budget_max is not None and req.budget_min > req.budget_max:
+        raise ValidationError("budget", "минимальный бюджет больше максимального")
+
+
+@router.post(
+    "/lm5/report",
+    dependencies=[Depends(rate_limit("lm5_report", limit=10, window=60))],
+)
+async def lm5_report(req: LM5ReportRequest):
+    _validate_lm5(req)
+    from app.services.lead_magnets.market_report import generate_market_report
+
+    return await generate_market_report(
+        city=req.city,
+        segment=req.segment,
+        budget_min=req.budget_min,
+        budget_max=req.budget_max,
+        goal=req.goal,
+    )
+
+
+@router.post(
+    "/lm5/subscribe",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("lm5_sub", limit=5, window=60))],
+)
+async def lm5_subscribe(req: LM5SubscribeRequest, session=Depends(get_session)):
+    if not req.consent_given:
+        raise ConsentRequiredError()
+    _validate_lm5(req)
+    from app.services.lead_magnets.market_report import generate_market_report
+
+    report = await generate_market_report(
+        city=req.city,
+        segment=req.segment,
+        budget_min=req.budget_min,
+        budget_max=req.budget_max,
+        goal=req.goal,
+    )
+    result = await _create_lm_lead(
+        session,
+        agency_id=req.agency_id,
+        contact_name=req.contact_name,
+        contact_phone=req.contact_phone,
+        consent_text=req.consent_text,
+        buyer_profile={
+            "lm_source": "lm5_market_report",
+            "city": req.city,
+            "segment": req.segment,
+            "market_report": report,
+        },
+        utm=req,
+        telegram_username=req.telegram_username,
+        budget_max=req.budget_max,
+        segment=req.segment,
+    )
+    return {**result, "report": report}

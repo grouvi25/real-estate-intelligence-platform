@@ -16,6 +16,73 @@ from worker.async_runner import run_async
 logger = structlog.get_logger()
 
 
+def _telethon_auth_errors() -> tuple[type[BaseException], ...]:
+    """Load Telethon lazily so workers and CI can start without that optional client."""
+    try:
+        from telethon.errors import (
+            AuthKeyDuplicatedError,
+            AuthKeyUnregisteredError,
+            SessionRevokedError,
+            UserDeactivatedError,
+        )
+    except ImportError:
+        return ()
+    return (
+        SessionRevokedError,
+        AuthKeyUnregisteredError,
+        AuthKeyDuplicatedError,
+        UserDeactivatedError,
+    )
+TELETHON_PAUSED_KEY = "telethon:paused_until"
+TELETHON_PAUSE_HOURS = 6
+
+
+async def _is_telethon_paused() -> bool:
+    """Return whether an authentication failure currently suppresses collection."""
+    import redis.asyncio as redis
+
+    from app.config import config
+
+    client = redis.from_url(config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+    try:
+        return bool(await client.get(TELETHON_PAUSED_KEY))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not read Telethon pause state", error=str(e))
+        return False
+    finally:
+        await client.aclose()
+
+
+async def _pause_telethon(error: BaseException) -> None:
+    """Pause noisy retries and alert the operator that re-authorization is needed."""
+    import redis.asyncio as redis
+
+    from app.config import config
+    from app.services.alerts import send_critical_alert
+
+    client = redis.from_url(config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+    try:
+        await client.setex(TELETHON_PAUSED_KEY, TELETHON_PAUSE_HOURS * 3600, "1")
+    except Exception as redis_error:  # noqa: BLE001
+        logger.error("Could not persist Telethon pause", error=str(redis_error))
+    finally:
+        await client.aclose()
+
+    logger.error(
+        "Telethon session error - collection paused",
+        error=type(error).__name__,
+        pause_hours=TELETHON_PAUSE_HOURS,
+    )
+    try:
+        await send_critical_alert(
+            "🚨 Telethon-сессия недействительна.\n"
+            f"Сбор Telegram-источников приостановлен на {TELETHON_PAUSE_HOURS}ч.\n"
+            "Требуется ре-авторизация: запустите scripts/telethon_login.py."
+        )
+    except Exception as alert_error:  # noqa: BLE001
+        logger.error("Could not send Telethon re-auth alert", error=str(alert_error))
+
+
 def _stamp(src) -> None:
     """Remember that this source was visited, whatever came of it.
 
@@ -34,6 +101,10 @@ async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
     from app.database import async_session
     from app.models.geo_location import GeoLocation
     from app.models.source import Source
+
+    if await _is_telethon_paused():
+        logger.info("Telethon collection skipped: paused after auth error")
+        return 0
 
     collector = TelegramCollector()
     if not collector.is_available():
@@ -57,10 +128,20 @@ async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
                 _stamp(src)
                 total += await collector.collect_from_source(
                     session, src, keywords, limit=limit_per_source)
-            # The stamp has to survive a source that threw before its own commit.
             await session.commit()
+    except _telethon_auth_errors() as e:
+        await _pause_telethon(e)
+        return 0
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Telethon collection failed", error=str(e), error_type=type(e).__name__)
+        return 0
     finally:
-        await collector.close()
+        try:
+            await collector.close()
+        except _telethon_auth_errors() as e:
+            await _pause_telethon(e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Telethon collector close failed", error=str(e))
     logger.info("Telegram collection run complete", signals=total)
     return total
 

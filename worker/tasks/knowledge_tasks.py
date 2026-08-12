@@ -16,18 +16,23 @@ from worker.async_runner import run_async
 logger = structlog.get_logger()
 
 AI_WEIGHTS_MIN_DEALS = 10
+DEFAULT_MATCHING_WEIGHTS = {
+    "budget_weight": 30,
+    "segment_weight": 25,
+    "location_weight": 20,
+    "priorities_weight": 15,
+    "urgency_weight": 10,
+}
+EXPECTED_WEIGHT_KEYS = frozenset(DEFAULT_MATCHING_WEIGHTS)
 
 
-async def _recompute_ai_weights(session, deals) -> None:
-    """Best-effort: ask AI for matching weights and store them per agency."""
+async def _recompute_ai_weights(session, deals) -> dict[str, int]:
+    """Ask AI for matching weights, validate them, and keep an audit trail."""
     from app.models.agency import Agency
     from app.services.ai_service import AIService, safe_ai_parse
 
     ai = AIService()
     try:
-        # The keys are fixed on purpose: matching.resolve_weights reads exactly
-        # these, and free-form keys would be stored and silently ignored — which
-        # is what happened while nothing read them at all.
         prompt = (
             f"Проанализируй {len(deals)} закрытых сделок агентства. Что сильнее всего "
             "предсказывало успешную сделку? Верни JSON строго с ключами "
@@ -35,19 +40,44 @@ async def _recompute_ai_weights(session, deals) -> None:
             "urgency_weight — числа в баллах от 5 до 45, в сумме около 100."
         )
         res = await ai.complete("Ты — аналитик рынка недвижимости.", prompt, "daily_report")
-        weights = safe_ai_parse(res, {
-            "budget_weight": 30, "segment_weight": 25, "location_weight": 20,
-            "priorities_weight": 15, "urgency_weight": 10,
-        })
+        weights = safe_ai_parse(res, DEFAULT_MATCHING_WEIGHTS)
     finally:
         await ai.close()
 
+    unexpected = sorted(set(weights) - EXPECTED_WEIGHT_KEYS)
+    if unexpected:
+        logger.warning("Knowledge moat: invalid weight keys ignored", keys=unexpected)
+
+    validated: dict[str, int] = {}
+    for key in EXPECTED_WEIGHT_KEYS:
+        value = weights.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 5 <= value <= 45:
+            validated[key] = int(value)
+        else:
+            logger.warning(
+                "Knowledge moat: invalid weight, using default",
+                key=key,
+                received=value,
+            )
+
+    if not validated:
+        logger.warning("Knowledge moat: no valid weights from AI, keeping defaults")
+        return {}
+
+    updated_at = datetime.now(timezone.utc).isoformat()
     for agency_id in {d.agency_id for d in deals}:
         agency = await session.get(Agency, agency_id)
         if agency:
             settings = dict(agency.settings or {})
-            settings["knowledge_moat_weights"] = weights
+            settings["knowledge_moat_weights"] = validated
+            settings["knowledge_moat_updated_at"] = updated_at
             agency.settings = settings
+            logger.info(
+                "Knowledge moat weights updated",
+                agency_id=str(agency_id),
+                weights=validated,
+            )
+    return validated
 
 
 async def _update_knowledge_moat() -> dict:

@@ -103,6 +103,22 @@ async def deep_health_check() -> DeepHealthResponse:
     except Exception as e:  # noqa: BLE001
         checks["celery_queue"] = f"error: {str(e)[:100]}"
 
+    # Telethon auth failures are intentionally paused to avoid a retry storm.
+    try:
+        if not config.telethon_api_id:
+            checks["telethon"] = "not_configured"
+        else:
+            import redis.asyncio as redis
+
+            client = redis.from_url(
+                config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+            paused = await asyncio.wait_for(
+                client.get("telethon:paused_until"), timeout=2)
+            await client.aclose()
+            checks["telethon"] = "paused (auth error)" if paused else "active"
+    except Exception as e:  # noqa: BLE001
+        checks["telethon"] = f"error: {str(e)[:50]}"
+
     critical_ok = all(
         value == "ok" for key, value in checks.items() if key in ("database", "redis")
     )

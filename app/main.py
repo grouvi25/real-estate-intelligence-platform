@@ -5,6 +5,7 @@ each module lands (keeps the app importable and deployable at every step).
 """
 from __future__ import annotations
 
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -55,19 +56,28 @@ celery_app.set_default()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application starting...")
+    if config.node_env != "development":
+        if not config.telegram_webhook_secret:
+            logger.warning("TELEGRAM_WEBHOOK_SECRET is not set in production")
+        if config.max_bot_token and not config.max_webhook_secret:
+            logger.warning("MAX_WEBHOOK_SECRET is not set in production")
     init_cost_tracker(config.redis_url)
     init_rate_limiter(config.redis_url)
     # Needs a running loop, so it starts here rather than at import time.
     init_yc_logging()
-    try:
-        await run_migrations()
-        logger.info("Database migrations applied")
-    except Exception as e:  # noqa: BLE001
-        logger.error("Migration failed", error=str(e))
-        raise
-    if not await check_database_connection():
-        logger.error("Database connection failed")
-        raise RuntimeError("Cannot connect to database")
+    testing = os.getenv("REIP_TESTING") == "1"
+    if not testing:
+        try:
+            await run_migrations()
+            logger.info("Database migrations applied")
+        except Exception as e:  # noqa: BLE001
+            logger.error("Migration failed", error=str(e))
+            raise
+        if not await check_database_connection():
+            logger.error("Database connection failed")
+            raise RuntimeError("Cannot connect to database")
+    else:
+        logger.info("Test mode: database startup checks skipped")
     logger.info("Application started successfully")
     yield
     logger.info("Application shutting down...")

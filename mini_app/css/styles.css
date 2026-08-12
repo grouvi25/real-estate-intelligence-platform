@@ -143,6 +143,8 @@ body {
 .hidden { display: none !important; }
 .num, .price { font-variant-numeric: tabular-nums; }
 .price { font-weight: 700; white-space: nowrap; }
+.card--stale { background: linear-gradient(to right, var(--warm) 0 3px, var(--surface) 3px); }
+.text--warning { color: var(--warm); }
 
 /* Layout helpers */
 .row { display: flex; align-items: center; gap: var(--s-2); }

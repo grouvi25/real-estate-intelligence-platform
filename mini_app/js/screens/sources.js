@@ -61,8 +61,12 @@ Screens.sources = async function () {
     const body = UI.list(data.sources, (s) => {
       const kind = sourceKind(s.source_type);
       const dead = s.status === 'active' && !s.signals_total;
+      const staleDays = s.last_signal_at
+        ? Math.floor((Date.now() - new Date(s.last_signal_at).getTime()) / 86400000)
+        : null;
+      const stale = staleDays !== null && staleDays >= 7;
       return `
-      <div class="card">
+      <div class="card ${stale ? 'card--stale' : ''}">
         <div class="between gap-2">
           <span class="item__title clamp-2">${UI.esc(s.source_name || s.source_url)}</span>
           ${sourceStatusChip(s.status)}
@@ -78,6 +82,10 @@ Screens.sources = async function () {
           ${s.auto_found ? '<span class="chip">нашёл робот</span>' : ''}
         </div>
         ${dead ? '<div class="item__meta mt-2">В работе, но пока ничего не принёс.</div>' : ''}
+        <div class="item__meta mt-2 ${stale ? 'text--warning' : ''}">
+          Последний сигнал: ${s.last_signal_at ? UI.esc(UI.ago(s.last_signal_at)) : 'никогда'}
+          ${stale ? ` ⚠️ ${staleDays} дн. без сигналов` : ''}
+        </div>
         <div class="btn-row mt-3">
           ${s.status !== 'active' ? `<button class="btn btn--sm" data-act="active" data-id="${s.id}">${UI.icon('check')} В работу</button>` : ''}
           ${s.status !== 'paused' ? `<button class="btn btn--secondary btn--sm" data-act="paused" data-id="${s.id}">${UI.icon('pause')} Остановить</button>` : ''}

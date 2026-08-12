@@ -15,7 +15,7 @@ import structlog
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.database import get_session
 from app.dependencies import CurrentManager, get_current_manager
@@ -23,6 +23,8 @@ from app.exceptions import AppException, NotFoundError
 from app.models.agency import Agency
 from app.models.geo_location import GeoLocation
 from app.models.protected_geo import ProtectedGeo
+from app.models.signal import Signal
+from app.models.source import Source
 from app.services.geo_protection import check_geo_protection
 
 logger = structlog.get_logger()
@@ -36,7 +38,11 @@ class CreateGeoRequest(BaseModel):
     primary_segments: list[str] = ["family", "investor"]
 
 
-def _geo_dto(g: GeoLocation) -> dict:
+def _geo_dto(
+    g: GeoLocation,
+    source_count: int = 0,
+    last_signal_at=None,
+) -> dict:
     return {
         "id": str(g.id),
         "city_name": g.city_name,
@@ -45,6 +51,8 @@ def _geo_dto(g: GeoLocation) -> dict:
         "is_active": g.is_active,
         "auto_discovery_enabled": g.auto_discovery_enabled,
         "has_keywords": bool(g.keywords),
+        "source_count": source_count,
+        "last_signal_at": last_signal_at.isoformat() if last_signal_at else None,
     }
 
 
@@ -135,7 +143,28 @@ async def list_geo(
         .order_by(GeoLocation.geo_type, GeoLocation.city_name)
     )
     rows = (await session.execute(stmt)).scalars().all()
-    return {"count": len(rows), "geo": [_geo_dto(g) for g in rows]}
+    geo_ids = [g.id for g in rows]
+    source_counts: dict[uuid.UUID, int] = {}
+    last_signals: dict[uuid.UUID, object] = {}
+    if geo_ids:
+        source_counts = dict((await session.execute(
+            select(Source.geo_location_id, func.count(Source.id))
+            .where(Source.geo_location_id.in_(geo_ids))
+            .group_by(Source.geo_location_id)
+        )).all())
+        last_signals = dict((await session.execute(
+            select(Source.geo_location_id, func.max(Signal.created_at))
+            .join(Signal, Signal.source_id == Source.id)
+            .where(Source.geo_location_id.in_(geo_ids))
+            .group_by(Source.geo_location_id)
+        )).all())
+    return {
+        "count": len(rows),
+        "geo": [
+            _geo_dto(g, source_counts.get(g.id, 0), last_signals.get(g.id))
+            for g in rows
+        ],
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

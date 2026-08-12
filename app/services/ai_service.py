@@ -312,7 +312,7 @@ class AIService:
         # Foreign provider — routed through the Railway proxy (152-FZ), same as
         # OpenAI. Uses Anthropic's native Messages API shape; the proxy forwards
         # the Anthropic key upstream. The user prompt is already anonymized.
-        url = f"{config.railway_proxy_url}/v1/messages"
+        url = f"{config.railway_proxy_url}/anthropic/v1/messages"
         headers = {
             "x-api-key": config.anthropic_api_key or "",
             "anthropic-version": "2023-06-01",

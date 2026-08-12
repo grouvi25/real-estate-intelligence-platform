@@ -42,8 +42,14 @@ def _require_secret(received: Optional[str], expected: Optional[str], platform: 
     """
     if not expected:
         if config.node_env == "development":
+            logger.warning(
+                "WEBHOOK SECRET NOT CONFIGURED - accepting all requests (dev mode only). "
+                "Set TELEGRAM_WEBHOOK_SECRET / MAX_WEBHOOK_SECRET before production deploy.",
+                platform=platform,
+                node_env=config.node_env,
+            )
             return
-        logger.warning("Webhook secret is not configured; refusing", platform=platform)
+        logger.error("Webhook secret is not configured in production", platform=platform)
         raise ForbiddenError("Webhook secret is not configured")
     if received != expected:
         logger.warning("Webhook secret mismatch", platform=platform)

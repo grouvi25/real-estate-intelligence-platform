@@ -45,6 +45,9 @@
     ['tasks', () => Screens.tasks()],
     ['sources', () => Screens.sources()],
     ['collection', () => Screens.collection()],
+    ['admin/geo', () => Screens.adminGeo()],
+    ['admin/geo/new', () => Screens.adminGeoNew()],
+    ['admin/sources', () => Screens.adminSources()],
   ];
 
   const NAV = [
@@ -56,10 +59,14 @@
   ];
 
   function shell() {
+    const nav = [...NAV];
+    if (window._manager && window._manager.role === 'owner') {
+      nav.push(['admin/geo', 'settings', 'Управление']);
+    }
     document.body.innerHTML =
       '<header class="header" id="hdr"></header>' +
       '<main id="view"></main>' +
-      '<nav class="nav">' + NAV.map(([r, ic, l]) =>
+      '<nav class="nav">' + nav.map(([r, ic, l]) =>
         `<a class="nav__item" data-route="${r}" href="#/${r}">${Icons.svg(ic, 'nav__ico')}<span>${l}</span></a>`
       ).join('') + '</nav>';
   }

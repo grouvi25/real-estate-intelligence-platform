@@ -49,12 +49,13 @@ Screens.analytics = async function () {
   UI.setHeader('Аналитика', 'Откуда лиды и что приносит деньги');
   UI.render(UI.skelCard() + '<div class="mt-3">' + UI.skelCard() + '</div>');
 
-  let over, funnel, roi, mgrs, tl;
+  let over, funnel, roi, mgrs, tl, matching;
   try {
-    [over, funnel, roi, mgrs, tl] = await Promise.all([
+    [over, funnel, roi, mgrs, tl, matching] = await Promise.all([
       API.overview(), API.funnel(), API.sourceRoi(),
       API.managers().catch(() => ({ managers: [] })),
       API.timeline().catch(() => ({ months: [] })),
+      API.matchingWeights().catch(() => ({ weights: {}, source: 'default', updated_at: null })),
     ]);
   } catch (e) {
     UI.render(UI.errorState(e.message), () => {
@@ -154,6 +155,21 @@ Screens.analytics = async function () {
       ${chartFunnel.html}
       ${drop ? `<div class="item__sub mt-3">Больше всего теряем между «${drop.from}»
         и «${drop.to}» — ${drop.lost}%.</div>` : ''}
+    </div>
+
+    <div class="section-head">
+      <span class="section-title">Как считаем совпадение</span>
+      <span class="chip ${matching.source === 'learned' ? 'chip--success' : ''}">
+        ${matching.source === 'learned' ? 'обучено на сделках' : 'базовые веса'}
+      </span>
+    </div>
+    <div class="card">
+      <div class="item__sub">Бюджет ${matching.weights.budget_weight || 30} ·
+        сегмент ${matching.weights.segment_weight || 25} ·
+        локация ${matching.weights.location_weight || 20} ·
+        приоритеты ${matching.weights.priorities_weight || 15} ·
+        срочность ${matching.weights.urgency_weight || 10}</div>
+      ${matching.updated_at ? `<div class="item__meta mt-2">Обновлено ${UI.esc(UI.ago(matching.updated_at))}</div>` : ''}
     </div>
 
     <div class="section-head">

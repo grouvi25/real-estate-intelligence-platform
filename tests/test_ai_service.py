@@ -128,7 +128,7 @@ async def test_complete_anthropic_via_proxy_anonymizes(monkeypatch):
     captured = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == "https://proxy.test/v1/messages"
+        assert str(request.url) == "https://proxy.test/anthropic/v1/messages"
         assert request.headers["x-api-key"] == "sk-ant-xxx"
         assert request.headers["X-Proxy-Secret"] == "psecret"
         assert request.headers["anthropic-version"] == "2023-06-01"

@@ -20,6 +20,26 @@ from app.services.signal_bus import ingest_content
 
 logger = structlog.get_logger()
 
+
+def is_telethon_auth_error(error: BaseException) -> bool:
+    """Recognize revoked sessions without making Telethon a mandatory import."""
+    try:
+        from telethon.errors import (
+            AuthKeyDuplicatedError,
+            AuthKeyUnregisteredError,
+            SessionRevokedError,
+            UserDeactivatedError,
+        )
+    except ImportError:
+        return False
+    return isinstance(error, (
+        SessionRevokedError,
+        AuthKeyUnregisteredError,
+        AuthKeyDuplicatedError,
+        UserDeactivatedError,
+    ))
+
+
 # Signal Bus addendum §2.1: origin_system says which SYSTEM produced the signal
 # (open-source scouting here, the Content Engine later), not which platform --
 # the platform is reply_channel. Storing the channel here made every source look
@@ -231,6 +251,8 @@ class TelegramCollector:
                 created += 1
             await session.commit()
         except Exception as e:  # noqa: BLE001
+            if is_telethon_auth_error(e):
+                raise
             logger.warning("Telegram collect failed", source=username, error=str(e))
         logger.info("Telegram collect", source=username, signals_created=created)
         return created

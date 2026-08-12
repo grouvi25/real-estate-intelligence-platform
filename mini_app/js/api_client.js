@@ -143,6 +143,7 @@
     managers: () => api.request('/analytics/managers'),
     timeline: () => api.request('/analytics/timeline'),
     sourceRoi: () => api.request('/analytics/source-roi'),
+    matchingWeights: () => api.request('/analytics/matching-weights'),
     marketEvent: (body) => api.request('/analytics/market-event', 'POST', body),
 
     // Partners & referrals
@@ -159,6 +160,8 @@
     // Geo
     geoList: () => api.request('/geo'),
     createGeo: (body) => api.request('/geo', 'POST', body),
+    geoLocations: () => api.request('/geo'),
+    addGeoLocation: (body) => api.request('/geo', 'POST', body),
 
     // Manager tasks (TZ 30 /tasks)
     tasks: (f) => api.request('/tasks' + qs(f)),

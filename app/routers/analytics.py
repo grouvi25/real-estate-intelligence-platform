@@ -36,6 +36,33 @@ def _agency_uuid(current: CurrentManager) -> uuid.UUID:
     return uuid.UUID(current.agency_id)
 
 
+DEFAULT_MATCHING_WEIGHTS = {
+    "budget_weight": 30,
+    "segment_weight": 25,
+    "location_weight": 20,
+    "priorities_weight": 15,
+    "urgency_weight": 10,
+}
+
+
+@router.get("/matching-weights")
+async def get_matching_weights(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Current matching weights and the audit timestamp of the learned set."""
+    from app.models.agency import Agency
+
+    agency = await session.get(Agency, _agency_uuid(current))
+    settings = (agency.settings or {}) if agency else {}
+    learned = settings.get("knowledge_moat_weights")
+    return {
+        "weights": learned or DEFAULT_MATCHING_WEIGHTS,
+        "source": "learned" if learned else "default",
+        "updated_at": settings.get("knowledge_moat_updated_at"),
+    }
+
+
 @router.get("/timeline")
 async def analytics_timeline(
     current: CurrentManager = Depends(get_current_manager),

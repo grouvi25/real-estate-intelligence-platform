@@ -29,6 +29,10 @@ async function refreshConfig() {
   try {
     const cfg = await API.appConfig();
     await rememberMapsKey(cfg && cfg.maps_key);
+    if (cfg && cfg.manager) {
+      window._manager = cfg.manager;
+      try { sessionStorage.setItem('manager', JSON.stringify(cfg.manager)); } catch (e) { /* private mode */ }
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -47,6 +51,7 @@ async function launchSignature() {
 
 async function authenticate() {
   try { window._agency = JSON.parse(sessionStorage.getItem('agency') || 'null'); } catch (e) { /* ignore */ }
+  try { window._manager = JSON.parse(sessionStorage.getItem('manager') || 'null'); } catch (e) { /* ignore */ }
   // The key lives wherever the token lives. It used to sit in sessionStorage
   // while the token sat in Telegram's CloudStorage, which outlives the session:
   // a manager who logged in yesterday skipped the handshake, so the key never
@@ -54,7 +59,8 @@ async function authenticate() {
   try { Maps.setKey(await StorageAdapter.get(Maps.KEY_STORE)); } catch (e) { /* ignore */ }
   const cached = api.loadToken ? await api.loadToken() : null;
   if (cached) {
-    if (!Maps.available()) await refreshConfig();
+    // Refresh role as well as maps config: ownership can change while the JWT is cached.
+    await refreshConfig();
     return cached;
   }
   const res = await api.request('/auth/platform', 'POST', {
@@ -63,6 +69,10 @@ async function authenticate() {
     invite: inviteToken(),
   });
   api.setToken(res.token);
+  if (res.manager) {
+    window._manager = res.manager;
+    try { sessionStorage.setItem('manager', JSON.stringify(res.manager)); } catch (e) { /* private mode */ }
+  }
   // Kept for the Профиль header: an agency has a name, and a person reading the
   // screen should see it rather than its id.
   if (res.agency) {

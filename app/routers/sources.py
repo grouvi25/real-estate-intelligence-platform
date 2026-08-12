@@ -119,7 +119,12 @@ def _classify(url: str, declared: str) -> tuple[str, str, Optional[str]]:
     return url, declared, None
 
 
-def _source_dto(s: Source, signals: int = 0, city: Optional[str] = None) -> dict:
+def _source_dto(
+    s: Source,
+    signals: int = 0,
+    city: Optional[str] = None,
+    last_signal_at=None,
+) -> dict:
     return {
         "id": str(s.id),
         "source_name": s.source_name,
@@ -130,9 +135,11 @@ def _source_dto(s: Source, signals: int = 0, city: Optional[str] = None) -> dict
         "score": s.score,
         "signals_per_day": s.signals_per_day,
         "signals_total": signals,
+        "signal_count": signals,
         "auto_found": bool(s.auto_found),
         "geo_location_id": str(s.geo_location_id) if s.geo_location_id else None,
         "city_name": city,
+        "last_signal_at": last_signal_at.isoformat() if last_signal_at else None,
         "last_checked_at": s.last_checked_at.isoformat() if s.last_checked_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
@@ -157,13 +164,18 @@ async def list_sources(
         stmt.order_by(Source.score.desc(), Source.created_at.desc()).limit(limit)
     )).scalars().all()
 
-    counts = dict(
-        (await session.execute(
-            select(Signal.source_id, func.count(Signal.id)).where(
+    signal_stats = {
+        row.source_id: (row.signal_count, row.last_signal_at)
+        for row in (await session.execute(
+            select(
+                Signal.source_id,
+                func.count(Signal.id).label("signal_count"),
+                func.max(Signal.created_at).label("last_signal_at"),
+            ).where(
                 Signal.agency_id == uuid.UUID(current.agency_id)
             ).group_by(Signal.source_id)
         )).all()
-    )
+    }
     geo_ids = {s.geo_location_id for s in sources if s.geo_location_id}
     cities: dict[uuid.UUID, str] = {}
     if geo_ids:
@@ -174,7 +186,12 @@ async def list_sources(
 
     return {
         "sources": [
-            _source_dto(s, counts.get(s.id, 0), cities.get(s.geo_location_id))
+            _source_dto(
+                s,
+                signal_stats.get(s.id, (0, None))[0],
+                cities.get(s.geo_location_id),
+                signal_stats.get(s.id, (0, None))[1],
+            )
             for s in sources
         ],
         "count": len(sources),

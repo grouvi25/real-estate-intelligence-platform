@@ -137,6 +137,7 @@ class Settings(BaseSettings):
             "geo_keywords": "yandexgpt-pro",
             "market_analysis": "yandexgpt-lite",
             "listing_generator": "yandexgpt-pro",
+            "qualification": "yandexgpt-lite",
         }
 
     @property

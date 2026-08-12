@@ -90,3 +90,24 @@ def _refuse_a_non_test_database() -> None:
 
 _refuse_a_non_test_database()
 
+
+
+@pytest.fixture
+def fake_redis():
+    """In-memory Redis for unit tests that do not need a real broker."""
+    import fakeredis.aioredis
+
+    return fakeredis.aioredis.FakeRedis()
+
+
+@pytest.fixture
+async def client():
+    """ASGI client without opening network sockets or starting production lifespan."""
+    from httpx import ASGITransport, AsyncClient
+
+    from app.main import app
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as test_client:
+        yield test_client
