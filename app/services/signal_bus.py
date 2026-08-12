@@ -57,11 +57,19 @@ async def ingest_content(
     if existing is not None:
         existing.raw_content = norm.raw_content
         existing.url = norm.url or existing.url
+        existing.external_post_url = norm.url or existing.external_post_url
+        existing.title = existing.title or (norm.meta or {}).get("title") or (norm.raw_content or "")[:200]
+        existing.topic_tag = (norm.meta or {}).get("topic_tag") or existing.topic_tag
+        existing.platform = norm.channel
         cu = existing
     else:
         cu = ContentUnit(
             agency_id=agency_id,
             source_id=source_id,
+            title=(norm.meta or {}).get("title") or (norm.raw_content or "")[:200] or "??? ????????",
+            topic_tag=(norm.meta or {}).get("topic_tag"),
+            platform=norm.channel,
+            external_post_url=norm.url,
             channel=norm.channel,
             external_id=norm.external_id,
             url=norm.url,
@@ -91,14 +99,14 @@ async def send_signal_reply(session, signal, manager_id: Optional[str] = None) -
 
     adapter = get_channel_adapter(channel or "")
     if adapter is None:
-        signal.reply_status = "skipped"
+        signal.reply_status = "pending"
         await session.commit()
         return {"sent": False, "reason": "unknown_channel", "channel": channel}
     if not adapter.reply_supported():
         # The adapter explains itself: Avito and ЦИАН need the agency's own
         # professional account, a feed has no reply surface at all. "skipped"
         # alone told the manager nothing about what to do with the draft.
-        signal.reply_status = "skipped"
+        signal.reply_status = "pending"
         await session.commit()
         result = await adapter.send_reply("", signal.reply_draft)
         logger.info("Signal reply not sent", signal_id=str(signal.id),
@@ -107,13 +115,13 @@ async def send_signal_reply(session, signal, manager_id: Optional[str] = None) -
 
     target = cu.external_id if cu else None
     if not target:
-        signal.reply_status = "failed"
+        signal.reply_status = "pending"
         await session.commit()
         return {"sent": False, "reason": "no_target", "channel": channel}
 
     result = await adapter.send_reply(target, signal.reply_draft)
     # 'replied' is the addendum's word for a delivered answer (§5.2).
-    signal.reply_status = "replied" if result.get("sent") else "failed"
+    signal.reply_status = "replied" if result.get("sent") else "pending"
     signal.replied_at = datetime.now(timezone.utc)
     if manager_id:
         signal.replied_by_manager_id = uuid.UUID(str(manager_id))

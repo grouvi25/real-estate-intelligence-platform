@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     telethon_dc_port: Optional[int] = Field(default=None, alias="TELETHON_DC_PORT")
 
     # === EXTERNAL INTEGRATIONS ===
+    avito_api_base_url: Optional[str] = Field(default=None, alias="AVITO_API_BASE_URL")
+    avito_api_token: Optional[str] = Field(default=None, alias="AVITO_API_TOKEN")
+    cian_api_base_url: Optional[str] = Field(default=None, alias="CIAN_API_BASE_URL")
+    cian_api_token: Optional[str] = Field(default=None, alias="CIAN_API_TOKEN")
     vk_service_token: Optional[str] = Field(default=None, alias="VK_SERVICE_TOKEN")
     vk_api_version: str = Field(default="5.199", alias="VK_API_VERSION")
     youtube_api_key: Optional[str] = Field(default=None, alias="YOUTUBE_API_KEY")

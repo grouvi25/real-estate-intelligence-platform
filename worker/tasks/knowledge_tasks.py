@@ -40,7 +40,7 @@ async def _recompute_ai_weights(session, deals) -> dict[str, int]:
             "urgency_weight — числа в баллах от 5 до 45, в сумме около 100."
         )
         res = await ai.complete("Ты — аналитик рынка недвижимости.", prompt, "daily_report")
-        weights = safe_ai_parse(res, DEFAULT_MATCHING_WEIGHTS)
+        weights = safe_ai_parse(res, {})
     finally:
         await ai.close()
 

@@ -12,7 +12,7 @@ from typing import Optional
 from sqlalchemy import Boolean, ForeignKey, LargeBinary, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
 from app.services.encryption import decrypt_pii, encrypt_pii
@@ -20,12 +20,13 @@ from app.services.encryption import decrypt_pii, encrypt_pii
 
 class AgencyCRMConfig(CreatedAtMixin, UpdatedAtMixin, Base):
     __tablename__ = "agency_crm_config"
-    __table_args__ = (UniqueConstraint("agency_id", "crm_type"),)
+    __table_args__ = (UniqueConstraint("agency_id", "connector_type"),)
 
     agency_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False
     )
-    crm_type: Mapped[str] = mapped_column(Text, nullable=False)
+    connector_type: Mapped[str] = mapped_column(Text, nullable=False, default="generic_webhook")
+    crm_type = synonym("connector_type")
     base_url: Mapped[Optional[str]] = mapped_column(Text)
     _api_key_encrypted: Mapped[Optional[bytes]] = mapped_column("api_key_encrypted", LargeBinary)
     config: Mapped[dict] = mapped_column(JSONB, default=dict)

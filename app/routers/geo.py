@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.database import get_session
-from app.dependencies import CurrentManager, get_current_manager
+from app.dependencies import CurrentManager, get_current_manager, require_owner
 from app.exceptions import AppException, NotFoundError
 from app.models.agency import Agency
 from app.models.geo_location import GeoLocation
@@ -173,6 +173,7 @@ async def create_geo(
     current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
+    await require_owner(session, current)
     return await _create_geo(session, uuid.UUID(current.agency_id), req)
 
 

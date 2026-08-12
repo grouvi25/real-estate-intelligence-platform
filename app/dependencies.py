@@ -37,3 +37,12 @@ async def get_current_manager(authorization: Optional[str] = Header(default=None
         raise AppException(status_code=401, detail="Некорректные данные токена", code="INVALID_TOKEN")
 
     return CurrentManager(manager_id=str(manager_id), agency_id=str(agency_id))
+
+
+async def require_owner(session, current: CurrentManager) -> None:
+    """Reject owner-only mutations even when the UI is bypassed."""
+    import uuid
+    from app.models.manager import Manager
+    manager = await session.get(Manager, uuid.UUID(current.manager_id))
+    if manager is None or str(manager.agency_id) != current.agency_id or manager.role != "owner":
+        raise AppException(status_code=403, detail="????????? ???? ?????????", code="OWNER_REQUIRED")

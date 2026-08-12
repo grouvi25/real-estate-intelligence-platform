@@ -10,6 +10,7 @@ from typing import Optional
 from app.services.crm.adapters import (
     AmoCrmAdapter,
     Bitrix24Adapter,
+    GenericWebhookAdapter,
     TopnlabAdapter,
     YUcrmAdapter,
 )
@@ -20,6 +21,7 @@ _ADAPTER_TYPES: dict[str, type[CRMAdapter]] = {
     "amocrm": AmoCrmAdapter,
     "bitrix24": Bitrix24Adapter,
     "yucrm": YUcrmAdapter,
+    "generic_webhook": GenericWebhookAdapter,
 }
 
 SUPPORTED_CRMS = tuple(_ADAPTER_TYPES.keys())

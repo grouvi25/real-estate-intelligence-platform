@@ -19,16 +19,21 @@ from app.services.channels.vk import VkAdapter
 
 _ADAPTERS: dict[str, ChannelAdapter] = {
     "avito": AvitoAdapter(),
+    "avito_api": AvitoAdapter(),
     "cian": CianAdapter(),
+    "cian_api": CianAdapter(),
     "telegram": TelegramAdapter(),
+    "tg_bot": TelegramAdapter(),
     "max": MaxAdapter(),
+    "max_bot": MaxAdapter(),
     "vk": VkAdapter(),
+    "vk_api": VkAdapter(),
     # Read-only: collected from, never answered on.
     "youtube": YoutubeAdapter(),
     "rss": RssAdapter(),
 }
 
-SUPPORTED_CHANNELS = tuple(_ADAPTERS.keys())
+SUPPORTED_CHANNELS = ("avito_api", "cian_api", "tg_bot", "max_bot", "vk_api", "youtube", "rss")
 
 
 def get_channel_adapter(channel: str) -> Optional[ChannelAdapter]:

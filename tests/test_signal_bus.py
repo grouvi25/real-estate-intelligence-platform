@@ -78,7 +78,7 @@ async def test_send_reply_telegram(monkeypatch):
         await s.flush()
         sig = Signal(agency_id=agency.id, raw_text="Куплю", origin_system="telegram",
                      content_unit_id=cu.id, reply_channel="telegram",
-                     reply_draft="Здравствуйте! Подберу варианты.", reply_status="draft")
+                     reply_draft="Здравствуйте! Подберу варианты.", reply_status="pending")
         s.add(sig)
         await s.commit()
         sig_id = sig.id
@@ -111,7 +111,7 @@ async def test_send_reply_classified_skipped():
         await s.flush()
         sig = Signal(agency_id=agency.id, raw_text="Продам", origin_system="avito",
                      content_unit_id=cu.id, reply_channel="avito",
-                     reply_draft="Ответ", reply_status="draft")
+                     reply_draft="Ответ", reply_status="pending")
         s.add(sig)
         await s.commit()
         sig_id = sig.id
@@ -122,7 +122,7 @@ async def test_send_reply_classified_skipped():
         assert result["sent"] is False
     async with async_session() as s:
         sig = await s.get(Signal, sig_id)
-        assert sig.reply_status == "skipped"
+        assert sig.reply_status == "pending"
 
 
 # --- the two ways a signal leaves the queue unanswered (addendum §5.2) -------

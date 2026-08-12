@@ -12,6 +12,7 @@ from typing import Optional
 
 import structlog
 
+from app.config import config
 from app.services.channels.base import ChannelAdapter, NormalizedContent, author_hash
 
 logger = structlog.get_logger()
@@ -47,17 +48,45 @@ class _ClassifiedAdapter(ChannelAdapter):
         )
 
 
+    @property
+    def api_base_url(self) -> Optional[str]:
+        return getattr(config, self.base_url_setting)
+
+    @property
+    def api_token(self) -> Optional[str]:
+        return getattr(config, self.token_setting)
+
     def reply_supported(self) -> bool:
-        return False
+        return bool(self.api_base_url and self.api_token)
 
     async def send_reply(self, target: str, text: str) -> dict:
-        """Refuse in words the manager can act on.
+        """Use the accredited official API, otherwise fail closed with guidance.
 
         The addendum's acceptance list asks these adapters to block sending "с
         понятной ошибкой в логах" when the agency has no professional account.
         Falling through to the generic "reply_not_supported" left the signal
         marked skipped with nothing said about why or what to do.
         """
+        if self.reply_supported():
+            import httpx
+            url = f"{self.api_base_url.rstrip('/')}/messages/{target}"
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.post(
+                        url,
+                        json={"message": text},
+                        headers={"Authorization": f"Bearer {self.api_token}"},
+                    )
+                ok = response.status_code < 400
+                if not ok:
+                    logger.warning("Classified reply rejected", channel=self.channel,
+                                   status=response.status_code)
+                return {"sent": ok, "channel": self.channel,
+                        "status_code": response.status_code}
+            except Exception as exc:
+                logger.warning("Classified reply failed", channel=self.channel, error=str(exc))
+                return {"sent": False, "reason": "transport_error", "channel": self.channel}
+
         logger.warning(
             "%s: ответ не отправлен — нужен профессиональный кабинет площадки "
             "и доступ к её API; черновик сохранён для ручной отправки",
@@ -75,8 +104,12 @@ class _ClassifiedAdapter(ChannelAdapter):
 class AvitoAdapter(_ClassifiedAdapter):
     channel = "avito"
     title = "Avito"
+    base_url_setting = "avito_api_base_url"
+    token_setting = "avito_api_token"
 
 
 class CianAdapter(_ClassifiedAdapter):
     channel = "cian"
+    base_url_setting = "cian_api_base_url"
+    token_setting = "cian_api_token"
     title = "ЦИАН"

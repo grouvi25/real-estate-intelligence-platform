@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 
 from app.config import config
 from app.database import get_session
-from app.dependencies import CurrentManager, get_current_manager
+from app.dependencies import CurrentManager, get_current_manager, require_owner
 from app.exceptions import AppException, NotFoundError, ValidationError
 from app.models.geo_location import GeoLocation
 from app.models.signal import Signal
@@ -385,7 +385,8 @@ async def update_source(
     current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
-    """Promote, pause or re-label a source."""
+    """Promote, pause or re-label a source (owner only)."""
+    await require_owner(session, current)
     source = await session.get(Source, source_id)
     if source is None or str(source.agency_id) != current.agency_id:
         raise NotFoundError("Source", str(source_id))

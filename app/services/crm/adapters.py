@@ -93,3 +93,14 @@ class YUcrmAdapter(CRMAdapter):
             "comment": f"Сегмент: {lead_values.get('segment')}, цель: {lead_values.get('purchase_goal')}",
             "utm_source": lead_values.get("utm_source"),
         }
+
+
+class GenericWebhookAdapter(CRMAdapter):
+    crm_type = "generic_webhook"
+
+    def endpoint(self) -> str:
+        return self.base_url
+
+    def build_payload(self, lead_values: dict) -> dict:
+        mapping = self.field_mapping or {k: k for k in lead_values}
+        return {crm_key: lead_values.get(reip_key) for crm_key, reip_key in mapping.items()}

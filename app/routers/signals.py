@@ -57,7 +57,7 @@ class ReplyDraftRequest(BaseModel):
 # signal has no reply state yet and is exactly what the triage queue is for --
 # the addendum calls that state 'pending' and treats it as the queue's entry
 # point (§5.2).
-REPLY_QUEUE_STATUSES = ("none", "pending", "draft")
+REPLY_QUEUE_STATUSES = ("pending",)
 
 
 def _signal_dto(s: Signal) -> dict:
@@ -261,14 +261,14 @@ async def set_reply_draft(
     current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
-    """Save/update a reply draft for a signal (status -> draft)."""
+    """Save/update a draft; the signal remains pending until a human sends it."""
     signal = await session.get(Signal, signal_id)
     if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
     signal.reply_draft = req.reply_draft
     if req.reply_channel is not None:
         signal.reply_channel = req.reply_channel
-    signal.reply_status = "draft"
+    signal.reply_status = "pending"
     await session.commit()
     return {"id": str(signal.id), "reply_status": signal.reply_status}
 

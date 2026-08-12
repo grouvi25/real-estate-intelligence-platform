@@ -47,7 +47,7 @@ class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
         UUID(as_uuid=True), ForeignKey("content_units.id", ondelete="SET NULL")
     )
     reply_channel: Mapped[Optional[str]] = mapped_column(Text)
-    reply_status: Mapped[str] = mapped_column(Text, default="none")
+    reply_status: Mapped[str] = mapped_column(Text, default="pending")
     reply_draft: Mapped[Optional[str]] = mapped_column(Text)
     replied_by_manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("managers.id", ondelete="SET NULL")

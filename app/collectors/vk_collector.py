@@ -366,7 +366,7 @@ class VkCollector:
                 author_display_name=norm.author_display_name,
                 signal_url=norm.url,
                 origin_system=ORIGIN_SCOUTING,
-                reply_channel="vk",
+                reply_channel="vk_api",
                 status="new",
             ))
             created += 1

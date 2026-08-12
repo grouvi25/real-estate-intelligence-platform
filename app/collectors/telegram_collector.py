@@ -245,7 +245,7 @@ class TelegramCollector:
                     author_display_name=norm.author_display_name,
                     signal_url=raw["url"],
                     origin_system=ORIGIN_SCOUTING,
-                    reply_channel="telegram",
+                    reply_channel="tg_bot",
                     status="new",
                 ))
                 created += 1

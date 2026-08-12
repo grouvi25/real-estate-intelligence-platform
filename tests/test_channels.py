@@ -7,7 +7,7 @@ from app.services.channels import SUPPORTED_CHANNELS, get_channel_adapter
 def test_registry_has_all_channels():
     assert set(SUPPORTED_CHANNELS) == {
         # answerable
-        "avito", "cian", "telegram", "max", "vk",
+        "avito_api", "cian_api", "tg_bot", "max_bot", "vk_api",
         # read-only: collected from, never answered on
         "youtube", "rss",
     }

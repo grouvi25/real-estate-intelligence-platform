@@ -10,7 +10,7 @@ LEAD = {
 
 
 def test_registry_supported():
-    assert set(SUPPORTED_CRMS) == {"topnlab", "amocrm", "bitrix24", "yucrm"}
+    assert set(SUPPORTED_CRMS) == {"topnlab", "amocrm", "bitrix24", "yucrm", "generic_webhook"}
     assert build_crm_adapter("unknown") is None
 
 

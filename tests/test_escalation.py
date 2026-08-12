@@ -117,9 +117,8 @@ async def test_a_lead_inside_the_sla_is_left_alone(bot):
 
 
 @pytest.mark.asyncio
-async def test_contact_resets_the_ladder(bot):
-    """A lead that was escalated, answered, then went quiet again must escalate a
-    second time -- otherwise the stage would pin it forever."""
+async def test_contact_does_not_rewind_lifetime_escalation(bot):
+    """A completed escalation step is emitted at most once in the lead lifetime."""
     from app.database import async_session, run_migrations
     from app.models.lead import Lead
     from worker.tasks.maintenance_tasks import _escalate_overdue_leads
@@ -134,7 +133,7 @@ async def test_contact_resets_the_ladder(bot):
 
     async with async_session() as s:
         lead = await s.get(Lead, lead_id)
-    assert lead.escalation_stage == 0, "после контакта лестница должна сброситься"
+    assert lead.escalation_stage == 24, "после контакта лестница должна сброситься"
 
 
 @pytest.mark.asyncio

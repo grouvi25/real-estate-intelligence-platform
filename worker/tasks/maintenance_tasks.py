@@ -144,12 +144,8 @@ async def _escalate_overdue_leads() -> int:
             hrs = (now - lead.updated_at).total_seconds() / 3600
             done = lead.escalation_stage or 0
 
-            # Contact resets the clock (updated_at moves), so the recorded stage
-            # has to fall back with it -- otherwise a lead that went quiet again
-            # would never escalate a second time.
-            if hrs < done:
-                await record(lead, 0)
-                done = 0
+            # escalation_stage is a lifetime audit marker. Contact activity moves
+            # updated_at but must never rewind a completed escalation step.
 
             # Every step now due, oldest first: a lead found at 30 hours after a
             # missed run still gets its 4h and 24h steps rather than skipping them.
@@ -162,9 +158,12 @@ async def _escalate_overdue_leads() -> int:
                     if lead.urgency != "hot":
                         await record(lead, step)
                         continue
-                    await bot_layer.notify_manager(
-                        str(lead.assigned_to),
-                        f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
+                    try:
+                        await bot_layer.notify_manager(
+                            str(lead.assigned_to),
+                            f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
+                    except Exception as exc:
+                        logger.warning("Escalation notification failed", lead_id=str(lead.id), step=step, error=str(exc))
                 elif step == 24:
                     owner = (await session.execute(
                         select(Manager).where(
@@ -172,8 +171,11 @@ async def _escalate_overdue_leads() -> int:
                             Manager.role == "owner").limit(1)
                     )).scalar_one_or_none()
                     if owner:
-                        await bot_layer.notify_manager(
-                            str(owner.id), f"⚠️ Лид #{short} без контакта {int(hrs)}ч.")
+                        try:
+                            await bot_layer.notify_manager(
+                                str(owner.id), f"⚠️ Лид #{short} без контакта {int(hrs)}ч.")
+                        except Exception as exc:
+                            logger.warning("Escalation notification failed", lead_id=str(lead.id), step=step, error=str(exc))
                 else:
                     # limit(1) because the question is "is there one", not "how
                     # many". Without it a lead that ended up with two escalation
@@ -266,9 +268,12 @@ async def _check_dead_sources() -> int:
                 )).scalar_one_or_none()
                 if owner:
                     names_fmt = "\n".join(f"• {n}" for n in names[:10])
-                    await bot_layer.notify_manager(
-                        str(owner.id),
-                        f"🔇 Источники без сигналов 7+ дней → приостановлены:\n{names_fmt}")
+                    try:
+                        await bot_layer.notify_manager(
+                            str(owner.id),
+                            f"🔇 Источники без сигналов 7+ дней → приостановлены:\n{names_fmt}")
+                    except Exception as exc:
+                        logger.warning("Dead source notification failed", agency_id=aid, error=str(exc))
     logger.info("Dead sources paused", sources=len(dead))
     return len(dead)
 
