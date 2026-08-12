@@ -33,7 +33,10 @@ async function refreshConfig() {
       window._manager = cfg.manager;
       try { sessionStorage.setItem('manager', JSON.stringify(cfg.manager)); } catch (e) { /* private mode */ }
     }
-  } catch (e) { /* ignore */ }
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // Telegram Desktop can inject its bridge a moment after the page has run, and
@@ -59,9 +62,13 @@ async function authenticate() {
   try { Maps.setKey(await StorageAdapter.get(Maps.KEY_STORE)); } catch (e) { /* ignore */ }
   const cached = api.loadToken ? await api.loadToken() : null;
   if (cached) {
-    // Refresh role as well as maps config: ownership can change while the JWT is cached.
-    await refreshConfig();
-    return cached;
+    // A deleted/disabled user must not survive through Telegram CloudStorage.
+    if (await refreshConfig()) return cached;
+    await StorageAdapter.remove('jwt_token');
+    api.token = null;
+    window._manager = null;
+    window._agency = null;
+    try { sessionStorage.removeItem('manager'); sessionStorage.removeItem('agency'); } catch (e) { /* ignore */ }
   }
   const res = await api.request('/auth/platform', 'POST', {
     platform: PlatformSDK.platform,

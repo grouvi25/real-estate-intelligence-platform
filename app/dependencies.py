@@ -36,6 +36,15 @@ async def get_current_manager(authorization: Optional[str] = Header(default=None
     if not manager_id or not agency_id:
         raise AppException(status_code=401, detail="Некорректные данные токена", code="INVALID_TOKEN")
 
+    from app.database import async_session
+    from app.models.manager import Manager
+    import uuid
+
+    async with async_session() as session:
+        manager = await session.get(Manager, uuid.UUID(str(manager_id)))
+    if manager is None or not manager.is_active or str(manager.agency_id) != str(agency_id):
+        raise AppException(status_code=401, detail="???????????? ?????? ??? ????????", code="USER_REVOKED")
+
     return CurrentManager(manager_id=str(manager_id), agency_id=str(agency_id))
 
 
