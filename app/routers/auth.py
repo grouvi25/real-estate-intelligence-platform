@@ -193,24 +193,33 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
             await session.commit()
 
     if manager is None:
-        # Until this check existed, any Telegram user who found the bot became a
-        # manager of PLATFORM_OWNER_AGENCY_ID and saw that agency's signals,
-        # leads and their clients' personal data. Joining now requires the
-        # owner's invite link, and the token in it decides which agency.
-        try:
-            agency_id = await _agency_for_invite(session, req.invite)
-        except AppException as e:
-            logger.warning("Вход отклонён: приглашение не принято",
-                           platform=req.platform, platform_user_id=platform_user_id,
-                           has_invite=bool(req.invite), code=e.code)
-            raise
+        # ADMIN_TELEGRAM_ID is the one trusted bootstrap identity. After a full
+        # user reset it must be able to recreate the platform owner without an
+        # invite; everybody else remains invite-only.
+        is_platform_admin = (
+            platform == BotPlatform.TELEGRAM
+            and config.admin_telegram_id is not None
+            and platform_user_id == int(config.admin_telegram_id)
+            and config.platform_owner_agency_id
+        )
+        if is_platform_admin:
+            agency_id = uuid.UUID(str(config.platform_owner_agency_id))
+            role = "owner"
+        else:
+            try:
+                agency_id = await _agency_for_invite(session, req.invite)
+            except AppException as e:
+                logger.warning("Вход отклонён: приглашение не принято",
+                    platform=req.platform, platform_user_id=platform_user_id,
+                    has_invite=bool(req.invite), code=e.code)
+                raise
         manager = Manager(
             agency_id=agency_id,
             name=user.get("first_name", "Unknown"),
             telegram_id=platform_user_id if platform == BotPlatform.TELEGRAM else None,
             max_user_id=platform_user_id if platform == BotPlatform.MAX else None,
             preferred_platform=req.platform,
-            role="manager",
+            role=role if is_platform_admin else "manager",
             is_active=True,
         )
         session.add(manager)
