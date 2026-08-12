@@ -7,11 +7,18 @@ from app.security import create_access_token
 
 
 @pytest.mark.asyncio
-async def test_valid_bearer_token():
-    token = create_access_token("mgr-1", agency_id="ag-1")
+async def test_valid_bearer_token(monkeypatch):
+    import app.database as db
+    from types import SimpleNamespace
+    class Session:
+        async def get(self, _model, _id): return SimpleNamespace(is_active=True, agency_id="00000000-0000-0000-0000-000000000002")
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): pass
+    monkeypatch.setattr(db, "async_session", lambda: Session())
+    token = create_access_token("00000000-0000-0000-0000-000000000001", agency_id="00000000-0000-0000-0000-000000000002")
     cm = await get_current_manager(f"Bearer {token}")
-    assert cm.manager_id == "mgr-1"
-    assert cm.agency_id == "ag-1"
+    assert cm.manager_id == "00000000-0000-0000-0000-000000000001"
+    assert cm.agency_id == "00000000-0000-0000-0000-000000000002"
 
 
 @pytest.mark.asyncio

@@ -145,7 +145,7 @@ async def _agency_for_invite(session, invite: Optional[str]) -> uuid.UUID:
         )
 
     agency_id = await session.scalar(
-        select(Agency.id).where(Agency.invite_token == token)
+        select(Agency.id).where((Agency.invite_token == token) | (Agency.onboarding_code == token))
     )
     if agency_id is None:
         raise AppException(

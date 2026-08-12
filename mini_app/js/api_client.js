@@ -182,6 +182,10 @@
     aiProvider: () => api.request('/auth/ai-provider'),
     setAiProvider: (provider) => api.request('/auth/ai-provider', 'PUT', { provider }),
 
+    // Owner administration
+    adminManagers: () => api.request('/admin/managers'),
+    updateAdminManager: (id, body) => api.request(`/admin/managers/${id}`, 'PATCH', body),
+
     // Monitoring sources (TZ 30 /admin/sources)
     sources: (f) => api.request('/sources' + qs(f)),
     collection: () => api.request('/sources/collection'),

@@ -9,30 +9,44 @@ function ownerOnly() {
 
 Screens.admin = async function () {
   if (!ownerOnly()) return;
-  UI.setHeader('??????????', '??????? ?????????');
+  UI.setHeader('Управление', 'Кабинет владельца');
   UI.render(`
-    <div class="card">
-      <div class="between">
-        <div><div class="card__title">${UI.esc((window._agency && window._agency.name) || '?????????')}</div>
-          <div class="item__sub">?? ????? ??? ????????</div></div>
-        <span class="chip chip--success">owner</span>
-      </div>
-    </div>
-    <div class="section-title">???????</div>
+    <div class="card"><div class="between"><div><div class="card__title">${UI.esc((window._agency && window._agency.name) || 'Агентство')}</div>
+      <div class="item__sub">Вы вошли как владелец</div></div><span class="chip chip--success">owner</span></div></div>
+    <div class="section-title">Система</div>
     <div class="tiles">
-      <button class="tile" data-go="admin/geo"><span class="tile__ico">${UI.icon('location')}</span>
-        <span class="tile__t">??????</span><span class="tile__s">??? ? ????? ??????????</span></button>
-      <button class="tile" data-go="admin/sources"><span class="tile__ico">${UI.icon('signals')}</span>
-        <span class="tile__t">?????????</span><span class="tile__s">?????????? ? ??????????</span></button>
-      <button class="tile" data-go="tasks"><span class="tile__ico">${UI.icon('check')}</span>
-        <span class="tile__t">??????</span><span class="tile__s">?????? ???????</span></button>
-      <button class="tile" data-go="analytics"><span class="tile__ico">${UI.icon('analytics')}</span>
-        <span class="tile__t">?????????</span><span class="tile__s">??????? ? ROI</span></button>
+      <button class="tile" data-go="admin/geo"><span class="tile__ico">${UI.icon('location')}</span><span class="tile__t">Города</span><span class="tile__s">Гео и поиск источников</span></button>
+      <button class="tile" data-go="admin/sources"><span class="tile__ico">${UI.icon('signals')}</span><span class="tile__t">Источники</span><span class="tile__s">Мониторинг и активность</span></button>
+      <button class="tile" data-go="tasks"><span class="tile__ico">${UI.icon('check')}</span><span class="tile__t">Задачи</span><span class="tile__s">Работа команды</span></button>
+      <button class="tile" data-go="analytics"><span class="tile__ico">${UI.icon('analytics')}</span><span class="tile__t">Аналитика</span><span class="tile__s">Воронка и ROI</span></button>
     </div>
-    <div class="section-title">????????? ?????????</div>
-    <button class="btn btn--secondary btn--block" data-go="settings">${UI.icon('settings')} ?????????, ?????????, ??????????? ? AI</button>
-  `, () => Router.bindGo());
+    <div class="section-title">Команда</div><div id="admin-team">${UI.skelList(2)}</div>
+    <div class="section-title">Настройки владельца</div>
+    <button class="btn btn--secondary btn--block" data-go="settings">${UI.icon('settings')} Агентство, приглашения, CRM и AI</button>
+  `, () => { Router.bindGo(); loadAdminTeam(); });
 };
+
+async function loadAdminTeam() {
+  const box = document.getElementById('admin-team');
+  if (!box) return;
+  try {
+    const data = await API.adminManagers();
+    box.innerHTML = UI.list(data.managers || [], (m) => `
+      <div class="card"><div class="between"><div><div class="item__title">${UI.esc(m.name)}</div>
+        <div class="item__sub">${UI.esc(m.role)}</div></div>
+        <span class="chip ${m.is_active ? 'chip--success' : ''}">${m.is_active ? 'активен' : 'отключён'}</span></div>
+        ${m.id !== (window._manager && window._manager.id) ? `<button class="btn btn--secondary btn--sm mt-3" data-manager-toggle="${m.id}" data-active="${m.is_active}">${m.is_active ? 'Отключить' : 'Активировать'}</button>` : ''}
+      </div>`, {icon: 'user', title: 'Менеджеров пока нет'});
+    box.querySelectorAll('[data-manager-toggle]').forEach((button) => {
+      button.onclick = async () => {
+        await API.updateAdminManager(button.dataset.managerToggle, {is_active: button.dataset.active !== 'true'});
+        loadAdminTeam();
+      };
+    });
+  } catch (e) {
+    box.innerHTML = UI.errorState(e.message);
+  }
+}
 
 Screens.adminGeo = async function () {
   if (!ownerOnly()) return;

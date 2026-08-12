@@ -21,6 +21,7 @@ from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
 from app.logging_config import setup_logging
 from app.routers import (
+    admin,
     analytics,
     auth,
     deals,
@@ -149,6 +150,7 @@ async def consent_handler(request: Request, exc: ConsentRequiredError):
 
 # Routers (added incrementally)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Administration"])
 app.include_router(geo.router, prefix="/api/geo", tags=["Geo"])
 app.include_router(signals.router, prefix="/api/signals", tags=["Signals"])
 app.include_router(leads.router, prefix="/api/leads", tags=["Leads"])

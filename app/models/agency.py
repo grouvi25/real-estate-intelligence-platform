@@ -24,6 +24,8 @@ class Agency(CreatedAtMixin, UpdatedAtMixin, Base):
     # The invitation is the token: a manager joins this agency only by presenting
     # it, and rotating it invalidates every link handed out before (migration 048).
     invite_token: Mapped[str | None] = mapped_column(Text)
+    onboarding_code: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Outbound CRM export (migration 007).
     crm_export_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
