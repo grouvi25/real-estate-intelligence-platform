@@ -40,7 +40,6 @@ from app.routers import (
 )
 from app.services.ai_cost_tracker import init_cost_tracker
 from app.services.rate_limit import init_rate_limiter
-from app.services.yc_logging import init_yc_logging, shutdown_yc_logging
 from worker.celery_app import celery_app
 
 setup_logging()
@@ -64,8 +63,6 @@ async def lifespan(app: FastAPI):
             logger.warning("MAX_WEBHOOK_SECRET is not set in production")
     init_cost_tracker(config.redis_url)
     init_rate_limiter(config.redis_url)
-    # Needs a running loop, so it starts here rather than at import time.
-    init_yc_logging()
     testing = os.getenv("REIP_TESTING") == "1"
     if not testing:
         try:
@@ -82,7 +79,6 @@ async def lifespan(app: FastAPI):
     logger.info("Application started successfully")
     yield
     logger.info("Application shutting down...")
-    await shutdown_yc_logging()
     await engine.dispose()
     logger.info("Database connections closed")
 

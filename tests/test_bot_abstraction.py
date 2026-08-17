@@ -15,6 +15,10 @@ from app.services.bot_abstraction import (
 def _layer(handler):
     layer = BotAbstractionLayer()
     layer.http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    # В боевой среде Telegram ходит отдельным клиентом через прокси. Здесь он
+    # увёл бы запрос в настоящий api.telegram.org мимо подменённого транспорта,
+    # поэтому тест явно возвращает слой к одному клиенту.
+    layer._telegram_http = None
     return layer
 
 

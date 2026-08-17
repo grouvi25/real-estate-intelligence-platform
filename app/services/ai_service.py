@@ -46,17 +46,26 @@ class AIResponse:
     usage: AIUsage = field(default_factory=AIUsage)
 
 
-# Rates in RUB per 1000 tokens (May 2026 estimates), TZ 10.2.
+# Цена в рублях за 1000 токенов, ТЗ 10.2.
+#
+# Прошлые значения для зарубежных моделей были завышены примерно в сто раз:
+# туда попала цена за миллион токенов, а делится счёт на тысячу. При дневном
+# бюджете 1000 ₽ это срубало ИИ примерно после двухсот вызовов — выглядело как
+# «ИИ отвалился», хотя реально потрачены были рубли, а не тысячи.
+#
+# Зарубежные пересчитаны из прайса за миллион токенов при курсе ~90 ₽/$ и
+# смеси ввода-вывода примерно поровну. Курс и прайсы меняются — таблицу нужно
+# сверять при каждом пересмотре бюджета.
 _RATES_PER_1K = {
-    "yandexgpt-lite": 0.03,
-    "yandexgpt-pro": 0.06,
-    "gpt-4o-mini": 5.0,
-    "gpt-4o": 45.0,
+    "yandexgpt-lite": 0.20,
+    "yandexgpt-pro": 1.20,
+    "gpt-4o-mini": 0.04,
+    "gpt-4o": 0.60,
     "GigaChat": 0.20,
     "GigaChat-Pro": 1.50,
     "GigaChat-Max": 1.90,
-    "claude-3-5-haiku-latest": 6.0,
-    "claude-3-5-sonnet-latest": 30.0,
+    "claude-haiku-4-5": 0.30,
+    "claude-sonnet-5": 0.90,
 }
 
 
@@ -138,7 +147,7 @@ class AIService:
         elif self.provider == AIProvider.GIGACHAT:
             model = config.gigachat_models.get(module, "GigaChat")
         elif self.provider == AIProvider.ANTHROPIC:
-            model = config.anthropic_models.get(module, "claude-3-5-haiku-latest")
+            model = config.anthropic_models.get(module, "claude-haiku-4-5")
         else:
             model = config.openai_models.get(module, "gpt-4o-mini")
 
@@ -155,7 +164,7 @@ class AIService:
             raise NotImplementedError(f"Provider {self.provider} not implemented")
 
         # 4. Cost accounting.
-        cost = response.usage.total_tokens * self._get_rate_per_token(model) / 1000
+        cost = response.usage.total_tokens * self._rate_per_1k(model) / 1000
         total = await tracker.add_cost(cost, agency_id)
         logger.info(
             "AI call completed",
@@ -342,7 +351,7 @@ class AIService:
         text = "".join(b.get("text", "") for b in blocks if isinstance(b, dict))
         return AIResponse(text=text, model=model, provider=AIProvider.ANTHROPIC, usage=usage)
 
-    def _get_rate_per_token(self, model: str) -> float:
+    def _rate_per_1k(self, model: str) -> float:
         return _RATES_PER_1K.get(model, 0.1)
 
     async def close(self) -> None:

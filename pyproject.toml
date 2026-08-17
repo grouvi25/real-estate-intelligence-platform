@@ -14,7 +14,10 @@ dependencies = [
     "redis>=5.0",
     "celery>=5.3",
     "gevent>=24.2",
-    "httpx>=0.26",
+    # Обращения к Telegram уходят через SOCKS5: из Yandex Cloud он недоступен
+    # напрямую. socksio нужен httpx, python-socks — Telethon.
+    "httpx[socks]>=0.26",
+    "python-socks[asyncio]>=2.4",
     "cryptography>=42.0",
     "pyjwt>=2.8",
     "structlog>=24.1",

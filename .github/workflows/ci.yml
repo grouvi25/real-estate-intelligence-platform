@@ -130,14 +130,18 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          proxy_host: ${{ secrets.JUMP_HOST }}
+          proxy_username: ${{ secrets.JUMP_USER }}
+          proxy_key: ${{ secrets.VPS_SSH_KEY }}
+          proxy_port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | sh
             fi
-            mkdir -p /opt/reip
+            sudo mkdir -p /opt/reip && sudo chown ubuntu:ubuntu /opt/reip
             if [ ! -f /opt/reip/.env ]; then
               ENC=$(openssl rand -base64 32 | tr '+/' '-_')
               SEC=$(openssl rand -hex 32)
@@ -172,8 +176,12 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          proxy_host: ${{ secrets.JUMP_HOST }}
+          proxy_username: ${{ secrets.JUMP_USER }}
+          proxy_key: ${{ secrets.VPS_SSH_KEY }}
+          proxy_port: ${{ secrets.VPS_PORT }}
           envs: VK_SERVICE_TOKEN
           script: |
             set -e
@@ -192,8 +200,12 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          proxy_host: ${{ secrets.JUMP_HOST }}
+          proxy_username: ${{ secrets.JUMP_USER }}
+          proxy_key: ${{ secrets.VPS_SSH_KEY }}
+          proxy_port: ${{ secrets.VPS_PORT }}
           source: "."
           target: "/opt/reip"
           overwrite: true
@@ -203,8 +215,12 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          proxy_host: ${{ secrets.JUMP_HOST }}
+          proxy_username: ${{ secrets.JUMP_USER }}
+          proxy_key: ${{ secrets.VPS_SSH_KEY }}
+          proxy_port: ${{ secrets.VPS_PORT }}
           command_timeout: 20m
           script: |
             set -e

@@ -67,6 +67,21 @@ def force_dc_port(client, port: int) -> None:
     session.set_dc(session.dc_id, session.server_address, port)
 
 
+def _proxy_settings():
+    """Разбирает socks5://host:port в вид, который понимает Telethon.
+
+    Из Yandex Cloud дата-центры Telegram недоступны, и подключение уходит
+    через SOCKS5 (см. config.telegram_proxy_url). Без настройки — None, то
+    есть прямое подключение.
+    """
+    url = config.telegram_proxy_url
+    if not url:
+        return None
+    rest = url.split("://", 1)[-1]
+    host, _, port = rest.partition(":")
+    return ("socks5", host, int(port or 1080))
+
+
 def build_client(session_name: str | None = None):
     """Create a Telethon client with the project's connection settings applied."""
     from telethon import TelegramClient  # noqa: PLC0415
@@ -75,6 +90,7 @@ def build_client(session_name: str | None = None):
         session_name or config.telethon_session_name,
         config.telethon_api_id,
         config.telethon_api_hash,
+        proxy=_proxy_settings(),
     )
     if config.telethon_dc_port:
         force_dc_port(client, config.telethon_dc_port)

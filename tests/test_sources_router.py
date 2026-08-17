@@ -27,10 +27,20 @@ async def _agency_with_geo(s):
     return agency, geo
 
 
-def _current(agency):
-    from app.dependencies import CurrentManager
+async def _current(s, agency):
+    """Владелец агентства — настоящей строкой в базе, не выдуманным id.
 
-    return CurrentManager(manager_id=str(uuid.uuid4()), agency_id=str(agency.id))
+    Мутации источников защищены require_owner: она читает менеджера из базы и
+    требует роль owner. Пока тесты подставляли случайный uuid, строки не
+    находилось и любая правка источника отвечала 403.
+    """
+    from app.dependencies import CurrentManager
+    from app.models.manager import Manager
+
+    manager = Manager(agency_id=agency.id, name="Владелец", role="owner")
+    s.add(manager)
+    await s.commit()
+    return CurrentManager(manager_id=str(manager.id), agency_id=str(agency.id))
 
 
 @pytest.mark.asyncio
@@ -42,7 +52,7 @@ async def test_add_source_by_username_and_list_it():
     async with async_session() as s:
         agency, geo = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         created = await create_source(
@@ -72,7 +82,7 @@ async def test_duplicate_source_is_rejected():
     async with async_session() as s:
         agency, _ = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         await create_source(CreateSourceRequest(source_url="https://t.me/dup_chat"),
@@ -98,7 +108,7 @@ async def test_pause_a_source_so_the_collector_skips_it():
     async with async_session() as s:
         agency, _ = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         created = await create_source(
@@ -128,7 +138,7 @@ async def test_delete_is_blocked_while_signals_reference_the_source():
     async with async_session() as s:
         agency, _ = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         created = await create_source(CreateSourceRequest(source_url="https://t.me/busy_chat"),
@@ -153,7 +163,7 @@ async def test_delete_removes_a_source_with_no_signals():
     async with async_session() as s:
         agency, _ = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         created = await create_source(CreateSourceRequest(source_url="https://t.me/empty_chat"),
@@ -184,7 +194,7 @@ async def test_sources_are_scoped_to_the_token_agency():
         other = Agency(name="Other Sources Agency", base_city="Сочи")
         s.add(other)
         await s.commit()
-        current, stranger = _current(agency), _current(other)
+        current, stranger = await _current(s, agency), await _current(s, other)
 
     async with async_session() as s:
         created = await create_source(CreateSourceRequest(source_url="https://t.me/scoped_chat"),
@@ -212,7 +222,7 @@ async def test_rejects_invalid_type_status_and_score():
     async with async_session() as s:
         agency, _ = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         with pytest.raises(ValidationError):
@@ -244,7 +254,7 @@ async def test_a_source_added_without_a_city_gets_the_agency_s_own():
     async with async_session() as s:
         agency, geo = await _agency_with_geo(s)
         await s.commit()
-        current, geo_id = _current(agency), geo.id
+        current, geo_id = await _current(s, agency), geo.id
 
     async with async_session() as s:
         created = await create_source(
@@ -267,7 +277,7 @@ async def test_with_two_cities_the_source_must_name_one():
         agency, _ = await _agency_with_geo(s)
         s.add(GeoLocation(agency_id=agency.id, city_name="Анапа", geo_type="sales"))
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         with pytest.raises(ValidationError):
@@ -287,7 +297,7 @@ async def test_an_agency_with_no_city_is_told_to_add_one():
         agency = Agency(name=f"No geo {uuid.uuid4().hex[:6]}", base_city="Геленджик")
         s.add(agency)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
 
     async with async_session() as s:
         with pytest.raises(ValidationError):
@@ -399,7 +409,7 @@ async def test_a_trickle_of_signals_is_reported_as_a_problem_not_as_health(monke
     async with async_session() as s:
         agency, geo = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
         await _seed_collection(s, agency, geo, messages=400, signals=1)
 
     async with async_session() as s:
@@ -421,7 +431,7 @@ async def test_a_working_yield_is_left_alone(monkeypatch):
     async with async_session() as s:
         agency, geo = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
         await _seed_collection(s, agency, geo, messages=400, signals=8)
 
     async with async_session() as s:
@@ -440,7 +450,7 @@ async def test_a_paused_source_means_nothing_is_being_read(monkeypatch):
     async with async_session() as s:
         agency, geo = await _agency_with_geo(s)
         await s.commit()
-        current = _current(agency)
+        current = await _current(s, agency)
         await _seed_collection(s, agency, geo, messages=0, signals=0, status="paused")
 
     async with async_session() as s:

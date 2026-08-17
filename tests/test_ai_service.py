@@ -46,8 +46,8 @@ async def test_complete_yandex_returns_text_and_tracks_cost():
     await ai.close()
 
     assert '"intent_score"' in text
-    # 150 tokens * 0.03 rub / 1000 = 0.0045
-    assert tracker.added and round(tracker.added[0], 4) == 0.0045
+    # 150 токенов * 0.20 ₽ / 1000 = 0.03
+    assert tracker.added and round(tracker.added[0], 4) == 0.03
 
 
 @pytest.mark.asyncio

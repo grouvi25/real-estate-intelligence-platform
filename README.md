@@ -23,14 +23,14 @@ AI-платформа разведки покупателей недвижимо
 |------|-----------|
 | Язык | Python 3.11+ (type hints обязательны) |
 | Фреймворк | FastAPI 0.109+ (async, OpenAPI 3.1) |
-| БД | PostgreSQL 15 (Yandex Managed Service) |
+| БД | PostgreSQL 15 в контейнере на той же ВМ, дамп в Object Storage раз в сутки |
 | ORM | SQLAlchemy 2.0 + asyncpg |
 | Очереди | Redis 7 + Celery 5.3 |
 | Боты | aiogram 3.3 (Telegram) + MAX Bot API |
 | Mini App | HTML + Vanilla JS / Vue 3 (mobile-first, 390px) |
 | Хранилище | Yandex Object Storage (S3-compatible) |
-| Деплой | Yandex Cloud (Compute Cloud + Container Registry) |
-| Логирование | structlog + Yandex Cloud Logging |
+| Деплой | Yandex Cloud, Compute Cloud (ru-central1, 2 ядра / 4 ГБ, доля vCPU 20%) |
+| Логирование | structlog в stdout → journald → Unified Agent → Cloud Logging |
 
 ## Соответствие 152-ФЗ
 

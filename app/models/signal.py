@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import TIMESTAMP, ForeignKey, Integer, Text
+from sqlalchemy import TIMESTAMP, ForeignKey, Integer, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,7 +42,14 @@ class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
     ai_analysis: Mapped[dict] = mapped_column(JSONB, default=dict)
 
     # Signal Bus addendum (migrations 040-041).
-    origin_system: Mapped[Optional[str]] = mapped_column(Text)
+    #
+    # Умолчание обязано быть и на стороне Python. Миграция 055 сделала колонку
+    # NOT NULL DEFAULT 'reip_scouting', но умолчание базы срабатывает только
+    # когда колонки нет в INSERT — а SQLAlchemy подставляла явный NULL, потому
+    # что поле описано и пусто. Так падали четырнадцать тестов в CI.
+    origin_system: Mapped[str] = mapped_column(
+        Text, default="reip_scouting", server_default=text("'reip_scouting'")
+    )
     content_unit_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("content_units.id", ondelete="SET NULL")
     )

@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     telegram_bot_username: str = Field(..., alias="TELEGRAM_BOT_USERNAME")
     telegram_webhook_path: str = Field(default="/telegram/webhook", alias="TELEGRAM_WEBHOOK_PATH")
     telegram_webhook_secret: Optional[str] = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
+    # Исходящие подключения к Telegram идут через SOCKS5, потому что из
+    # ru-central1 Telegram недоступен целиком — ни api.telegram.org, ни
+    # дата-центры MTProto. Канал держит служба reip-telegram-proxy на сервере
+    # в Москве. Пусто — значит ходим напрямую (так работает где угодно, кроме
+    # Yandex Cloud). Вебхуки приходят к нам сами и через прокси не идут.
+    telegram_proxy_url: Optional[str] = Field(default=None, alias="TELEGRAM_PROXY_URL")
     max_bot_token: Optional[str] = Field(default=None, alias="MAX_BOT_TOKEN")
     max_bot_username: Optional[str] = Field(default=None, alias="MAX_BOT_USERNAME")
     max_webhook_path: str = Field(default="/max/webhook", alias="MAX_WEBHOOK_PATH")
@@ -161,10 +167,14 @@ class Settings(BaseSettings):
 
     @property
     def anthropic_models(self) -> dict[str, str]:
-        """Anthropic model per task (via proxy). Heavy tasks use Sonnet."""
+        """Anthropic model per task (via proxy). Heavy tasks use Sonnet.
+
+        Идентификаторы claude-3-5-*-latest сняты с обслуживания: вызов по ним
+        возвращает 404, то есть ИИ молча не работал бы на всём, что идёт через
+        Anthropic.
+        """
         heavy = {"buyer_profile", "object_analysis", "matching_pitch", "daily_report"}
-        return {module: ("claude-3-5-sonnet-latest" if module in heavy
-                         else "claude-3-5-haiku-latest")
+        return {module: ("claude-sonnet-5" if module in heavy else "claude-haiku-4-5")
                 for module in self.ai_models}
 
     @field_validator("encryption_key")

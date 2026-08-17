@@ -87,6 +87,36 @@ test('a plain browser is still a plain browser', () => {
   assert.strictEqual(evaluate('PlatformSDK').inTelegram, false);
 });
 
+test('MAX is recognised through the bridge it actually installs', () => {
+  // MAX Bridge puts the bridge in window.WebApp. The app used to look for
+  // window.MAX.WebApp -- an object MAX never creates -- so inside MAX it
+  // decided it was an ordinary browser, sent no signature, and every login
+  // was refused.
+  const window = {
+    REIP_CONFIG: { apiUrl: '' },
+    WebApp: {
+      initData: SIGNED,
+      initDataUnsafe: { user: { id: 7503416516, first_name: 'Миша' } },
+      ready() {}, close() {},
+    },
+  };
+  const ctx = vm.createContext({
+    window, location: { hash: '', search: '' }, console, URLSearchParams, JSON,
+    Promise, String,
+    sessionStorage: { getItem: () => null, setItem() {} },
+    localStorage: { removeItem() {} },
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+  });
+  ctx.globalThis = ctx;
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'platform_init.js'), 'utf8'), ctx,
+                  { filename: 'platform_init.js' });
+
+  const sdk = vm.runInContext('PlatformSDK', ctx);
+  assert.strictEqual(sdk.platform, 'max');
+  assert.strictEqual(sdk.initData, SIGNED);
+  assert.strictEqual(sdk.user.first_name, 'Миша');
+});
+
 test('a refusal reaches the screen in the words the server used', async () => {
   const { evaluate } = load({
     respond: async () => ({

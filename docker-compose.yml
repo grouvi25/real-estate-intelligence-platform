@@ -2,10 +2,18 @@
 # The app reaches them over the internal compose network (hosts: db, redis).
 # This matches the server convention (localhost-only / behind nginx) and avoids
 # exposing PostgreSQL/Redis to the public internet.
+#
+# Images come from cr.yandex/mirror, not Docker Hub: outbound traffic from
+# ru-central1 does not reach registry-1.docker.io, so a plain `postgres:15`
+# never pulls. The same applies to the base image in the Dockerfile.
+#
+# Telegram недоступен из ru-central1 целиком — ни api.telegram.org, ни
+# дата-центры MTProto. Исходящие идут через SOCKS5 (TELEGRAM_PROXY_URL в .env),
+# который держит служба reip-telegram-proxy на сервере в Москве.
 
 services:
   db:
-    image: postgres:15
+    image: cr.yandex/mirror/library/postgres:15
     environment:
       POSTGRES_USER: re_app
       # Comes from .env (same file compose already reads). The literal fallback
@@ -23,7 +31,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7
+    image: cr.yandex/mirror/library/redis:7
     expose:
       - "6379"
     healthcheck:
@@ -45,6 +53,8 @@ services:
       # LocalStorage fallback for generated documents (used whenever Yandex
       # Object Storage is not configured) — must outlive a container rebuild.
       - storage:/app/storage_data
+      # Yandex Cloud service-account key. Never in git, never in the image.
+      - ./secrets:/app/secrets:ro
     depends_on:
       db:
         condition: service_healthy
@@ -64,6 +74,7 @@ services:
       # would be wiped on every redeploy.
       - telethon:/app/telethon
       - storage:/app/storage_data
+      - ./secrets:/app/secrets:ro
     # The image HEALTHCHECK targets the HTTP app; disable it for the worker.
     healthcheck:
       disable: true
@@ -75,13 +86,42 @@ services:
     build: .
     command: celery -A worker.celery_app beat -l info
     env_file: .env
+    volumes:
+      - ./secrets:/app/secrets:ro
     healthcheck:
       disable: true
     depends_on:
       - worker
     restart: unless-stopped
 
+  # Ships every container's logs to Yandex Cloud Logging (TZ 35.11). Docker is
+  # configured with the journald driver (/etc/docker/daemon.json), so stdout
+  # from all five services lands in the system journal tagged with the
+  # container name, and the agent streams the journal onward.
+  #
+  # Its own logs stay on json-file: with journald it would read back its own
+  # output and feed itself.
+  logs:
+    image: cr.yandex/yc/unified-agent
+    # The image entrypoint re-renders the config through eval/echo, which
+    # mangles quoting; run the binary against the file as written instead.
+    entrypoint: ["/usr/bin/unified_agent", "--config", "/etc/yandex/unified_agent/config.yml"]
+    volumes:
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - ./deploy/unified-agent.yml:/etc/yandex/unified_agent/config.yml:ro
+      - ./secrets/sa-key.json:/etc/yandex/unified_agent/sa-key.json:ro
+      - ua_state:/var/lib/yandex/unified_agent
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   telethon:
   storage:
+  ua_state:

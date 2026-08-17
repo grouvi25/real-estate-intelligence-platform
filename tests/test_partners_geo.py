@@ -18,17 +18,32 @@ async def _agency(s):
     return a
 
 
+async def _owner(s, agency):
+    """Владелец агентства настоящей строкой в базе.
+
+    Создание гео и партнёров защищено require_owner: она читает менеджера по
+    его id. Строковый "m1" даже не разбирался как uuid — тест падал на
+    ValueError раньше, чем доходил до проверки прав.
+    """
+    from app.dependencies import CurrentManager
+    from app.models.manager import Manager
+
+    manager = Manager(agency_id=agency.id, name="Владелец", role="owner")
+    s.add(manager)
+    await s.commit()
+    return CurrentManager(manager_id=str(manager.id), agency_id=str(agency.id))
+
+
 @pytest.mark.asyncio
 async def test_partner_create_and_list():
     from app.database import async_session, run_migrations
-    from app.dependencies import CurrentManager
     from app.routers.partners import CreatePartnerRequest, create_partner, list_partners
 
     await run_migrations()
     async with async_session() as s:
         agency = await _agency(s)
         await s.commit()
-        current = CurrentManager(manager_id="m1", agency_id=str(agency.id))
+        current = await _owner(s, agency)
 
     async with async_session() as s:
         created = await create_partner(
@@ -47,7 +62,6 @@ async def test_partner_create_and_list():
 @pytest.mark.asyncio
 async def test_geo_create_and_list(monkeypatch):
     from app.database import async_session, run_migrations
-    from app.dependencies import CurrentManager
     from app.routers.geo import CreateGeoRequest, create_geo, list_geo
 
     import worker.tasks.geo_tasks as gt
@@ -57,7 +71,7 @@ async def test_geo_create_and_list(monkeypatch):
     async with async_session() as s:
         agency = await _agency(s)
         await s.commit()
-        current = CurrentManager(manager_id="m1", agency_id=str(agency.id))
+        current = await _owner(s, agency)
 
     # A fixed name made the test pass once and fail for ever after: creating the
     # city reserves it in protected_geos, so the second run got 409 GEO_PROTECTED

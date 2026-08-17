@@ -4,7 +4,11 @@
 
 const PlatformSDK = (() => {
   const tgApp = () => (window.Telegram && window.Telegram.WebApp) || null;
-  const maxApp = () => (window.MAX && window.MAX.WebApp) || null;
+  // MAX Bridge кладёт мост прямо в window.WebApp (dev.max.ru/docs/webapps).
+  // Раньше здесь ждали window.MAX.WebApp — такого объекта MAX не создаёт
+  // никогда, поэтому в MAX приложение считало себя обычным браузером,
+  // подписи не получало и упиралось в отказ авторизации.
+  const maxApp = () => window.WebApp || (window.MAX && window.MAX.WebApp) || null;
 
   // Telegram hands the signed launch payload to the page in the URL fragment
   // (#tgWebAppData=...); telegram-web-app.js is what turns it into

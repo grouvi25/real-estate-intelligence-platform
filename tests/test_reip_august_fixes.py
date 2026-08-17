@@ -134,5 +134,7 @@ def test_admin_bundle_and_deploy_assets_exist():
     assert "screens/admin.js" in index
     assert "admin/geo" in (root / "mini_app/js/app.js").read_text(encoding="utf-8")
     assert (root / "railway_proxy/server.js").is_file()
-    assert (root / "nginx/nginx.conf").is_file()
+    # Конфиг nginx теперь один — тот, что стоит на боевой машине. Второй,
+    # nginx/nginx.conf, никогда не устанавливался и удалён.
+    assert (root / "deploy/nginx/reip.grouvi.online.conf").is_file()
     assert (root / "migrations/README.md").is_file()

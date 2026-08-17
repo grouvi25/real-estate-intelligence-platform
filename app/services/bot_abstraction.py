@@ -5,6 +5,7 @@ platform specifics. Adding a platform means adding a private _send_<platform>.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from enum import Enum
 from typing import Optional
@@ -84,6 +85,22 @@ def _max_button(btn: BotButton) -> dict:
 class BotAbstractionLayer:
     def __init__(self):
         self.http = httpx.AsyncClient(timeout=15.0)
+        # MAX — российский сервис и доступен напрямую, а Telegram из Yandex
+        # Cloud не доступен вовсе, поэтому у него отдельный клиент через прокси.
+        self._telegram_http = (
+            httpx.AsyncClient(timeout=15.0, proxy=config.telegram_proxy_url)
+            if config.telegram_proxy_url
+            else None
+        )
+
+    @property
+    def telegram_http(self) -> httpx.AsyncClient:
+        """Клиент для Telegram: через прокси, если он задан, иначе общий.
+
+        Общий берётся именно здесь, а не в конструкторе, чтобы подмена
+        `layer.http` (так делают тесты) продолжала работать.
+        """
+        return self._telegram_http or self.http
 
     async def send_message(self, user_id: int, platform: BotPlatform, message: BotMessage) -> bool:
         try:
@@ -114,7 +131,10 @@ class BotAbstractionLayer:
                     [_telegram_button(btn) for btn in message.buttons]
                 ]
             }
-        response = await self.http.post(url, json=payload)
+        # Через SOCKS таймаут httpx не держит: подвисший канал растягивал вызов
+        # на минуты, а это задача Celery, которая столько висеть не должна.
+        response = await asyncio.wait_for(
+            self.telegram_http.post(url, json=payload), timeout=20)
         response.raise_for_status()
         return bool(response.json().get("ok", False))
 
@@ -162,6 +182,8 @@ class BotAbstractionLayer:
             return await self.send_message(target_id, platform, BotMessage(text=text))
 
     async def close(self) -> None:
+        if self._telegram_http is not None:
+            await self._telegram_http.aclose()
         await self.http.aclose()
 
 

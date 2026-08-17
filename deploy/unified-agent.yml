@@ -1,0 +1,45 @@
+# Сбор логов в Yandex Cloud Logging (ТЗ 35.11).
+#
+# Приложение пишет structlog-JSON в stdout, Docker (драйвер journald, задан в
+# /etc/docker/daemon.json) кладёт это в системный журнал с меткой контейнера, а
+# этот агент читает журнал и отправляет записи в Cloud Logging.
+#
+# Почему не из самого приложения: приёмник Cloud Logging принимает только gRPC,
+# и отправка изнутри процесса охватывала бы один контейнер из пяти и молчала бы
+# ровно тогда, когда падает само приложение.
+#
+# Точка входа образа прогоняет конфиг через eval/echo и портит кавычки, поэтому
+# в docker-compose.yml агент запускается напрямую: entrypoint переопределён.
+status:
+  port: 16241
+
+storages:
+  - name: main
+    plugin: fs
+    config:
+      directory: /var/lib/yandex/unified_agent/main
+      max_partition_size: 100mb
+      max_segment_size: 10mb
+
+channels:
+  - name: cloud_logging
+    channel:
+      pipe:
+        - storage_ref:
+            name: main
+      output:
+        plugin: yc_logs
+        config:
+          folder_id: b1g3nanpk22hv91s5kcb
+          iam:
+            jwt:
+              file: /etc/yandex/unified_agent/sa-key.json
+
+routes:
+  - input:
+      plugin: journald
+      config:
+        state_directory: /var/lib/yandex/unified_agent/journald
+    channel:
+      channel_ref:
+        name: cloud_logging

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
@@ -13,6 +14,9 @@ from pydantic import BaseModel
 from app.config import config
 from app.database import check_database_connection, get_session
 
+import structlog
+
+logger = structlog.get_logger()
 router = APIRouter()
 
 VERSION = "2.0.0"
@@ -35,6 +39,49 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def _telegram_dc_reachable(timeout: float = 4.0) -> bool:
+    """Открывается ли TCP до дата-центра Telegram тем же путём, что у сбора.
+
+    Сбор ходит по MTProto, а не в api.telegram.org, и адреса у них разные:
+    бот может отвечать, пока дата-центры закрыты. Через прокси проверяем
+    прокси, без него — прямое подключение.
+    """
+    from app.collectors.telegram_collector import _proxy_settings  # noqa: PLC0415
+
+    host, port = "149.154.167.51", 443  # DC2, основной для наших сессий
+    proxy = _proxy_settings()
+
+    async def probe() -> bool:
+        if proxy is None:
+            _, writer = await asyncio.open_connection(host, port)
+            writer.close()
+            return True
+        _, p_host, p_port = proxy
+        reader, writer = await asyncio.open_connection(p_host, p_port)
+        try:
+            writer.write(b"\x05\x01\x00")
+            await writer.drain()
+            if await reader.readexactly(2) != b"\x05\x00":
+                return False
+            writer.write(b"\x05\x01\x00\x01"
+                         + bytes(int(o) for o in host.split("."))
+                         + port.to_bytes(2, "big"))
+            await writer.drain()
+            return (await reader.readexactly(10))[1] == 0
+        finally:
+            writer.close()
+
+    try:
+        # Предел на всю проверку, а не только на подключение: подвисший канал
+        # принимает соединение и молчит, а чтение ответа без предела вешало
+        # весь /health/deep — он переставал отвечать вообще.
+        return await asyncio.wait_for(probe(), timeout=timeout)
+    except Exception as e:  # noqa: BLE001 - проверка не должна ронять сам ответ
+        # Молчаливый False уже однажды скрыл от нас, что сбор не работает.
+        logger.warning("Telegram DC probe failed", error=f"{type(e).__name__}: {e}")
+        return False
+
+
 @router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check() -> HealthResponse:
     """Basic liveness probe."""
@@ -45,8 +92,6 @@ async def health_check() -> HealthResponse:
 async def deep_health_check() -> DeepHealthResponse:
     """Deep readiness probe: database + redis. Bounded by short timeouts so the
     probe stays fast even when a dependency is down."""
-    import asyncio
-
     checks: dict[str, str] = {}
 
     try:
@@ -85,8 +130,18 @@ async def deep_health_check() -> DeepHealthResponse:
         else:
             import httpx
 
-            async with httpx.AsyncClient(timeout=3) as client:
-                resp = await client.get(f"https://api.telegram.org/bot{token}/getMe")
+            # Через прокси (см. config.telegram_proxy_url) — из Yandex Cloud
+            # Telegram напрямую недоступен. Проверка ходит по той же дороге,
+            # что и боевые вызовы, иначе она врала бы про доступность.
+            #
+            # Внешний предел обязателен: через SOCKS собственный таймаут httpx
+            # не срабатывает — подвисший канал держал запрос семь минут, и
+            # /health/deep переставал отвечать целиком.
+            async def _get_me():
+                async with httpx.AsyncClient(timeout=5, proxy=config.telegram_proxy_url) as client:
+                    return await client.get(f"https://api.telegram.org/bot{token}/getMe")
+
+            resp = await asyncio.wait_for(_get_me(), timeout=8)
             checks["telegram_bot"] = "ok" if resp.status_code == 200 else f"error: {resp.status_code}"
     except Exception as e:  # noqa: BLE001
         checks["telegram_bot"] = f"error: {str(e)[:100]}"
@@ -115,7 +170,15 @@ async def deep_health_check() -> DeepHealthResponse:
             paused = await asyncio.wait_for(
                 client.get("telethon:paused_until"), timeout=2)
             await client.aclose()
-            checks["telethon"] = "paused (auth error)" if paused else "active"
+            if paused:
+                checks["telethon"] = "paused (auth error)"
+            else:
+                # Раньше здесь стояло просто "active" — по факту это значило
+                # "ключи прописаны и пауза не выставлена". Проверка держалась
+                # зелёной, пока из Yandex Cloud вообще не было связи с
+                # дата-центрами Telegram, и сбор молча стоял. Теперь пробуем
+                # дотянуться до дата-центра тем же путём, каким ходит сбор.
+                checks["telethon"] = "active" if await _telegram_dc_reachable() else "unreachable"
     except Exception as e:  # noqa: BLE001
         checks["telethon"] = f"error: {str(e)[:50]}"
 
