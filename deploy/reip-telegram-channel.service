@@ -1,0 +1,33 @@
+[Unit]
+# Канал к Telegram для REIP. Ставится на облачную машину: /etc/systemd/system/
+#
+# Из Yandex Cloud дата-центры MTProto недоступны — закрыты все адреса, на всех
+# портах (443, 80, 5222), в любой зоне; IPv6 у машины нет вовсе. Проверено
+# отдельной пробной машиной в ru-central1-d. Поэтому Telethon и Bot API ходят
+# через SOCKS5, который открывает эта служба на docker-мосту (172.17.0.1:1080,
+# в .env это TELEGRAM_PROXY_URL).
+#
+# Канал держит сама облачная машина исходящим подключением, а не сервер на той
+# стороне обратным туннелем. Так на том сервере не остаётся ни служб, ни файлов
+# проекта — только одна строка в authorized_keys, и та ограничена:
+#
+#   restrict,port-forwarding,permitopen="149.154.167.51:443",... <ключ>
+#
+# Ключ создаётся на облачной машине (ssh-keygen -t ed25519 -f ~/.ssh/tg_channel),
+# наружу уходит только публичная часть.
+Description=REIP: канал к Telegram через сервер в Москве
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/bin/ssh -N -T -o BatchMode=yes -o StrictHostKeyChecking=no \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -i /home/ubuntu/.ssh/tg_channel \
+  -D 172.17.0.1:1080 root@194.156.116.209
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
