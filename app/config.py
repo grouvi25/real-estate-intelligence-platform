@@ -119,6 +119,19 @@ class Settings(BaseSettings):
     encryption_key: str = Field(..., alias="ENCRYPTION_KEY")  # 32 bytes, base64 (44 chars)
     node_env: Literal["development", "production"] = Field(default="production", alias="NODE_ENV")
     admin_telegram_id: Optional[int] = Field(default=None, alias="ADMIN_TELEGRAM_ID")
+    # Те же права, что у ADMIN_TELEGRAM_ID, но для MAX: список через запятую.
+    # Владельцем становится тот, кто вошёл с одним из этих идентификаторов,
+    # без приглашения. Пусто — значит в MAX доверенных нет.
+    max_admin_ids_raw: str = Field(default="", alias="MAX_ADMIN_IDS")
+
+    @property
+    def max_admin_ids(self) -> set[int]:
+        out: set[int] = set()
+        for part in self.max_admin_ids_raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                out.add(int(part))
+        return out
 
     # === 152-FZ ===
     consent_version: str = Field(default="1.0", alias="CONSENT_VERSION")

@@ -26,7 +26,7 @@ from urllib.parse import parse_qsl, unquote
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.config import config
 from app.database import get_session
@@ -156,6 +156,25 @@ async def _agency_for_invite(session, invite: Optional[str]) -> uuid.UUID:
     return agency_id
 
 
+async def _claim_owner_slot(session) -> bool:
+    """Занять одно место в окне саморегистрации владельцев. TZ 13.
+
+    Одним запросом: уменьшить счётчик, если он больше нуля, и сказать, вышло ли.
+    Так два одновременных входа не займут одно место — а «только двое» здесь
+    требование заказчика, не пожелание. Ноль мест или отсутствие таблицы
+    (старая схема) означают закрытое окно, а не ошибку входа.
+    """
+    try:
+        res = await session.execute(text(
+            "UPDATE platform_claim SET remaining = remaining - 1, updated_at = now() "
+            "WHERE remaining > 0 RETURNING remaining"
+        ))
+        return res.first() is not None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Окно саморегистрации недоступно", error=str(e)[:120])
+        return False
+
+
 @router.post("/platform")
 async def auth_platform(req: AuthRequest, session=Depends(get_session)):
     """Verify platform initData, upsert the manager, and issue a JWT."""
@@ -195,16 +214,36 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
     if manager is None:
         # ADMIN_TELEGRAM_ID is the one trusted bootstrap identity. After a full
         # user reset it must be able to recreate the platform owner without an
-        # invite; everybody else remains invite-only.
-        is_platform_admin = (
-            platform == BotPlatform.TELEGRAM
-            and config.admin_telegram_id is not None
-            and platform_user_id == int(config.admin_telegram_id)
-            and config.platform_owner_agency_id
+        # invite; everybody else remains invite-only. MAX_ADMIN_IDS is the same
+        # thing for MAX, where identities are known in advance.
+        is_platform_admin = bool(
+            config.platform_owner_agency_id
+            and (
+                (platform == BotPlatform.TELEGRAM
+                 and config.admin_telegram_id is not None
+                 and platform_user_id == int(config.admin_telegram_id))
+                or (platform == BotPlatform.MAX
+                    and platform_user_id in config.max_admin_ids)
+            )
         )
-        if is_platform_admin:
+        # Окно саморегистрации: у людей, которых надо впустить, идентификатор в
+        # MAX заранее неизвестен — MAX показывает его только при первом входе.
+        # Поэтому следующие несколько незнакомцев из MAX становятся владельцами
+        # сами, а счётчик в базе закрывает окно навсегда. Только MAX: в Telegram
+        # вход по-прежнему строго по приглашению.
+        claimed_slot = False
+        if not is_platform_admin and platform == BotPlatform.MAX and config.platform_owner_agency_id:
+            claimed_slot = await _claim_owner_slot(session)
+
+        if is_platform_admin or claimed_slot:
             agency_id = uuid.UUID(str(config.platform_owner_agency_id))
             role = "owner"
+            if claimed_slot:
+                logger.warning(
+                    "Владелец создан по окну саморегистрации MAX",
+                    platform_user_id=platform_user_id,
+                    name=user.get("first_name"),
+                )
         else:
             try:
                 agency_id = await _agency_for_invite(session, req.invite)
@@ -219,7 +258,7 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
             telegram_id=platform_user_id if platform == BotPlatform.TELEGRAM else None,
             max_user_id=platform_user_id if platform == BotPlatform.MAX else None,
             preferred_platform=req.platform,
-            role=role if is_platform_admin else "manager",
+            role=role if (is_platform_admin or claimed_slot) else "manager",
             is_active=True,
         )
         session.add(manager)

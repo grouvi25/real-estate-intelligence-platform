@@ -272,10 +272,25 @@ async def collection_status(
         working = [s for s in mine if s.status in COLLECTED_STATUSES]
         seen = [s.last_checked_at for s in working if s.last_checked_at]
         ready, detail = _channel_ready(key)
+        # Состав канала едет вместе со сводкой: цифра «источников 19» сама по
+        # себе не отвечает на вопрос, какие именно читаются, а какие стоят, и
+        # ради этого не должно быть второго запроса. Сначала то, что в работе,
+        # дальше песочница и остановленные — в том порядке, в каком на них
+        # смотрят.
+        order = {"active": 0, "sandbox": 1, "paused": 2}
+        items = [{
+            "name": s.source_name or s.source_url,
+            "url": s.source_url,
+            "status": s.status,
+            "last_checked_at": s.last_checked_at.isoformat() if s.last_checked_at else None,
+            "signals_per_day": s.signals_per_day,
+        } for s in sorted(mine, key=lambda x: (order.get(x.status, 9),
+                                               (x.source_name or "").lower()))]
         channels.append({
             "key": key, "name": name, "ready": ready, "detail": detail,
             "sources": len(mine), "working": len(working), "cadence": cadence,
             "last_checked_at": max(seen).isoformat() if seen else None,
+            "items": items,
         })
 
     # The one sentence a person actually needs. Ordered by what to fix first.

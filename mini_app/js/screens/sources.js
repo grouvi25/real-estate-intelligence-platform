@@ -217,8 +217,28 @@ Screens.collection = async function () {
            <div class="stat__l">${label}</div>
            <div class="item__meta">${sub}</div></div></div>`;
 
+      // Состояние источника словами: "sandbox" на экране никому ничего не говорит.
+      const STATE = { active: ['в работе', ''], sandbox: ['на испытании', ' chip--warm'],
+                      paused: ['остановлен', ' chip--hot'] };
+
+      const source = (s) => {
+        const [label, cls] = STATE[s.status] || [s.status, ''];
+        const seen = s.last_checked_at ? UI.ago(s.last_checked_at) : 'ни разу';
+        return `
+          <div class="item">
+            <div class="between gap-2">
+              <span class="item__title">${UI.esc(s.name || s.url || '—')}</span>
+              <span class="chip${cls}">${label}</span>
+            </div>
+            <div class="item__meta mt-1">заходили: ${UI.esc(seen)}${
+              s.signals_per_day ? ' · сигналов в день: ' + s.signals_per_day : ''}</div>
+          </div>`;
+      };
+
+      // Плашка раскрывается на месте. Уводить на другой экран ради ответа
+      // "а какие именно источники" — терять контекст сводки, ради которой сюда и зашли.
       const channel = (c) => `
-        <div class="card">
+        <div class="card card--tap" data-ch="${UI.esc(c.key)}">
           <div class="between gap-2">
             <span class="item__title">${UI.icon(CHANNEL_ICON[c.key] || 'globe')} ${UI.esc(c.name)}</span>
             <span class="chip${c.ready ? ' chip--success' : ' chip--hot'}">
@@ -230,9 +250,17 @@ Screens.collection = async function () {
             <span class="chip${c.working ? '' : ' chip--warm'}">читается <span class="num">${c.working}</span></span>
             <span class="chip">${UI.esc(c.cadence)}</span>
           </div>
-          <div class="item__meta mt-2">${c.last_checked_at
-            ? 'последний обход: ' + UI.esc(UI.ago(c.last_checked_at))
-            : 'ещё ни разу не заходил'}</div>
+          <div class="between gap-2 mt-2">
+            <span class="item__meta">${c.last_checked_at
+              ? 'последний обход: ' + UI.esc(UI.ago(c.last_checked_at))
+              : 'ещё ни разу не заходил'}</span>
+            <span class="item__meta" data-hint="${UI.esc(c.key)}">${
+              c.sources ? 'подробнее ▾' : ''}</span>
+          </div>
+          <div class="mt-2" data-list="${UI.esc(c.key)}" hidden>
+            ${c.items.length ? c.items.map(source).join('')
+                             : '<div class="item__meta">источников пока нет</div>'}
+          </div>
         </div>`;
 
       // Colour goes on the word, not on the card. A stripe down the edge of
@@ -259,6 +287,18 @@ Screens.collection = async function () {
 
          <button class="btn btn--secondary btn--block mt-3" id="go-src">
            ${UI.icon('settings')} Настроить источники</button>`,
-        () => { document.getElementById('go-src').onclick = () => Router.go('sources'); });
+        () => {
+          document.getElementById('go-src').onclick = () => Router.go('sources');
+          document.querySelectorAll('[data-ch]').forEach((card) => {
+            const key = card.getAttribute('data-ch');
+            const list = card.querySelector(`[data-list="${key}"]`);
+            const hint = card.querySelector(`[data-hint="${key}"]`);
+            if (!list || !list.children.length) return;
+            card.onclick = () => {
+              list.hidden = !list.hidden;
+              if (hint) hint.textContent = list.hidden ? 'подробнее ▾' : 'свернуть ▴';
+            };
+          });
+        });
     });
 };

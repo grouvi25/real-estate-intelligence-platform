@@ -9,6 +9,7 @@ failed, and the webhook accepted anything that reached the URL.
 import hashlib
 import hmac
 import json
+import os
 from urllib.parse import quote
 
 import pytest
@@ -241,3 +242,123 @@ def test_webhook_accepts_the_configured_secret(monkeypatch, path, header, attr):
     with TestClient(app) as client:
         assert _post(client, path, {header: "s3cret"}).status_code == 200
         assert _post(client, path, {header: "wrong"}).status_code == 403
+
+
+# --- Окно саморегистрации владельцев ---------------------------------------
+#
+# Механизм выдаёт права владельца агентства без приглашения, поэтому проверяются
+# именно его границы: ровно столько мест, сколько выдано, только из MAX и только
+# незнакомым. Ошибка здесь стоит чужого доступа ко всему кабинету.
+
+db_only = pytest.mark.skipif(
+    os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
+
+
+async def _set_slots(session, n: int) -> None:
+    from sqlalchemy import text
+
+    await session.execute(text("UPDATE platform_claim SET remaining = :n"), {"n": n})
+    await session.commit()
+
+
+async def _slots(session) -> int:
+    from sqlalchemy import text
+
+    row = (await session.execute(text("SELECT remaining FROM platform_claim"))).first()
+    return int(row[0]) if row else -1
+
+
+async def _owner_agency(session):
+    from app.models.agency import Agency
+
+    agency = Agency(name="Claim Agency", base_city="Геленджик")
+    session.add(agency)
+    await session.commit()
+    return agency
+
+
+def _max_login(user_id: int, name: str = "Гость"):
+    from app.routers.auth import AuthRequest
+
+    return AuthRequest(
+        platform="max",
+        init_data=_sign(_params(user=json.dumps({"id": user_id, "first_name": name},
+                                                ensure_ascii=False))),
+    )
+
+
+@db_only
+@pytest.mark.asyncio
+async def test_the_window_admits_exactly_two_and_then_closes(monkeypatch):
+    from app.database import async_session, run_migrations
+    from app.exceptions import AppException
+    from app.routers.auth import auth_platform
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = await _owner_agency(s)
+        monkeypatch.setattr(config, "platform_owner_agency_id", str(agency.id))
+        monkeypatch.setattr(config, "max_admin_ids_raw", "")
+        await _set_slots(s, 2)
+
+    async with async_session() as s:
+        first = await auth_platform(_max_login(900001, "Первый"), session=s)
+        assert first["manager"]["role"] == "owner"
+        assert str(first["manager"]["agency_id"]) == str(agency.id)
+        assert await _slots(s) == 1
+
+    async with async_session() as s:
+        second = await auth_platform(_max_login(900002, "Второй"), session=s)
+        assert second["manager"]["role"] == "owner"
+        assert await _slots(s) == 0
+
+    # Третий — уже мимо: окно закрылось само, без чьего-либо участия.
+    async with async_session() as s:
+        with pytest.raises(AppException) as refused:
+            await auth_platform(_max_login(900003, "Третий"), session=s)
+        assert refused.value.status_code == 403
+
+
+@db_only
+@pytest.mark.asyncio
+async def test_the_window_does_not_open_for_telegram(monkeypatch):
+    """Свободное место в MAX не должно впускать незнакомца из Telegram."""
+    from app.database import async_session, run_migrations
+    from app.exceptions import AppException
+    from app.routers.auth import AuthRequest, auth_platform
+    from tests.test_auth import build_tg_init_data
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = await _owner_agency(s)
+        monkeypatch.setattr(config, "platform_owner_agency_id", str(agency.id))
+        monkeypatch.setattr(config, "telegram_bot_token", "tg-test-token")
+        monkeypatch.setattr(config, "admin_telegram_id", None)
+        await _set_slots(s, 2)
+
+    async with async_session() as s:
+        req = AuthRequest(platform="telegram", init_data=build_tg_init_data(
+            "tg-test-token", {"id": 900101, "first_name": "Чужой"}))
+        with pytest.raises(AppException) as refused:
+            await auth_platform(req, session=s)
+        assert refused.value.status_code == 403
+        assert await _slots(s) == 2  # место не потрачено
+
+
+@db_only
+@pytest.mark.asyncio
+async def test_listed_max_admin_gets_in_without_spending_a_slot(monkeypatch):
+    from app.database import async_session, run_migrations
+    from app.routers.auth import auth_platform
+
+    await run_migrations()
+    async with async_session() as s:
+        agency = await _owner_agency(s)
+        monkeypatch.setattr(config, "platform_owner_agency_id", str(agency.id))
+        monkeypatch.setattr(config, "max_admin_ids_raw", "900201, 900202")
+        await _set_slots(s, 2)
+
+    async with async_session() as s:
+        res = await auth_platform(_max_login(900201, "Доверенный"), session=s)
+        assert res["manager"]["role"] == "owner"
+        assert await _slots(s) == 2  # известный по списку места не занимает
