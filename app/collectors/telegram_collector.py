@@ -64,7 +64,12 @@ def force_dc_port(client, port: int) -> None:
         original_set_dc(dc_id, ip, port)
 
     session.set_dc = set_dc
-    session.set_dc(session.dc_id, session.server_address, port)
+    # Только если адрес уже сохранён. У новой сессии его нет, и запись пустого
+    # адреса ломала вход: Telethon шесть раз получал "Connection closed
+    # unexpectedly", потому что шёл в никуда вместо дата-центра по умолчанию.
+    # Обёртка выше всё равно проставит порт, когда сервер назовёт адрес сам.
+    if session.server_address:
+        session.set_dc(session.dc_id, session.server_address, port)
 
 
 def _proxy_settings():

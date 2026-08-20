@@ -238,6 +238,7 @@ async def _check_dead_sources() -> int:
     from sqlalchemy import func, select
 
     from app.database import async_session
+    from app.models.content_unit import ContentUnit
     from app.models.manager import Manager
     from app.models.signal import Signal
     from app.models.source import Source
@@ -252,9 +253,22 @@ async def _check_dead_sources() -> int:
         for src in active:
             last = await session.scalar(
                 select(func.max(Signal.created_at)).where(Signal.source_id == src.id))
-            if not last or last < cutoff:
-                src.status = "paused"
-                dead.append(src)
+            if last and last >= cutoff:
+                continue
+            # Молчание источника и молчание сборщика — разные вещи. За время
+            # переезда в облако сбор не работал несколько дней, сигналов не было
+            # ни у кого, и это правило остановило как раз лучшие источники — те,
+            # что давали 6-8% выработки. Источник виноват, только если мы из него
+            # реально читали и всё равно ничего не нашли.
+            read_recently = await session.scalar(
+                select(func.count(ContentUnit.id)).where(
+                    ContentUnit.source_id == src.id,
+                    ContentUnit.created_at >= cutoff,
+                ))
+            if not read_recently:
+                continue
+            src.status = "paused"
+            dead.append(src)
         if dead:
             await session.commit()
             by_agency: dict = {}

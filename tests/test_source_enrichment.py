@@ -103,7 +103,11 @@ def test_evaluation_prompt_separates_buyers_from_renters():
 
     assert "не выше 15" in P
     assert "аренды" in P and "арендаторы, а не покупатели" in P
-    # Flea markets belong in the sandbox: mixed content, but people do post
-    # "куплю квартиру" there, and stage-1 filtering separates that now.
+    # Барахолки съехали из песочницы в отказ по замеру: 5871 прочитанное
+    # сообщение и ноль сигналов. Внутри вакансии, услуги и спам — покупателей
+    # жилья там нет, и держать их в песочнице значило жечь квоту впустую.
     assert "барахолки" in P.lower()
-    assert "песочницу" in P
+    low = P.lower()
+    assert low.index("барахолки") > low.index("обязательно низкий балл")
+    # Чаты жильцов сданных ЖК — 0 из 400: покупка у этих людей уже позади.
+    assert "жк" in low and "уже въехали" in low
