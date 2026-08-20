@@ -98,10 +98,13 @@ def build_client(session_name: str | None = None):
 
 
 class TelegramCollector:
-    def __init__(self):
+    def __init__(self, session_name: str | None = None):
         self.api_id = config.telethon_api_id
         self.api_hash = config.telethon_api_hash
-        self.session_name = config.telethon_session_name
+        # Каким аккаунтом работать, решает очередь в telethon_sessions: упавший
+        # помечен негодным и сюда уже не попадёт. Явное имя передаёт только тот,
+        # кто знает, что делает — вход в новый аккаунт и тесты.
+        self.session_name = session_name or config.telethon_session_name
         self._client = None
 
     def is_available(self) -> bool:
@@ -112,6 +115,21 @@ class TelegramCollector:
             self._client = build_client(self.session_name)
             await self._client.connect()
         return self._client
+
+    async def is_authorized(self) -> bool:
+        """Есть ли за этим именем живой вход, а не пустой файл сессии.
+
+        Имя аккаунта, под которым ещё ни разу не входили, Telethon молча заводит
+        как новую пустую сессию — и сбор потом падает на каждом источнике по
+        отдельности, вместо того чтобы сразу перейти к следующему аккаунту.
+        """
+        try:
+            client = await self._get_client()
+            return bool(await client.is_user_authorized())
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Не проверить вход аккаунта",
+                           session=self.session_name, error=str(e)[:120])
+            return False
 
     @staticmethod
     def _username(source) -> Optional[str]:

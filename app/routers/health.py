@@ -173,6 +173,13 @@ async def deep_health_check() -> DeepHealthResponse:
             if paused:
                 checks["telethon"] = "paused (auth error)"
             else:
+                # Сколько аккаунтов в запасе — такой же признак здоровья, как и
+                # сама связь: сбор может идти на последнем живом, и узнать об
+                # этом лучше заранее, а не когда он тоже выбыл.
+                from app.collectors import telethon_sessions  # noqa: PLC0415
+
+                alive = await telethon_sessions.alive_sessions()
+                checks["telethon_accounts"] = f"{len(alive)} из {len(telethon_sessions.sessions())}"
                 # Раньше здесь стояло просто "active" — по факту это значило
                 # "ключи прописаны и пауза не выставлена". Проверка держалась
                 # зелёной, пока из Yandex Cloud вообще не было связи с

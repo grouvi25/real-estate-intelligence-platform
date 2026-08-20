@@ -87,6 +87,11 @@ class Settings(BaseSettings):
 
     # Telethon (separate account for reading chats)
     telethon_session_name: str = Field(default="monitor_session", alias="TELETHON_SESSION_NAME")
+    # Очередь аккаунтов для сбора через запятую, первый — основной. Аккаунт для
+    # сбора расходный: заблокируют — сбор переходит на следующий сам, без
+    # человека (app/collectors/telethon_sessions.py). Пусто — работает один
+    # TELETHON_SESSION_NAME, как раньше.
+    telethon_sessions_raw: str = Field(default="", alias="TELETHON_SESSIONS")
     telethon_api_id: Optional[int] = Field(default=None, alias="TELETHON_API_ID")
     telethon_api_hash: Optional[str] = Field(default=None, alias="TELETHON_API_HASH")
     telethon_phone: Optional[str] = Field(default=None, alias="TELETHON_PHONE")

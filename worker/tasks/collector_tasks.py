@@ -53,6 +53,52 @@ async def _is_telethon_paused() -> bool:
         await client.aclose()
 
 
+async def _clear_telethon_pause() -> None:
+    """Снять паузу сбора. Вызывается, когда работать снова есть кем."""
+    import redis.asyncio as redis  # noqa: PLC0415
+
+    from app.config import config  # noqa: PLC0415
+
+    client = redis.from_url(config.redis_url, socket_connect_timeout=2, socket_timeout=2)
+    try:
+        await client.delete(TELETHON_PAUSED_KEY)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Не снять паузу сбора", error=str(e)[:120])
+    finally:
+        await client.aclose()
+
+
+async def _switch_or_pause(session_name: str, error: BaseException) -> bool:
+    """Пометить аккаунт негодным и сказать, есть ли кем продолжать.
+
+    Заблокированный аккаунт больше не берётся в работу. Пока в очереди остаётся
+    хоть один живой, сбор продолжается им же, в этом самом заходе — человек
+    узнаёт из оповещения, но чинить ничего не должен. Пауза и тревога остаются
+    на случай, когда закончились все.
+    """
+    from app.collectors import telethon_sessions  # noqa: PLC0415
+    from app.services.alerts import send_critical_alert  # noqa: PLC0415
+
+    await telethon_sessions.mark_dead(session_name, error)
+    alive = await telethon_sessions.alive_sessions()
+    if alive:
+        logger.warning("Аккаунт Telegram заблокирован, перехожу на резервный",
+                       выбыл=session_name, продолжаю=alive[0], осталось=len(alive))
+        try:
+            await send_critical_alert(
+                f"""⚠️ Аккаунт Telegram выбыл из сбора.
+Был: {session_name}
+Продолжаю резервным: {alive[0]} (в запасе ещё {len(alive) - 1})
+Сбор не останавливался."""
+            )
+        except Exception as alert_error:  # noqa: BLE001
+            logger.error("Не отправить оповещение о смене аккаунта", error=str(alert_error))
+        return True
+
+    await _pause_telethon(error)
+    return False
+
+
 async def _pause_telethon(error: BaseException) -> None:
     """Pause noisy retries and alert the operator that re-authorization is needed."""
     import redis.asyncio as redis
@@ -75,9 +121,9 @@ async def _pause_telethon(error: BaseException) -> None:
     )
     try:
         await send_critical_alert(
-            "🚨 Telethon-сессия недействительна.\n"
-            f"Сбор Telegram-источников приостановлен на {TELETHON_PAUSE_HOURS}ч.\n"
-            "Требуется ре-авторизация: запустите scripts/telethon_login.py."
+            f"""🚨 Telegram-аккаунты для сбора закончились — живых не осталось.
+Сбор приостановлен на {TELETHON_PAUSE_HOURS}ч.
+Нужен новый аккаунт: вход через scripts/telethon_login.py."""
         )
     except Exception as alert_error:  # noqa: BLE001
         logger.error("Could not send Telethon re-auth alert", error=str(alert_error))
@@ -97,53 +143,87 @@ def _stamp(src) -> None:
 async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
     from sqlalchemy import select
 
+    from app.collectors import telethon_sessions
     from app.collectors.telegram_collector import TelegramCollector
     from app.database import async_session
     from app.models.geo_location import GeoLocation
     from app.models.source import Source
 
+    # Пауза ставится, только когда работать было нечем. Если с тех пор в очереди
+    # появился живой аккаунт — держать её незачем: иначе новый аккаунт завели, а
+    # сбор всё равно стоит до конца шести часов и никто не понимает почему.
     if await _is_telethon_paused():
-        logger.info("Telethon collection skipped: paused after auth error")
-        return 0
+        if await telethon_sessions.active_session() is None:
+            logger.info("Telethon collection skipped: paused after auth error")
+            return 0
+        await _clear_telethon_pause()
+        logger.info("Пауза снята: в очереди появился живой аккаунт")
 
-    collector = TelegramCollector()
-    if not collector.is_available():
-        logger.info("Telegram collector not configured; skipping")
-        return 0
+    # Аккаунт для сбора расходный: заблокируют — берём следующий из очереди, и
+    # берём здесь же, а не через десять минут до следующего запуска. Попыток не
+    # больше, чем аккаунтов, иначе на общей поломке связи мы бы перебрали и
+    # пометили негодными все до единого.
+    for _ in range(len(telethon_sessions.sessions())):
+        session_name = await telethon_sessions.active_session()
+        if session_name is None:
+            logger.warning("Живых аккаунтов Telegram не осталось")
+            return 0
 
-    total = 0
-    try:
-        async with async_session() as session:
-            sources = (await session.execute(
-                select(Source).where(
-                    Source.status.in_(("active", "sandbox")),
-                    Source.source_type.in_(("telegram_chat", "telegram_channel")),
-                )
-            )).scalars().all()
-            for src in sources:
-                keywords = {}
-                if src.geo_location_id:
-                    geo = await session.get(GeoLocation, src.geo_location_id)
-                    keywords = (geo.keywords if geo else {}) or {}
-                _stamp(src)
-                total += await collector.collect_from_source(
-                    session, src, keywords, limit=limit_per_source)
-            await session.commit()
-    except _telethon_auth_errors() as e:
-        await _pause_telethon(e)
-        return 0
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Telethon collection failed", error=str(e), error_type=type(e).__name__)
-        return 0
-    finally:
+        collector = TelegramCollector(session_name)
+        if not collector.is_available():
+            logger.info("Telegram collector not configured; skipping")
+            return 0
+
+        # Аккаунт без входа — такой же выбывший, как заблокированный: работать
+        # им нельзя, и держать его первым в очереди значит стоять на месте.
+        if not await collector.is_authorized():
+            await telethon_sessions.mark_dead(session_name, "нет входа в аккаунт")
+            try:
+                await collector.close()
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+
+        total = 0
         try:
-            await collector.close()
+            async with async_session() as session:
+                sources = (await session.execute(
+                    select(Source).where(
+                        Source.status.in_(("active", "sandbox")),
+                        Source.source_type.in_(("telegram_chat", "telegram_channel")),
+                    )
+                )).scalars().all()
+                for src in sources:
+                    keywords = {}
+                    if src.geo_location_id:
+                        geo = await session.get(GeoLocation, src.geo_location_id)
+                        keywords = (geo.keywords if geo else {}) or {}
+                    _stamp(src)
+                    total += await collector.collect_from_source(
+                        session, src, keywords, limit=limit_per_source)
+                await session.commit()
         except _telethon_auth_errors() as e:
-            await _pause_telethon(e)
+            # Не остановка, а смена аккаунта: _switch_or_pause скажет, есть ли кем
+            # продолжать, и сам поставит паузу, когда живых не осталось.
+            switched = await _switch_or_pause(session_name, e)
+            if not switched:
+                return 0
+            continue
         except Exception as e:  # noqa: BLE001
-            logger.warning("Telethon collector close failed", error=str(e))
-    logger.info("Telegram collection run complete", signals=total)
-    return total
+            logger.warning("Telethon collection failed",
+                           error=str(e), error_type=type(e).__name__)
+            return 0
+        finally:
+            try:
+                await collector.close()
+            except Exception as e:  # noqa: BLE001 - закрытие не должно ничего решать
+                logger.warning("Telethon collector close failed", error=str(e))
+
+        logger.info("Telegram collection run complete", signals=total, account=session_name)
+        return total
+
+    logger.warning("Все аккаунты Telegram выбыли за один заход")
+    return 0
 
 
 @shared_task(name="worker.tasks.collector_tasks.collect_telegram_sources")
