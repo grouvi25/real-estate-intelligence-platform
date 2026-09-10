@@ -67,6 +67,11 @@ select = ["E4", "E7", "E9", "F"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Put the repo root on sys.path so `from tests.helpers import ...` resolves.
+# Without it the CI test job aborted at collection with
+# "ModuleNotFoundError: No module named 'tests'", the deploy job was skipped,
+# and prod stayed pinned to the last green commit (5d07ec5) since 2026-08-20.
+pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 include = ["app*", "worker*"]

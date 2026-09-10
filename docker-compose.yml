@@ -29,6 +29,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Without this the container never comes back after a host reboot or a
+    # `docker stop`, and the app (restart: unless-stopped) then crash-loops on
+    # an unresolvable `db` host — which is exactly how prod went to 502.
+    restart: unless-stopped
 
   redis:
     image: cr.yandex/mirror/library/redis:7
@@ -39,6 +43,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Same reasoning as db: survive reboots/stops so the app can reconnect.
+    restart: unless-stopped
 
   app:
     build: .
@@ -92,6 +98,21 @@ services:
       disable: true
     depends_on:
       - worker
+    restart: unless-stopped
+
+  # Забирает обновления Telegram опросом. Вебхук требует, чтобы Telegram
+  # достучался до нас, а из Yandex Cloud его диапазоны фильтруются в обе
+  # стороны: точка вебхука отвечает на запросы из интернета, но getWebhookInfo
+  # показывает бесконечный "Connection timed out". Опрос ходит наружу через тот
+  # же SOCKS5-канал, что и остальной Telegram, и входящая доступность не нужна.
+  bot:
+    build: .
+    command: python -m app.services.telegram_polling
+    env_file: .env
+    healthcheck:
+      disable: true
+    depends_on:
+      - app
     restart: unless-stopped
 
   # Ships every container's logs to Yandex Cloud Logging (TZ 35.11). Docker is
