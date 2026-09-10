@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # === AI CONFIG ===
     ai_default_provider: AIProvider = Field(default=AIProvider.YANDEX_GPT, alias="AI_DEFAULT_PROVIDER")
-    ai_default_model: str = Field(default="yandexgpt-pro", alias="AI_DEFAULT_MODEL")
+    ai_default_model: str = Field(default="yandexgpt", alias="AI_DEFAULT_MODEL")
     ai_daily_budget_rub: float = Field(default=1000.0, alias="AI_DAILY_BUDGET_RUB")
     ai_signal_batch_size: int = Field(default=50, alias="AI_SIGNAL_BATCH_SIZE")
 
@@ -156,15 +156,19 @@ class Settings(BaseSettings):
     def ai_models(self) -> dict[str, str]:
         return {
             "intent_scoring": "yandexgpt-lite",
-            "buyer_profile": "yandexgpt-pro",
-            "object_analysis": "yandexgpt-pro",
-            "matching_pitch": "yandexgpt-pro",
+            # Старшая модель называется просто "yandexgpt". Имени
+            # "yandexgpt-pro" в API нет: обращение к нему возвращает 404
+            # "unknown model", и все семь модулей, что на него ссылались,
+            # молча падали — профиль покупателя, подбор, отчёт, словари гео.
+            "buyer_profile": "yandexgpt",
+            "object_analysis": "yandexgpt",
+            "matching_pitch": "yandexgpt",
             "reply_generator": "yandexgpt-lite",
             "source_evaluation": "yandexgpt-lite",
-            "daily_report": "yandexgpt-pro",
-            "geo_keywords": "yandexgpt-pro",
+            "daily_report": "yandexgpt",
+            "geo_keywords": "yandexgpt",
             "market_analysis": "yandexgpt-lite",
-            "listing_generator": "yandexgpt-pro",
+            "listing_generator": "yandexgpt",
             "qualification": "yandexgpt-lite",
         }
 

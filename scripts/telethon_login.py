@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.collectors import telethon_sessions  # noqa: E402
 from app.config import config  # noqa: E402
 
 
@@ -35,7 +36,15 @@ async def main() -> int:
         print("Telethon is not installed in this image (pip install telethon).")
         return 1
 
-    session = config.telethon_session_name
+    # Каким аккаунтом входим, решает аргумент: без него — основной. Резервные
+    # места очереди (TELETHON_SESSIONS) заполняются именно так, поэтому имя
+    # обязано быть выбираемым, а не жёстко взятым из основной настройки.
+    session = sys.argv[1] if len(sys.argv) > 1 else config.telethon_session_name
+    known = telethon_sessions.sessions()
+    if session not in known:
+        print(f"ВНИМАНИЕ: {session} нет в очереди TELETHON_SESSIONS ({', '.join(known)}).")
+        print("Сессия создастся, но сбор её не увидит, пока имя не в очереди.")
+        print()
     session_dir = Path(session).parent
     if str(session_dir) not in ("", "."):
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -51,7 +60,17 @@ async def main() -> int:
     # unchanged in the worker.
     client = build_client(session)
     # start() prompts on stdin for phone / code / password as needed.
-    await client.start(phone=config.telethon_phone or None)
+    # Телефон из настроек — это номер основного аккаунта. Для любого другого
+    # спрашиваем, иначе Telethon молча отправит код не туда.
+    #
+    # Спрашивать надо именно приглашением: start(phone=None) не переспрашивает,
+    # а падает с "No phone number or bot token provided" — по умолчанию там
+    # стоит функция ввода, и подменять её на None нельзя.
+    phone = config.telethon_phone if session == config.telethon_session_name else None
+    if phone:
+        await client.start(phone=phone)
+    else:
+        await client.start(phone=lambda: input("Номер телефона аккаунта (+7...): ").strip())
 
     me = await client.get_me()
     username = f"@{me.username}" if me.username else "(no username)"
@@ -65,6 +84,9 @@ async def main() -> int:
     await client.disconnect()
     print("\nDone. The worker will pick this session up on its next run.")
     print("Restart the worker to be sure:  docker compose restart worker")
+    revived = await telethon_sessions.revive(session)
+    if revived:
+        print(f"Пометка «выбыл» с {session} снята — аккаунт снова в очереди.")
     return 0
 
 

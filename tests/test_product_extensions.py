@@ -242,21 +242,32 @@ async def test_check_dead_sources_pauses():
     from app.models.source import Source
     from worker.tasks.maintenance_tasks import _check_dead_sources
 
+    from app.models.content_unit import ContentUnit
+
     await run_migrations()
     async with async_session() as s:
         agency, _ = await _seed_agency_geo(s)
-        # No signals ever -> considered dead.
-        src = Source(agency_id=agency.id, source_type="telegram_channel",
-                     source_url="https://t.me/dead", source_name="dead chat", status="active")
-        s.add(src)
+        # Читали и ничего не нашли — источник действительно пустой.
+        barren = Source(agency_id=agency.id, source_type="telegram_channel",
+                        source_url="https://t.me/dead", source_name="dead chat", status="active")
+        # Не читали вовсе: так выглядит источник, пока стоит сам сборщик.
+        untouched = Source(agency_id=agency.id, source_type="telegram_channel",
+                           source_url="https://t.me/quiet", source_name="quiet chat", status="active")
+        s.add_all([barren, untouched])
+        await s.flush()
+        s.add(ContentUnit(agency_id=agency.id, source_id=barren.id, channel="telegram",
+                          external_id="dead-1", raw_content="прочитали, но пусто"))
         await s.commit()
-        src_id = src.id
+        barren_id, untouched_id = barren.id, untouched.id
 
     dead = await _check_dead_sources()
     assert dead >= 1
     async with async_session() as s:
-        src = await s.get(Source, src_id)
-        assert src.status == "paused"
+        assert (await s.get(Source, barren_id)).status == "paused"
+        # За время переезда в облако сбор не работал несколько дней, и это
+        # правило остановило лучшие источники — те, что давали 6-8% выработки.
+        # Молчание сборщика больше не считается виной источника.
+        assert (await s.get(Source, untouched_id)).status == "active"
 
 
 @pytest.mark.asyncio
