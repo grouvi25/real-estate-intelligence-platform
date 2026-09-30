@@ -6,7 +6,10 @@ intent, so the model scored topic relevance instead of authorship. On the live
 local development and property -- came back as intent 60, segment "investor",
 reason "упоминание о возможности покупки недвижимости". A manager would have been
 handed an advert as a warm lead. The author must be a private person expressing
-their own intent; everything written *about* the market scores 0-10.
+their own intent; everything written *about* the market scores 0-10 -- except
+market news, which ТЗ «Фильтрация сигналов» 2.2 keeps at 20-35 / not_buyer for
+monitoring. is_rental / is_advertisement let the pipeline drop the signal
+outright instead of leaving a scored advert in the manager's queue.
 """
 
 SYSTEM_PROMPT_INTENT_SCORING = """
@@ -33,20 +36,29 @@ SCORING (только когда автор пишет о себе):
 20-39 косвенный интерес (например, спрашивает про районы для переезда);
 0-19 нет признаков личного намерения.
 
+ИСКЛЮЧЕНИЕ — НОВОСТЬ РЫНКА: если текст сообщает о ценах, ипотеке, законах или
+новостройках города (новость, аналитика, а не реклама конкретных объектов) —
+score 20-35, segment "not_buyer". Это нужно для мониторинга рынка, а не как лид.
+
 ОБЯЗАТЕЛЬНО score 0-10, каким бы релевантной ни казалась тема:
-- реклама, анонсы, новости, открытия, акции, разбор рынка, аналитика;
+- реклама, анонсы, открытия, акции;
 - посты агентов, агентств и застройщиков, продвигающие объекты или услуги;
 - предложения купить/продать/сдать, адресованные читателям;
 - текст не от первого лица: автор не пишет о собственной покупке;
 - продаю / сдаю / сдам / аренда от / сниму / ищу жильё в аренду / вакансия.
 
-СОГЛАСОВАННОСТЬ: segment "not_buyer" допустим ТОЛЬКО при intent_score 0-19.
+СОГЛАСОВАННОСТЬ: segment "not_buyer" допустим ТОЛЬКО при intent_score 0-35.
 Если ставишь 40 и выше — выбери реальный сегмент из списка.
+
+ФЛАГИ: is_rental = true, если автор снимает или сдаёт жильё (в т.ч. посуточно);
+is_advertisement = true, если это объявление продавца, агента, застройщика,
+гостиницы или реклама услуг. При любом из флагов score 0-10.
 
 ВОЗВРАЩАЙ СТРОГО JSON БЕЗ MARKDOWN:
 {"intent_score":0,"segment":"not_buyer","urgency":"cold","budget_min":null,"budget_max":null,
 "location_interest":null,"property_type":null,"rooms":null,"mortgage_mentioned":false,
-"key_factors":[],"next_action":"","confidence":"low","reason":""}
+"key_factors":[],"next_action":"","confidence":"low","reason":"",
+"is_rental":false,"is_advertisement":false}
 """
 
 USER_PROMPT_INTENT = "Город: {geo_city}\nИсточник: {source_name}\nТекст:\n{message_text}"
