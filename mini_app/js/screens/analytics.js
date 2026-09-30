@@ -326,6 +326,9 @@ Screens.settings = async function () {
     <div class="section-title" style="margin:18px 2px 8px">AI-провайдер</div>
     <div id="aiprov">${UI.skelCard()}</div>
 
+    <div class="section-title" style="margin:18px 2px 8px">TopNLab CRM</div>
+    <div id="topnlab">${UI.skelCard()}</div>
+
     <div class="between" style="margin:18px 2px 8px">
       <span class="section-title" style="margin:0">Города (гео)</span>
       <button class="btn btn--ghost btn--sm" id="add-geo">${UI.icon('plus')} Город</button></div>
@@ -369,7 +372,7 @@ Screens.settings = async function () {
       document.getElementById('go-tasks').onclick = () => Router.go('tasks');
       const edit = document.getElementById('ag-edit');
       if (edit) edit.onclick = agencySheet;
-      loadGeos(); loadPartners(); loadInvite(); loadAiProvider();
+      loadGeos(); loadPartners(); loadInvite(); loadAiProvider(); loadTopnlab();
     });
 };
 
@@ -508,6 +511,100 @@ async function loadAiProvider() {
       loadAiProvider();
     } catch (e) { UI.toast('Не удалось: ' + e.message); loadAiProvider(); }
   };
+}
+
+// TopNLab (ТЗ «Интеграция с TopNLab», раздел 8): where a new lead lands in the
+// agency's CRM, with a call task on it. The card says plainly when nothing will
+// be sent, and why -- a ticked box that sends nothing is the worst kind of setting.
+async function loadTopnlab() {
+  const box = document.getElementById('topnlab');
+  if (!box) return;
+  let d;
+  try {
+    d = await API.topnlab();
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="item__sub">Интеграцию с TopNLab настраивает владелец агентства.</div></div>`;
+    return;
+  }
+  const on = d.active && d.has_key && d.sync_enabled && d.globally_enabled;
+  let state;
+  if (!d.active || !d.has_key) state = 'Не подключено: нужен ключ API от TopNLab.';
+  else if (!d.sync_enabled) state = 'Ключ сохранён, передача лидов выключена.';
+  else if (!d.globally_enabled) state = 'Передача включена здесь, но выключена на сервере (TOPNLAB_SYNC_ENABLED) — лиды пока не уходят.';
+  else state = `Новые лиды со score от ${d.min_score} уходят в TopNLab заявкой с задачей «Позвонить».`;
+
+  box.innerHTML = `
+    <div class="card">
+      <div class="between"><span class="item__title">TopNLab</span>
+        <span class="chip ${on ? 'chip--accent' : ''}">${on ? 'работает' : 'не передаёт'}</span></div>
+      <div class="item__sub" style="margin-top:6px">${UI.esc(state)}</div>
+      ${d.report_menu_id ? `<div class="item__sub">Отчёт «Аналитика REIP» в меню TopNLab: ID ${UI.esc(String(d.report_menu_id))}</div>` : ''}
+      ${d.avito_credentials_saved ? '<div class="item__sub">Ключи Avito из TopNLab сохранены.</div>' : ''}
+      <button class="btn btn--secondary btn--block mt-3" id="tl-edit">${UI.icon('settings')} Настроить</button>
+      ${d.active && d.has_key ? `
+      <div class="btn-row btn-row--equal mt-3">
+        <button class="btn btn--secondary btn--sm" id="tl-check">${UI.icon('check')} Проверить</button>
+        <button class="btn btn--secondary btn--sm" id="tl-report">${UI.icon('file')} Отчёт в меню</button>
+      </div>
+      <button class="btn btn--ghost btn--block mt-2" id="tl-avito">${UI.icon('refresh')} Получить ключи Avito</button>` : ''}
+    </div>`;
+
+  document.getElementById('tl-edit').onclick = () => topnlabSheet(d);
+  const action = (id, call) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.onclick = () => UI.busy(btn, async () => {
+      try { const r = await call(); UI.toast(r.message || 'Готово'); loadTopnlab(); }
+      catch (e) { UI.toast(e.message); }
+    });
+  };
+  action('tl-check', API.topnlabCheck);
+  action('tl-report', API.topnlabRegisterReport);
+  action('tl-avito', API.topnlabAvitoKeys);
+}
+
+function topnlabSheet(d) {
+  UI.sheet('Интеграция с TopNLab', `
+    <div class="field"><label for="tl-key">Ключ API (appkey)</label>
+      <input id="tl-key" type="password" autocomplete="off"
+        placeholder="${d.has_key ? 'сохранён — введите новый, чтобы заменить' : 'выдаёт команда TopNLab'}">
+      <div class="field__hint">Хранится в зашифрованном виде и не показывается обратно.</div></div>
+    <div class="field"><label for="tl-company">ID компании</label>
+      <input id="tl-company" inputmode="numeric" value="${UI.esc(d.company_id || '')}" placeholder="например, 207413">
+      <div class="field__hint">Нужен, чтобы получить ключи Avito из TopNLab.</div></div>
+    <div class="field"><label for="tl-phone">Виртуальный номер АТС</label>
+      <input id="tl-phone" inputmode="tel" value="${UI.esc(d.virtual_number || '')}" placeholder="10 цифр без +7, необязательно">
+      <div class="field__hint">По нему TopNLab отнесёт заявку к рекламному источнику.</div></div>
+    <div class="field"><label for="tl-mail">E-mail ответственного</label>
+      <input id="tl-mail" type="email" value="${UI.esc(d.manager_email || '')}" placeholder="необязательно">
+      <div class="field__hint">Если указать, каждая новая заявка сразу назначается на этого сотрудника TopNLab.</div></div>
+    <label class="row" style="gap:10px;align-items:flex-start;margin-top:4px">
+      <input type="checkbox" id="tl-sync" ${d.sync_enabled ? 'checked' : ''}>
+      <span>Передавать новые лиды в TopNLab</span>
+    </label>
+    ${d.incoming_webhook_url ? `
+    <div class="section-title" style="margin-top:14px">Адрес для событий TopNLab</div>
+    <div class="item__sub">Передайте его команде TopNLab, если они будут присылать события по карточкам.</div>
+    <div class="copyfield mt-2">${UI.esc(d.incoming_webhook_url)}</div>` : ''}
+    <button class="btn btn--block mt-3" id="tl-save">${UI.icon('check')} Сохранить</button>`,
+    (close) => {
+      const save = document.getElementById('tl-save');
+      save.onclick = () => UI.busy(save, async () => {
+        const val = (id) => document.getElementById(id).value.trim();
+        try {
+          await API.saveTopnlab({
+            appkey: val('tl-key') || null,
+            company_id: val('tl-company'),
+            virtual_number: val('tl-phone'),
+            manager_email: val('tl-mail'),
+            sync_enabled: document.getElementById('tl-sync').checked,
+          });
+          close();
+          UI.toast('Сохранено');
+          loadTopnlab();
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      });
+    });
 }
 
 async function loadGeos() {

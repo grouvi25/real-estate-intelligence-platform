@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import TIMESTAMP, Boolean, ForeignKey, Integer, LargeBinary, SmallInteger, Text
+from sqlalchemy import TIMESTAMP, BigInteger, Boolean, ForeignKey, Integer, LargeBinary, SmallInteger, Text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
@@ -83,6 +83,11 @@ class Lead(CreatedAtMixin, UpdatedAtMixin, Base):
     # lost the reminder outright.
     escalation_stage: Mapped[int] = mapped_column(SmallInteger, default=0)
     crm_deal_id: Mapped[Optional[str]] = mapped_column(Text)
+
+    # TopNLab (migration 059): заявка, в которую ушёл лид, и задача «Позвонить».
+    topnlab_client_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    topnlab_synced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    topnlab_task_id: Mapped[Optional[int]] = mapped_column(BigInteger)
 
     @hybrid_property
     def name(self) -> Optional[str]:

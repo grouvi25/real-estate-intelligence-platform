@@ -80,15 +80,15 @@ def test_mapping_unknown_field_is_none():
 @pytest.mark.asyncio
 async def test_a_configured_connector_is_used_instead_of_the_webhook(monkeypatch):
     """agency_crm_config existed, the four vendor adapters existed, and nothing
-    connected them: an agency on Topnlab got the generic webhook and its adapter
+    connected them: an agency on a vendor CRM got the generic webhook and its adapter
     was never called. Addendum §4 and its acceptance list say otherwise."""
     from app.services import crm_export
-    from app.services.crm.adapters import TopnlabAdapter
+    from app.services.crm.adapters import AmoCrmAdapter
 
     calls = {}
 
     class _Cfg:
-        crm_type = "topnlab"
+        crm_type = "amocrm"
         base_url = "https://crm.example"
         api_key = "k"
         config: dict = {}
@@ -103,13 +103,13 @@ async def test_a_configured_connector_is_used_instead_of_the_webhook(monkeypatch
         return {"exported": True, "crm": self.crm_type, "crm_deal_id": "DEAL-7"}
 
     monkeypatch.setattr(crm_export, "_active_config", cfg)
-    monkeypatch.setattr(TopnlabAdapter, "export", export)
+    monkeypatch.setattr(AmoCrmAdapter, "export", export)
 
     lead = _Lead()
     session = _Session()
     result = await crm_export.export_lead_to_crm(session, lead)
 
-    assert calls["crm"] == "topnlab"
+    assert calls["crm"] == "amocrm"
     assert result["exported"] is True
     # The one link that lets revenue be traced back to the signal.
     assert lead.crm_deal_id == "DEAL-7"

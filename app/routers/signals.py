@@ -180,6 +180,11 @@ async def create_lead_from_signal(
         matching_queued = False
         logger.error("Failed to enqueue matching for lead", lead_id=str(lead.id), error=str(exc))
 
+    # ТЗ TopNLab 6.1: new lead -> order in the agency's TopNLab (score-gated there).
+    from worker.tasks.topnlab_sync import queue_topnlab_sync
+
+    queue_topnlab_sync(str(lead.id))
+
     return {"lead_id": str(lead.id), "tasks_created": 1,
             "matching_queued": matching_queued, "already_exists": False}
 

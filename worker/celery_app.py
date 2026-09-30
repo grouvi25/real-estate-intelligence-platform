@@ -34,6 +34,7 @@ celery_app = Celery(
         "worker.tasks.report_tasks",
         "worker.tasks.collector_tasks",
         "worker.tasks.signal_tasks",
+        "worker.tasks.topnlab_sync",
     ],
 )
 
