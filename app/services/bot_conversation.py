@@ -1,8 +1,10 @@
 """The AI sales bot in a buyer's DM. ТЗ «AI-бот продажник» v1, разделы 1.2, 5.1, 5.3, 9.
 
 greeting -> qualifying -> consent_pending -> qualified (lead created)
-                        \\-> escalated (a manager takes over)      \\-> silent (declined)
-"stop" at any point -> silent, and the bot says nothing more.
+                        \\-> escalated (a manager takes over)      \\-> done (declined)
+"stop" at any point -> done: the conversation is over, the bot says nothing more.
+BOT_CONVERSATION_TIMEOUT_MINUTES of silence -> silent: the bot stops asking;
+after BOT_REMINDER_HOURS one reminder; any message from the person resumes it.
 
 Who the person is talking to: an agency's own bot, or the platform bot opened
 through a link from a public reply (/start r_<reply>) or an agency link
@@ -33,7 +35,8 @@ logger = structlog.get_logger()
 
 HISTORY_LIMIT = 20
 MESSAGE_LIMIT = 500
-OPEN_STATES = ("greeting", "qualifying", "consent_pending", "escalated")
+# silent is paused, not over: a message from the person picks the dialogue up again.
+OPEN_STATES = ("greeting", "qualifying", "consent_pending", "escalated", "silent")
 STOP_WORDS = re.compile(r"^\s*(стоп|stop|хватит|не пишите|не интересно|отписаться|/stop)\b", re.I)
 ESCALATION_WORDS = re.compile(
     r"(менеджер|риелтор|риэлтор|специалист|живой человек|живого человека|позвоните|перезвоните|"
@@ -181,7 +184,7 @@ async def handle_callback(callback: dict[str, Any], bot_agency_id: Optional[str]
         if data == CONSENT_YES:
             new_lead = await _consent_given(session, agency, conv)
         else:
-            conv.state, conv.history, conv.collected_data = "silent", [], {}
+            conv.state, conv.history, conv.collected_data = "done", [], {}
             await _send(agency, conv.user_id, platform=conv.user_platform, text=_texts().CONSENT_NO)
         await session.commit()
     if new_lead is not None:
@@ -204,9 +207,11 @@ async def _step(session, agency, conv, text: str) -> None:
 
     t = _texts()
     if text and STOP_WORDS.search(text):
-        conv.state, conv.history, conv.collected_data = "silent", [], {}
+        conv.state, conv.history, conv.collected_data = "done", [], {}
         await _send(agency, conv.user_id, platform=conv.user_platform, text=t.STOP_MESSAGE)
         return
+    if conv.state == "silent":
+        conv.state = "qualifying" if conv.history else "greeting"  # they are back
     if text and ESCALATION_WORDS.search(text):
         await _escalate(session, agency, conv, text)
         return

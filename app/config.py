@@ -136,6 +136,17 @@ class Settings(BaseSettings):
     topnlab_sync_enabled: bool = Field(default=False, alias="TOPNLAB_SYNC_ENABLED")
     topnlab_lead_min_score: int = Field(default=40, alias="TOPNLAB_LEAD_MIN_SCORE")
     topnlab_task_delay_minutes: int = Field(default=5, alias="TOPNLAB_TASK_DELAY_MINUTES")
+    # === AI SALES BOT (ТЗ «AI-бот продажник» 3.1) ===
+    # Per-agency settings live in agencies.bot_*; these are the defaults a new
+    # agency starts with and the dialogue timings.
+    bot_default_mode: Literal["disabled", "assist", "semi_auto", "auto"] = Field(
+        default="assist", alias="BOT_DEFAULT_MODE")
+    bot_reply_threshold: int = Field(default=60, alias="BOT_REPLY_THRESHOLD")
+    bot_semi_auto_delay_minutes: int = Field(default=5, alias="BOT_SEMI_AUTO_DELAY_MINUTES")
+    bot_daily_reply_limit: int = Field(default=50, alias="BOT_DAILY_REPLY_LIMIT")
+    bot_conversation_timeout_minutes: int = Field(default=30, alias="BOT_CONVERSATION_TIMEOUT_MINUTES")
+    bot_reminder_hours: int = Field(default=24, alias="BOT_REMINDER_HOURS")
+
     # === PLATFORM (SaaS layer, ТЗ «SaaS-слой» 3.1) ===
     # Telegram ids of platform operators, comma-separated. Operators approve
     # onboarding requests in the sales bot and manage every agency.

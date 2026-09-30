@@ -119,7 +119,15 @@ async def create_agency_from_onboarding(
         monthly_ai_budget_rub=plan.monthly_ai_budget,
         invite_token=token, onboarding_code=token, onboarding_completed_at=now,
         owner_telegram_id=request.telegram_id, is_active=True,
+        bot_reply_threshold=config.bot_reply_threshold,
+        bot_semi_auto_delay=config.bot_semi_auto_delay_minutes,
+        bot_daily_reply_limit=config.bot_daily_reply_limit,
     )
+    from app.services.bot_reply_engine import MODES  # noqa: PLC0415
+
+    wanted = config.bot_default_mode
+    agency.bot_mode = MODES[min(MODES.index(wanted), MODES.index(plan.bot_mode_allowed))] \
+        if plan.bot_mode_allowed in MODES else wanted
     agency.owner_phone = request.phone
     session.add(agency)
     await session.flush()

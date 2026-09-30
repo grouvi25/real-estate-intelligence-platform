@@ -120,9 +120,13 @@ celery_app.conf.beat_schedule = {
         # ТЗ 1.10: every N minutes. A no-op for agencies without an Avito account.
         "schedule": max(config.avito_sync_interval_minutes, 10) * 60,
     },
+    "bot-conversation-timeouts": {
+        "task": "worker.tasks.bot_tasks.pause_quiet_conversations",
+        "schedule": crontab(minute="*/10"),  # ТЗ: 30 min of silence -> silent
+    },
     "bot-conversation-reminders": {
         "task": "worker.tasks.bot_tasks.send_conversation_reminders",
-        "schedule": crontab(minute=30),  # hourly: a day of silence, then one reminder
+        "schedule": crontab(minute=30),  # hourly: BOT_REMINDER_HOURS after, one reminder
     },
     "bot-learning-pool-update": {
         "task": "worker.tasks.bot_tasks.update_bot_learning_pool",

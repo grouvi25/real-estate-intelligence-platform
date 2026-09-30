@@ -290,7 +290,7 @@ async def test_declining_or_stopping_erases_the_conversation(quiet, monkeypatch)
                 BotConversation.user_id.in_([decline, stop])))).scalars().all()
     finally:
         await engine.dispose()
-    assert {c.state for c in convs} == {"silent"}
+    assert {c.state for c in convs} == {"done"}  # over, not paused: no reminder follows
     assert all(c.history == [] and c.collected_data == {} and c.lead_id is None for c in convs)
 
 
@@ -327,27 +327,44 @@ async def test_managers_are_not_buyers_and_can_be_called(quiet, monkeypatch):
 
 @db_only
 @pytest.mark.asyncio
-async def test_one_reminder_after_a_day_of_silence(quiet):
+async def test_quiet_pauses_after_30_minutes_reminds_once_and_resumes(quiet, monkeypatch):
+    """ТЗ 10: 30 minutes of silence -> silent; a reminder after 24 h; the next
+    message from the person carries on where it stopped."""
     from tests.helpers import unique_telegram_id
 
     from app.database import async_session, engine
     from app.models.bot import BotConversation
-    from worker.tasks.bot_tasks import _reminders
+    from worker.tasks.bot_tasks import _reminders, _timeouts
 
+    async def ai(*a, **k):
+        return {"message_to_client": "Какой район?", "collected_data": {}}
+
+    monkeypatch.setattr(bot_conversation, "_ai_json", ai)
+    user = unique_telegram_id()
+    now = datetime.now(timezone.utc)
     try:
         agency_id, _ = await _setup("assist")
         async with async_session() as s:
-            conv = BotConversation(agency_id=agency_id, user_platform="telegram", user_id=unique_telegram_id(),
-                                   state="qualifying", history=[], collected_data={},
-                                   last_user_msg_at=datetime.now(timezone.utc) - timedelta(hours=25))
+            conv = BotConversation(agency_id=agency_id, user_platform="telegram", user_id=user,
+                                   state="qualifying", collected_data={"budget": "7 млн"},
+                                   history=[{"role": "user", "text": "ищу", "ts": now.isoformat()}],
+                                   last_user_msg_at=now - timedelta(minutes=31))
             s.add(conv)
             await s.commit()
-        assert await _reminders() >= 1
+        assert await _timeouts(now) >= 1
+        await _reminders(now)  # 31 minutes: too early for the reminder
         async with async_session() as s:
-            conv = await s.get(BotConversation, conv.id)
-        assert conv.state == "silent" and conv.reminded_at is not None
+            assert (await s.get(BotConversation, conv.id)).reminded_at is None
+        assert await _reminders(now + timedelta(hours=24)) >= 1
+        async with async_session() as s:
+            paused = await s.get(BotConversation, conv.id)
+        assert paused.state == "silent" and paused.reminded_at is not None
+        await bot_conversation.handle_message(_dm(user, "Центр, у моря"), str(agency_id))
+        async with async_session() as s:
+            resumed = await s.get(BotConversation, conv.id)
     finally:
         await engine.dispose()
+    assert resumed.state == "qualifying" and resumed.collected_data["budget"] == "7 млн"
 
 
 @db_only
