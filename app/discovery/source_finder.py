@@ -24,6 +24,8 @@ SANDBOX_THRESHOLD = 40
 # scored a batch at a time and each batch is committed, so a run that is cut off
 # still leaves behind everything it finished.
 EVALUATION_BATCH = 5
+# Rental chats never reach the sandbox (SANDBOX_THRESHOLD), whatever the model says.
+RENTAL_SCORE_CAP = 15
 
 
 async def search_telegram_sources(geo_keywords: dict[str, Any]) -> list[dict]:
@@ -91,7 +93,12 @@ async def evaluate_and_save_sources(
             agency_id=str(geo_profile.get("agency_id", "global")),
         )
         data = safe_ai_parse(res, {"relevance_score": 0})
-        return int(data.get("relevance_score", 0) or 0)
+        value = int(data.get("relevance_score", 0) or 0)
+        if data.get("is_rental_focused") is True:
+            # The prompt already asks for <=15; a model that flags a rental chat
+            # and still scores it high must not win on the number alone.
+            value = min(value, RENTAL_SCORE_CAP)
+        return value
 
     try:
         for start in range(0, len(candidates), EVALUATION_BATCH):

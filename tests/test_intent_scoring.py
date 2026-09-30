@@ -87,8 +87,8 @@ def test_quick_filter_uses_geo_negative_keywords():
     The baseline has "продаю" but not "продам", so this seller slipped through on
     the live Геленджик geo even though its generated negative_keywords listed it.
     """
-    geo = {**GEO, "negative_keywords": ["хостел"]}
-    message = "Куплю квартиру в Геленджике, рядом хостел"
+    geo = {**GEO, "negative_keywords": ["шиномонтаж"]}
+    message = "Куплю квартиру в Геленджике, рядом шиномонтаж"
 
     assert quick_filter(message, GEO) is True  # baseline has no such term
     assert quick_filter(message, geo) is False

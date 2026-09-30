@@ -73,6 +73,20 @@ async def _score_intent_batch(limit: Optional[int] = None) -> int:
                 logger.warning("Intent scoring failed for signal", signal_id=str(sig.id), error=str(e))
                 continue
 
+            if data.get("is_rental") is True or data.get("is_advertisement") is True:
+                # ТЗ «Фильтрация сигналов» 2.6: out of the manager's queue, but
+                # kept with the reason, so the filter's work can be checked.
+                sig.intent_score = 0
+                sig.ai_analysis = data
+                sig.status = "rejected"
+                sig.triage_reason = "аренда" if data.get("is_rental") is True else "реклама"
+                logger.info("signal.filtered_out", signal_id=str(sig.id),
+                            is_rental=data.get("is_rental"),
+                            is_advertisement=data.get("is_advertisement"),
+                            reason=str(data.get("reason", ""))[:200])
+                scored += 1
+                continue
+
             sig.intent_score = _as_int(data.get("intent_score")) or 0
             seg = data.get("segment")
             if seg in VALID_SEGMENTS:
