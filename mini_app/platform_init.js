@@ -116,29 +116,49 @@ const API_BASE = (window.REIP_CONFIG && window.REIP_CONFIG.apiUrl) || '';
 // sessionStorage — not localStorage, which persists the token on the device
 // indefinitely and survives closing the app. Async because CloudStorage is
 // callback-based.
+//
+// telegram-web-app.js is loaded on every platform, so window.Telegram.WebApp
+// exists in MAX and in a plain browser too -- at version 6.0, where CloudStorage
+// is present but every call throws WebAppMethodUnsupported (it needs 6.9). Taking
+// its mere presence as "we are in Telegram" made the very first read of the
+// token throw, and the cabinet opened on «Не удалось войти» outside Telegram.
+// So: ask the SDK whether the version has it, and treat any throw as "no cloud".
 const StorageAdapter = (() => {
   const cloud = () => {
     const tg = window.Telegram && window.Telegram.WebApp;
-    return tg && tg.CloudStorage && typeof tg.CloudStorage.getItem === 'function'
-      ? tg.CloudStorage : null;
+    if (!tg || !tg.CloudStorage || typeof tg.CloudStorage.getItem !== 'function') return null;
+    if (typeof tg.isVersionAtLeast === 'function' && !tg.isVersionAtLeast('6.9')) return null;
+    return tg.CloudStorage;
+  };
+  const session = {
+    get(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } },
+    set(key, value) { try { sessionStorage.setItem(key, value); } catch (e) { /* ignore */ } },
+    remove(key) { try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ } },
   };
   return {
     async get(key) {
       const cs = cloud();
-      if (cs) return new Promise((r) => cs.getItem(key, (e, v) => r(e ? null : (v || null))));
-      try { return sessionStorage.getItem(key); } catch (e) { return null; }
+      if (cs) {
+        try { return await new Promise((r) => cs.getItem(key, (e, v) => r(e ? null : (v || null)))); }
+        catch (e) { /* unsupported after all: fall through */ }
+      }
+      return session.get(key);
     },
     async set(key, value) {
       const cs = cloud();
-      if (cs) return new Promise((r) => cs.setItem(key, value, () => r()));
-      try { sessionStorage.setItem(key, value); } catch (e) { /* ignore */ }
+      if (cs) {
+        try { return await new Promise((r) => cs.setItem(key, value, () => r())); }
+        catch (e) { /* fall through */ }
+      }
+      session.set(key, value);
     },
     async remove(key) {
       const cs = cloud();
       if (cs && typeof cs.removeItem === 'function') {
-        return new Promise((r) => cs.removeItem(key, () => r()));
+        try { return await new Promise((r) => cs.removeItem(key, () => r())); }
+        catch (e) { /* fall through */ }
       }
-      try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
+      session.remove(key);
     },
   };
 })();
