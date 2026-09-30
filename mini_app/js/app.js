@@ -49,6 +49,7 @@
     ['admin/geo', () => Screens.adminGeo()],
     ['admin/geo/new', () => Screens.adminGeoNew()],
     ['admin/sources', () => Screens.adminSources()],
+    ['admin/bot', () => Screens.adminBot()],
   ];
 
   const NAV = [

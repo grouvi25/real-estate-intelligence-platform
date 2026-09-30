@@ -7,6 +7,7 @@ from app.models.activity_log import ActivityLog
 from app.models.agency import Agency
 from app.models.agency_crm_config import AgencyCRMConfig
 from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
+from app.models.bot import BotConversation, BotLearningPool, BotPublicReply
 from app.models.billing import BillingEvent, OnboardingRequest, PlatformOperator, SubscriptionPlan
 from app.models.content_unit import ContentUnit
 from app.models.deal_outcome import DealOutcome
@@ -32,6 +33,9 @@ __all__ = [
     "Agency",
     "AgencyCRMConfig",
     "BillingEvent",
+    "BotConversation",
+    "BotLearningPool",
+    "BotPublicReply",
     "OnboardingRequest",
     "PlatformOperator",
     "SubscriptionPlan",

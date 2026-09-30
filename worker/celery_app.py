@@ -36,6 +36,7 @@ celery_app = Celery(
         "worker.tasks.signal_tasks",
         "worker.tasks.billing_tasks",
         "worker.tasks.avito_tasks",
+        "worker.tasks.bot_tasks",
         "worker.tasks.topnlab_sync",
     ],
 )
@@ -118,6 +119,14 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.avito_tasks.sync_avito",
         # ТЗ 1.10: every N minutes. A no-op for agencies without an Avito account.
         "schedule": max(config.avito_sync_interval_minutes, 10) * 60,
+    },
+    "bot-conversation-reminders": {
+        "task": "worker.tasks.bot_tasks.send_conversation_reminders",
+        "schedule": crontab(minute=30),  # hourly: a day of silence, then one reminder
+    },
+    "bot-learning-pool-update": {
+        "task": "worker.tasks.bot_tasks.update_bot_learning_pool",
+        "schedule": crontab(hour=4, minute=0, day_of_week=0),  # Sun 04:00 MSK
     },
     "intent-scoring-batch": {
         "task": "worker.tasks.signal_tasks.score_intent_batch",

@@ -83,6 +83,24 @@ def start_payload(text: str) -> Optional[str]:
     return parts[1].strip() or None if len(parts) > 1 else None
 
 
+async def handle_telegram_callback(callback: dict[str, Any], agency_id: Optional[str] = None) -> None:
+    """Inline button presses: the consent buttons of the sales bot. The press is
+    always acknowledged, or Telegram keeps the button spinning."""
+    from app.services.bot_abstraction import bot_layer  # noqa: PLC0415
+    from app.services.bot_conversation import handle_callback  # noqa: PLC0415
+
+    try:
+        await handle_callback(callback, agency_id)
+    finally:
+        token, _ = await _agency_bot(agency_id)
+        try:
+            await bot_layer.telegram_http.post(
+                f"https://api.telegram.org/bot{token or config.telegram_bot_token}/answerCallbackQuery",
+                json={"callback_query_id": callback.get("id")})
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def _agency_bot(agency_id: Optional[str]):
     """(token, welcome text) of an agency's own bot, or (None, None)."""
     if not agency_id:
@@ -110,6 +128,15 @@ async def handle_telegram_message(message: dict[str, Any],
 
     chat_id = (message.get("chat") or {}).get("id")
     text = (message.get("text") or "").strip()
+    # A buyer talking to the AI sales bot (ТЗ «AI-бот продажник»): handled
+    # there, and managers and invitations fall through to the cabinet below.
+    try:
+        from app.services.bot_conversation import handle_message as buyer_message  # noqa: PLC0415
+
+        if await buyer_message(message, agency_id):
+            return "buyer"
+    except Exception as e:  # noqa: BLE001 - the cabinet must still answer /start
+        logger.error("Buyer conversation failed", error=str(e)[:200])
     if not chat_id or not text.startswith("/"):
         return None
 
@@ -149,6 +176,8 @@ async def telegram_webhook(request: Request):
         message = update.get("message") or update.get("edited_message")
         if message:
             await handle_telegram_message(message)
+        elif update.get("callback_query"):
+            await handle_telegram_callback(update["callback_query"])
     except Exception as e:  # noqa: BLE001 - never bounce an update back to Telegram
         logger.error("Telegram update handling failed", error=str(e))
 
@@ -183,6 +212,8 @@ async def telegram_webhook_agency(agency_id: str, request: Request):
         message = update.get("message") or update.get("edited_message")
         if message:
             await handle_telegram_message(message, agency_id=str(agency.id))
+        elif update.get("callback_query"):
+            await handle_telegram_callback(update["callback_query"], agency_id=str(agency.id))
     except Exception as e:  # noqa: BLE001 - never bounce an update back to Telegram
         logger.error("Agency bot update handling failed", agency_id=agency_id, error=str(e)[:200])
     return {"ok": True}

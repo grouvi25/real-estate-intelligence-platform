@@ -14,3 +14,21 @@ USER_PROMPT_REPLY = (
     "Сообщение: {original_message}\nAI-анализ: {intent_analysis}\n"
     "Лид-магнит URL: {lead_magnet_url}"
 )
+
+TONE_INSTRUCTIONS = {
+    "expert": "Тон: профессиональный эксперт, конкретные факты о рынке, без восклицаний. До 3 предложений.",
+    "friendly": "Тон: дружелюбный и тёплый, как знакомый, который разбирается в недвижимости. До 3 предложений.",
+    "concise": "Тон: лаконичный. До 2 предложений, только суть.",
+}
+
+
+def build_reply_prompt_with_examples(examples: list[dict], tone: str = "expert") -> str:
+    """ТЗ «AI-бот продажник» 4.1: the reply prompt plus tone and few-shot examples
+    taken from replies that ended in a lead or a deal (bot_learning_pool)."""
+    prompt = SYSTEM_PROMPT_REPLY + "\nТОН ОТВЕТА: " + TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS["expert"])
+    usable = [e for e in examples if isinstance(e, dict) and e.get("user_message") and e.get("bot_reply")]
+    if usable:
+        prompt += "\n\nПРИМЕРЫ ОТВЕТОВ, ПОСЛЕ КОТОРЫХ ЧЕЛОВЕК ОБРАТИЛСЯ В АГЕНТСТВО:\n"
+        for ex in usable[:3]:
+            prompt += f"Сообщение: {ex['user_message'][:300]}\nОтвет: {ex['bot_reply'][:400]}\n---\n"
+    return prompt

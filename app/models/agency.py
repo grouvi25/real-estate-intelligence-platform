@@ -61,6 +61,14 @@ class Agency(CreatedAtMixin, UpdatedAtMixin, Base):
     brand_color: Mapped[Optional[str]] = mapped_column(Text)
     welcome_message: Mapped[Optional[str]] = mapped_column(Text)
 
+    # AI sales bot (migration 062, ТЗ «AI-бот продажник» 2).
+    bot_mode: Mapped[str] = mapped_column(Text, default="disabled")
+    bot_reply_threshold: Mapped[int] = mapped_column(Integer, default=60)
+    bot_semi_auto_delay: Mapped[int] = mapped_column(Integer, default=5)
+    bot_daily_reply_limit: Mapped[int] = mapped_column(Integer, default=50)
+    bot_tone_ab_test: Mapped[str] = mapped_column(Text, default="expert")
+    bot_settings: Mapped[dict] = mapped_column(JSONB, default=dict)
+
     managers: Mapped[list["Manager"]] = relationship(
         back_populates="agency", cascade="all, delete-orphan"
     )

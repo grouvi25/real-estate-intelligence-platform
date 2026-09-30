@@ -87,6 +87,10 @@ class TelegramPoller:
         message = update.get("message") or update.get("edited_message")
         if message:
             await handle_telegram_message(message, agency_id=self.agency_id)
+        elif update.get("callback_query"):
+            from app.routers.webhooks import handle_telegram_callback  # noqa: PLC0415
+
+            await handle_telegram_callback(update["callback_query"], agency_id=self.agency_id)
 
     async def poll_once(self) -> int:
         updates = await self.fetch()

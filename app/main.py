@@ -26,6 +26,7 @@ from app.routers import (
     auth,
     avito,
     billing,
+    bot,
     deals,
     documents,
     geo,
@@ -176,6 +177,7 @@ app.include_router(topnlab_webhooks.router, prefix="/api/topnlab", tags=["TopNLa
 app.include_router(topnlab.router, prefix="/api/topnlab", tags=["TopNLab"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(avito.router, prefix="/api/avito", tags=["Avito"])
+app.include_router(bot.router, prefix="/api/bot", tags=["AI bot"])
 app.include_router(operator.router, prefix="/api/operator", tags=["Operator"])
 app.include_router(platform.router, prefix="/api/platform", tags=["Platform"])
 app.include_router(health.router, prefix="/api", tags=["Health"])

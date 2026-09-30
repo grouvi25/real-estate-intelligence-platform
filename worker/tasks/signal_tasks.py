@@ -49,6 +49,7 @@ async def _score_intent_batch(limit: Optional[int] = None) -> int:
 
     batch = limit or config.ai_signal_batch_size
     scored = 0
+    hot: list[str] = []
     async with async_session() as session:
         stmt = (
             select(Signal)
@@ -103,7 +104,19 @@ async def _score_intent_batch(limit: Optional[int] = None) -> int:
                 sig.location_interest = data["location_interest"]
             sig.ai_analysis = data
             scored += 1
+            if sig.intent_score >= 30:  # below that no agency threshold makes sense
+                hot.append(str(sig.id))
         await session.commit()
+    # ТЗ «AI-бот продажник» 6.2: the bot decides per agency (mode, threshold,
+    # daily limit); queueing every scored signal keeps that logic in one place.
+    if hot:
+        from worker.tasks.bot_tasks import reply_to_signal
+
+        for signal_id in hot:
+            try:
+                reply_to_signal.delay(signal_id)
+            except Exception as e:  # noqa: BLE001 - scoring is done; the bot can miss one
+                logger.warning("Bot reply not queued", signal_id=signal_id, error=str(e)[:120])
     logger.info("Intent scoring batch complete", scored=scored)
     return scored
 

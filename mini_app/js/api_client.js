@@ -185,6 +185,12 @@
     topnlabRegisterReport: () => api.request('/topnlab/register-report', 'POST'),
     topnlabAvitoKeys: () => api.request('/topnlab/avito-credentials', 'POST'),
 
+    // AI sales bot (ТЗ «AI-бот продажник»): settings, what it did, its numbers
+    botSettings: () => api.request('/bot/settings'),
+    updateBotSettings: (body) => api.request('/bot/settings', 'PATCH', body),
+    botReplies: () => api.request('/bot/replies'),
+    botPerformance: () => api.request('/bot/performance'),
+
     // Catalogue from the agency's Avito account (ТЗ «Avito + фильтрация»)
     avitoStatus: () => api.request('/avito/status'),
     avitoSync: () => api.request('/avito/sync', 'POST'),
