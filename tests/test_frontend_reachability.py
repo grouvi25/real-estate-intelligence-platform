@@ -36,6 +36,9 @@ NOT_UI_REACHABLE = {
     "POST /api/geo/agencies/{}/geo",    # onboarding path; the UI uses POST /geo
     "PATCH /api/leads/{}/matches/{}",   # superseded by POST .../feedback
     "GET /api/tasks/{}",                # the list carries every field the UI shows
+    "POST /api/topnlab/report-webhook",  # called by TopNLab («Аналитика REIP»)
+    "GET /api/topnlab/report-files/{}",  # the link TopNLab hands to its user
+    "POST /api/topnlab/incoming-webhook",  # called by TopNLab on card events
 }
 # Public buyer-facing endpoints: TZ 30 lists 13 manager screens and none of them
 # are lead magnets, which live on separate landing pages.

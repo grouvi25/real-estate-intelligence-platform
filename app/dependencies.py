@@ -43,7 +43,7 @@ async def get_current_manager(authorization: Optional[str] = Header(default=None
     async with async_session() as session:
         manager = await session.get(Manager, uuid.UUID(str(manager_id)))
     if manager is None or not manager.is_active or str(manager.agency_id) != str(agency_id):
-        raise AppException(status_code=401, detail="???????????? ?????? ??? ????????", code="USER_REVOKED")
+        raise AppException(status_code=401, detail="Доступ к кабинету отозван", code="USER_REVOKED")
 
     return CurrentManager(manager_id=str(manager_id), agency_id=str(agency_id))
 
@@ -54,4 +54,4 @@ async def require_owner(session, current: CurrentManager) -> None:
     from app.models.manager import Manager
     manager = await session.get(Manager, uuid.UUID(current.manager_id))
     if manager is None or str(manager.agency_id) != current.agency_id or manager.role != "owner":
-        raise AppException(status_code=403, detail="????????? ???? ?????????", code="OWNER_REQUIRED")
+        raise AppException(status_code=403, detail="Действие доступно только владельцу агентства", code="OWNER_REQUIRED")

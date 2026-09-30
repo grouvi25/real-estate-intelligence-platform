@@ -105,6 +105,36 @@ test('a CloudStorage read error yields null rather than throwing', async () => {
   assert.strictEqual(await evaluate('StorageAdapter').get('jwt_token'), null);
 });
 
+test('outside Telegram the SDK stub at version 6.0 is not mistaken for CloudStorage', async () => {
+  // telegram-web-app.js is loaded in MAX and in a browser too. There it reports
+  // version 6.0, and CloudStorage calls throw instead of calling back.
+  const unsupported = {
+    getItem: () => { throw new Error('WebAppMethodUnsupported'); },
+    setItem: () => { throw new Error('WebAppMethodUnsupported'); },
+    removeItem: () => { throw new Error('WebAppMethodUnsupported'); },
+  };
+  const { evaluate, sessionStorage } = load({ cloudStorage: unsupported });
+  evaluate('window.Telegram.WebApp').isVersionAtLeast = (v) => parseFloat(v) <= 6.0;
+
+  await evaluate('StorageAdapter').set('jwt_token', 'web-token');
+  assert.strictEqual(sessionStorage.getItem('jwt_token'), 'web-token');
+  assert.strictEqual(await evaluate('StorageAdapter').get('jwt_token'), 'web-token');
+});
+
+test('a CloudStorage that throws falls back to sessionStorage', async () => {
+  const throwing = {
+    getItem: () => { throw new Error('WebAppMethodUnsupported'); },
+    setItem: () => { throw new Error('WebAppMethodUnsupported'); },
+    removeItem: () => { throw new Error('WebAppMethodUnsupported'); },
+  };
+  const { evaluate, sessionStorage } = load({ cloudStorage: throwing });
+  await evaluate('StorageAdapter').set('jwt_token', 'x');
+  assert.strictEqual(sessionStorage.getItem('jwt_token'), 'x');
+  assert.strictEqual(await evaluate('StorageAdapter').get('jwt_token'), 'x');
+  await evaluate('StorageAdapter').remove('jwt_token');
+  assert.strictEqual(sessionStorage.getItem('jwt_token'), null);
+});
+
 test('an old localStorage token is purged on load', async () => {
   // Builds before TZ 35.8 persisted the JWT on the device; it must not linger.
   const { localStorage } = load({ localSeed: 'stale-token' });

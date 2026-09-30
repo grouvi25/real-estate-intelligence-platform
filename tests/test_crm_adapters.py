@@ -15,12 +15,14 @@ def test_registry_supported():
 
 
 def test_topnlab_payload_and_endpoint():
-    a = build_crm_adapter("topnlab", base_url="https://t.example.com/")
-    assert a.endpoint() == "https://t.example.com/api/leads"
+    """The real importClient call (API колл-центра, раздел 2), not the /api/leads
+    this adapter once pointed at. The full flow is in tests/test_topnlab.py."""
+    a = build_crm_adapter("topnlab", base_url="https://t.example.com/", api_key="k")
+    assert a.endpoint() == "https://t.example.com/call/main/importClient/"
     p = a.build_payload(LEAD)
-    assert p["phone"] == "+79001234567"
-    assert p["budget"] == 8_000_000
-    assert p["external_id"] == "abc-123"
+    assert p["appkey"] == "k"
+    assert p["phone"] == "79001234567"
+    assert p["action"] == 1
 
 
 def test_amocrm_payload_shape():

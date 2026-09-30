@@ -115,6 +115,16 @@ class Settings(BaseSettings):
     # account. It is billed per request and never leaves the server.
     yandex_geocoder_api_key: Optional[str] = Field(
         default=None, alias="YANDEX_GEOCODER_API_KEY")
+    # TopNLab CRM (ТЗ «Интеграция с TopNLab» v1.0, раздел 7). Ключа агентства
+    # здесь нет: он в agency_crm_config, у каждого агентства свой appkey.
+    topnlab_base_url: str = Field(default="https://agencies-p.topnlab.ru", alias="TOPNLAB_BASE_URL")
+    topnlab_calendar_url: str = Field(
+        default="https://calendar-p.topnlab.ru", alias="TOPNLAB_CALENDAR_URL")
+    # Общий рубильник поверх флага каждого агентства. Выключен по умолчанию:
+    # включается в .env осознанно, когда ключ агентства проверен.
+    topnlab_sync_enabled: bool = Field(default=False, alias="TOPNLAB_SYNC_ENABLED")
+    topnlab_lead_min_score: int = Field(default=40, alias="TOPNLAB_LEAD_MIN_SCORE")
+    topnlab_task_delay_minutes: int = Field(default=5, alias="TOPNLAB_TASK_DELAY_MINUTES")
     yookassa_shop_id: Optional[str] = Field(default=None, alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: Optional[str] = Field(default=None, alias="YOOKASSA_SECRET_KEY")
 

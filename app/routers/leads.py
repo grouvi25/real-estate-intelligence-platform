@@ -164,6 +164,9 @@ async def create_lead(
     from worker.tasks.matching_tasks import run_matching_for_lead
 
     run_matching_for_lead.delay(str(lead.id))
+    from worker.tasks.topnlab_sync import queue_topnlab_sync
+
+    queue_topnlab_sync(str(lead.id))
     logger.info("Lead created manually", lead_id=str(lead.id), source=req.source_type)
 
     return {"lead_id": str(lead.id), "is_duplicate": False, "matching_queued": True}
