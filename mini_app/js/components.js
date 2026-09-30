@@ -118,7 +118,12 @@ const UI = (() => {
     call: 'Звонок', document: 'Документы', showing: 'Показ', follow_up: 'Напоминание',
     escalation: 'Эскалация', meeting: 'Встреча', reply: 'Ответ', other: 'Задача',
   };
-  const CHANNEL_RU = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX', forum: 'Форум' };
+  const CHANNEL_RU = { telegram: 'Telegram', vk: 'ВКонтакте', max: 'MAX', forum: 'Форум',
+    telegram_chat: 'Telegram', telegram_channel: 'Telegram', vk_group: 'ВКонтакте',
+    youtube: 'YouTube', rss: 'RSS', website: 'Сайт', avito_api: 'Avito', cian_api: 'ЦИАН',
+    tg_bot: 'Telegram', max_bot: 'MAX', vk_api: 'ВКонтакте', avito: 'Avito', cian: 'ЦИАН',
+    // origin_system (Signal Bus): what found the signal, when there is no channel
+    reip_scouting: 'Разведка', content_engine: 'Контент', direct_inbound: 'Входящие' };
   const GEO_RU = { base: 'основной', sales: 'продажи', partner: 'партнёрский', watch: 'наблюдение' };
   // utm_source values as they are stored, in words a manager recognises.
   const UTM_RU = {
@@ -291,6 +296,32 @@ const UI = (() => {
   };
 
   // Overlay sheet ------------------------------------------------------------
+  // A lead holds personal data, so it needs the person's consent (152-ФЗ). Both
+  // buttons that turn a signal into a lead used to write «Согласие получено в
+  // чате» on their own, without asking the manager whether it was.
+  const leadFromSignal = (signalId) => sheet('Создать лид', `
+    <p class="muted" style="margin-top:0">Лид хранит данные человека, поэтому нужно его согласие
+      на обработку персональных данных (152-ФЗ).</p>
+    <label class="row" style="gap:10px;align-items:flex-start">
+      <input type="checkbox" id="lf-consent">
+      <span>Человек согласился на обработку данных</span>
+    </label>
+    <div class="field mt-3"><label for="lf-how">Как получено согласие</label>
+      <input id="lf-how" value="Согласие получено в переписке в чате"></div>
+    <button class="btn btn--block mt-3" id="lf-go">${icon('check')} Создать лид</button>`, (close) => {
+    const go = document.getElementById('lf-go');
+    go.onclick = () => busy(go, async () => {
+      if (!document.getElementById('lf-consent').checked) { toast('Без согласия лид создать нельзя'); return; }
+      const how = document.getElementById('lf-how').value.trim() || 'Согласие получено в переписке';
+      try {
+        const r = await API.createLead(signalId, { consent_text: how + ' (152-ФЗ)' });
+        close();
+        toast(r && r.already_exists ? 'Лид уже был создан' : 'Лид создан');
+        Router.go(r && r.lead_id ? 'leads/' + r.lead_id : 'leads');
+      } catch (e) { toast('Не удалось: ' + e.message); }
+    });
+  });
+
   const sheet = (title, bodyHtml, wire) => {
     let o = document.getElementById('overlay');
     if (!o) { o = document.createElement('div'); o.id = 'overlay'; o.className = 'overlay'; document.body.appendChild(o); }
@@ -315,7 +346,7 @@ const UI = (() => {
     skelCard, skelList, skelFeed, skelStats, skelTiles, skelForm,
     urgencyChip, statusChip, seg, taskType, channel, channelChip, geoType, utmSource, scoreEl,
     list, empty, errorState, load, busy,
-    render, setHeader, toast, sheet, cityField, bindCityField,
+    render, setHeader, toast, sheet, leadFromSignal, cityField, bindCityField,
   };
 })();
 

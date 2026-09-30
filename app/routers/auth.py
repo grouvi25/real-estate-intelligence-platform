@@ -526,6 +526,11 @@ async def public_config(
     return {
         "maps_key": config.yandex_maps_api_key,
         "brand": brand_of(agency),
+        # The cabinet names the agency on several screens. The handshake response
+        # carried it, but a reopened app skips the handshake (token from Telegram
+        # CloudStorage, fresh sessionStorage) and showed «—» instead.
+        "agency": {"id": str(agency.id), "name": agency.name, "city": agency.base_city}
+        if agency is not None else None,
         "manager": {
             "id": current.manager_id,
             "role": manager.role if manager else "manager",

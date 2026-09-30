@@ -249,6 +249,7 @@ async def get_lead(
             "buyer_profile": lead.buyer_profile,
             "consent_given": lead.consent_given,
             "signal_id": str(lead.signal_id) if lead.signal_id else None,
+            "topnlab_client_id": lead.topnlab_client_id,
             "matches": matches,
         }
     )

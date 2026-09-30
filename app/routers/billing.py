@@ -31,7 +31,11 @@ async def subscription_status(
     agency = await session.get(Agency, agency_id)
     if agency is None:
         raise AppException(404, "Агентство не найдено", "NOT_FOUND")
+    from app.models.billing import SubscriptionPlan
+
     payload = status_payload(agency)
+    plan = await session.get(SubscriptionPlan, agency.subscription_plan)
+    payload["plan_name"] = plan.name if plan is not None else None
     payload["usage"] = {
         "managers": await session.scalar(select(func.count(Manager.id)).where(
             Manager.agency_id == agency_id, Manager.is_active.is_(True))) or 0,

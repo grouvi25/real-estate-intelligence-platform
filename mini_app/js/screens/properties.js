@@ -8,6 +8,9 @@ window.Screens = window.Screens || {};
 const PROPERTY_TABS = [['', 'Все'], ['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Проданы'],
   ['archive', 'Архив']];
 
+// The statuses the properties table allows (CHECK in migration 001).
+const PROPERTY_STATUS_SET = [['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Продан'], ['archive', 'Архив']];
+
 function propertyCard(p) {
   const meta = [
     p.district,
@@ -113,12 +116,34 @@ Screens.propertyDetail = async function (params) {
       <button class="btn btn--block" id="save">${UI.icon('check')} Сохранить цену</button>
     </div>
 
+    <div class="card mt-3">
+      <div class="field" style="margin-bottom:0"><label>Статус</label>
+        <div class="segmented" role="tablist">${PROPERTY_STATUS_SET.map(([v, l]) =>
+          `<button class="segmented__opt${v === p.status ? ' segmented__opt--active' : ''}" role="tab"
+             aria-selected="${v === p.status}" data-status="${v}">${l}</button>`).join('')}</div>
+        <div class="field__hint">${p.source_system === 'avito'
+          ? 'Из Avito: снятое там объявление уйдёт в архив само, а «Бронь» и «Продан» синхронизация не трогает.'
+          : 'Подбор предлагает покупателям только объекты «В продаже».'}</div>
+      </div>
+      ${p.source_url ? `<a class="btn btn--ghost btn--block mt-2" href="${UI.esc(p.source_url)}" target="_blank"
+         rel="noopener">${UI.icon('link')} ${p.source_system === 'avito' ? 'Объявление на Avito' : 'Источник'}</a>` : ''}
+    </div>
+
     <div class="section-title">Документы и продвижение</div>
     <button class="btn btn--secondary btn--block" id="report">${UI.icon('file')} Отчёт по объекту</button>
     <button class="btn btn--secondary btn--block mt-2" id="listing">${UI.icon('sparkles')} Сгенерировать объявление</button>
     <button class="btn btn--secondary btn--block mt-2" id="checklist">${UI.icon('check')} Чек-лист документов</button>`,
     () => {
       Maps.paint(map);
+      document.querySelectorAll('[data-status]').forEach((b) => b.onclick = () => UI.busy(b, async () => {
+        const status = b.getAttribute('data-status');
+        if (status === p.status) return;
+        try {
+          await API.updateProperty(p.id, { status });
+          UI.toast('Статус: ' + (PROPERTY_STATUS_SET.find((x) => x[0] === status) || [0, status])[1]);
+          Router.resolve();
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      }));
       const saveBtn = document.getElementById('save');
       saveBtn.onclick = () => UI.busy(saveBtn, async () => {
         const price = parseInt(document.getElementById('price').value, 10);
@@ -304,7 +329,7 @@ async function loadAvitoBox() {
     <div class="card">
       <b>Каталог из Avito</b>
       <div class="item__sub" style="margin-top:8px">Аккаунт Avito не подключён. Если агентство работает
-        в TopNLab, ключи можно получить там: Профиль → TopNLab CRM → «Получить ключи Avito».</div>
+        в TopNLab, владелец может получить ключи там: Профиль → TopNLab CRM → «Получить ключи Avito».</div>
     </div>`;
   const btn = document.getElementById('avito-sync');
   if (btn) btn.onclick = () => UI.busy(btn, async () => {

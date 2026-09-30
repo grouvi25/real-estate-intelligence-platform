@@ -39,6 +39,10 @@ async function refreshConfig() {
     const cfg = await API.appConfig();
     await rememberMapsKey(cfg && cfg.maps_key);
     applyBrand(cfg && cfg.brand);
+    if (cfg && cfg.agency) {
+      window._agency = cfg.agency;
+      try { sessionStorage.setItem('agency', JSON.stringify(cfg.agency)); } catch (e) { /* private mode */ }
+    }
     if (cfg && cfg.manager) {
       window._manager = cfg.manager;
       try { sessionStorage.setItem('manager', JSON.stringify(cfg.manager)); } catch (e) { /* private mode */ }

@@ -396,7 +396,7 @@ async function loadSubscription() {
   const until = d.expires_at ? new Date(d.expires_at).toLocaleDateString('ru-RU') : 'бессрочно';
   box.innerHTML = `
     <div class="card">
-      <div class="between"><span class="item__title">${UI.esc(d.plan || '—')}</span>
+      <div class="between"><span class="item__title">${UI.esc(d.plan_name || 'Без тарифа')}</span>
         <span class="chip ${d.status === 'active' ? 'chip--accent' : ''}">${UI.esc(SUB_STATUS_RU[d.status] || d.status)}</span></div>
       <div class="between mt-2"><span class="muted">Оплачено до</span><span class="item__meta">${UI.esc(until)}</span></div>
       <div class="between mt-1"><span class="muted">Менеджеры</span><span class="item__meta">${UI.esc(seat(d.usage.managers, d.limits.managers))}</span></div>

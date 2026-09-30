@@ -187,9 +187,11 @@ async def sync_agency(session, agency_id, items) -> SyncStats:
                     session.add(Property(agency_id=agency_id, geo_location_id=geo.id if geo else None,
                                          **fields))
                 else:
+                    manual = existing.status in ("sold", "reserved")
                     for key, value in fields.items():
-                        if value is not None:
-                            setattr(existing, key, value)
+                        if value is None or (key == "status" and manual):
+                            continue  # «Продан» / «Бронь» are the manager's, not Avito's
+                        setattr(existing, key, value)
                     if existing.geo_location_id is None and geo is not None:
                         existing.geo_location_id = geo.id
             if existing is None:
@@ -212,6 +214,7 @@ async def sync_agency(session, agency_id, items) -> SyncStats:
                 prop.status = "archive"
                 prop.avito_status = "removed"
                 stats.archived += 1
+    # (only active rows are archived above: a sold flat taken off Avito stays sold)
     await session.commit()
     logger.info("Avito sync", agency_id=str(agency_id), **stats.as_dict())
     return stats
