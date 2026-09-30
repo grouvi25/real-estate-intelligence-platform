@@ -34,6 +34,7 @@ celery_app = Celery(
         "worker.tasks.report_tasks",
         "worker.tasks.collector_tasks",
         "worker.tasks.signal_tasks",
+        "worker.tasks.billing_tasks",
         "worker.tasks.topnlab_sync",
     ],
 )
@@ -107,6 +108,10 @@ celery_app.conf.beat_schedule = {
         # keeps well inside the YouTube daily quota.
         "task": "worker.tasks.collector_tasks.collect_web_sources",
         "schedule": crontab(minute=35),  # hourly
+    },
+    "billing-subscription-check": {
+        "task": "worker.tasks.billing_tasks.check_subscriptions",
+        "schedule": crontab(hour=9, minute=0),  # 09:00 MSK daily (ТЗ «SaaS-слой» 7.2)
     },
     "intent-scoring-batch": {
         "task": "worker.tasks.signal_tasks.score_intent_batch",

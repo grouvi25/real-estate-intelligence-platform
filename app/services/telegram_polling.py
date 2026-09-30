@@ -196,6 +196,11 @@ async def main() -> None:
         logger.warning("TELEGRAM_BOT_TOKEN is not set, the platform bot is not polled")
     else:
         static["platform"] = TelegramPoller(token)
+    sales_token = (config.platform_onboarding_bot_token or "").strip()
+    if sales_token and sales_token not in PLACEHOLDER_TOKENS:
+        from app.services.sales_bot import handle_update  # noqa: PLC0415
+
+        static["sales"] = TelegramPoller(sales_token, on_update=handle_update)
     logger.info("Telegram polling started", via_proxy=bool(config.telegram_proxy_url))
     await PollingSupervisor(static).run()
 

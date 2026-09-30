@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.database import get_session
-from app.dependencies import CurrentManager, get_current_manager, require_owner
+from app.dependencies import CurrentManager, get_current_manager, get_platform_operator, require_owner
 from app.exceptions import AppException, NotFoundError
 from app.models.agency import Agency
 from app.models.geo_location import GeoLocation
@@ -185,8 +185,11 @@ async def create_geo(
 
 @router.post("/agencies/{agency_id}/geo", status_code=status.HTTP_201_CREATED)
 async def create_geo_location(
-    agency_id: uuid.UUID, req: CreateGeoRequest, session=Depends(get_session)
+    agency_id: uuid.UUID, req: CreateGeoRequest, session=Depends(get_session),
+    operator: int = Depends(get_platform_operator),
 ):
+    """Operator path. It used to take no credentials at all: anyone who knew an
+    agency id could reserve cities in its name and start paid AI generation."""
     agency = await session.get(Agency, agency_id)
     if agency is None:
         raise NotFoundError("Agency", str(agency_id))

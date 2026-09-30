@@ -188,6 +188,59 @@ async def telegram_webhook_agency(agency_id: str, request: Request):
     return {"ok": True}
 
 
+def sales_webhook_secret() -> str:
+    """Secret for the sales bot's webhook, derived from SECRET_KEY: nothing to add
+    to .env, and it changes whenever the app secret does."""
+    import hashlib  # noqa: PLC0415
+    import hmac  # noqa: PLC0415
+
+    return hmac.new(config.secret_key.encode(), b"sales-bot-webhook", hashlib.sha256).hexdigest()
+
+
+@router.post("/sales")
+async def sales_bot_webhook(request: Request):
+    """ТЗ «SaaS-слой» 5.4: the platform's sales bot, when bots run on webhooks.
+    The ТЗ version accepted anything; operator commands arrive here, so the
+    secret is required."""
+    _require_secret(request.headers.get(TELEGRAM_SECRET_HEADER), sales_webhook_secret(), "telegram")
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        update = {}
+    try:
+        from app.services.sales_bot import handle_update  # noqa: PLC0415
+
+        await handle_update(update)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Sales bot update handling failed", error=str(e)[:200])
+    return {"ok": True}
+
+
+@router.post("/yookassa")
+async def yookassa_webhook(request: Request):
+    """ТЗ «SaaS-слой» 5.6. The body is only a hint: the payment is fetched back
+    from ЮKassa before anything counts (app/services/yookassa.py). Always 200 --
+    ЮKassa retries anything else for a day."""
+    from app.database import async_session  # noqa: PLC0415
+    from app.services import yookassa  # noqa: PLC0415
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"ok": True}
+    try:
+        async with async_session() as session:
+            paid = await yookassa.handle_notification(session, body)
+        if paid:
+            from app.services.sales_bot import notify_operators  # noqa: PLC0415
+
+            await notify_operators(f"Оплата получена по заявке {paid[:8]}.\n"
+                                   f"Создать агентство: /create_{paid[:8]} [токен бота агентства]")
+    except Exception as e:  # noqa: BLE001
+        logger.error("ЮKassa notification failed", error=str(e)[:200])
+    return {"ok": True}
+
+
 async def handle_max_event(update: dict[str, Any]) -> Optional[str]:
     """Reply to a MAX bot event. Returns the update_type handled, or None.
 
