@@ -31,6 +31,12 @@ ALTER TABLE agencies ADD COLUMN IF NOT EXISTS welcome_message TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agencies_bot_username
     ON agencies(lower(telegram_bot_username)) WHERE telegram_bot_username IS NOT NULL;
 
+-- 001 разрешал subscription_plan только mvp/pro/enterprise: агентство на
+-- тарифе «Старт» или «Выделенный» не создалось бы вовсе.
+ALTER TABLE agencies DROP CONSTRAINT IF EXISTS agencies_subscription_plan_check;
+ALTER TABLE agencies ADD CONSTRAINT agencies_subscription_plan_check
+    CHECK (subscription_plan IN ('mvp', 'start', 'pro', 'isolated', 'enterprise'));
+
 CREATE TABLE IF NOT EXISTS subscription_plans (
     id                TEXT PRIMARY KEY,           -- start | pro | isolated
     name              TEXT NOT NULL,

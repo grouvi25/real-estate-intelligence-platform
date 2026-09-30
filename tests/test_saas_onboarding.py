@@ -190,7 +190,8 @@ async def test_from_start_to_a_working_agency(outbox, monkeypatch):
         rid = str(req.id)[:8]
         assert any(t == "operators" and f"/approve_{rid}" in x for t, x in outbox)
 
-        for command in (f"/approve_{rid} pro", f"/paid_{rid}", f"/create_{rid}"):
+        # «Выделенный»: a plan name the schema from 001 did not allow at all.
+        for command in (f"/approve_{rid} isolated", f"/paid_{rid}", f"/create_{rid}"):
             await sales_bot.handle_update(_msg(OPERATOR_ID, command))
 
         async with async_session() as s:
@@ -198,7 +199,7 @@ async def test_from_start_to_a_working_agency(outbox, monkeypatch):
             agency = await s.get(Agency, req.agency_id)
             owner = (await s.execute(select(Manager).where(Manager.telegram_id == prospect))).scalar_one()
         assert req.status == "completed"
-        assert (agency.subscription_plan, agency.max_managers, agency.max_cities) == ("pro", 5, 2)
+        assert (agency.subscription_plan, agency.max_managers, agency.max_cities) == ("isolated", 20, 5)
         assert agency.subscription_expires_at > datetime.now(timezone.utc) + timedelta(days=29)
         assert owner.role == "owner" and owner.agency_id == agency.id
         invite = [x for t, x in outbox if t == prospect and "inv_" in x]

@@ -2,19 +2,18 @@
 
 
 def _finalized_app():
-    """Import task modules and finalize the app so shared_task tasks register."""
-    import worker.tasks.crm_tasks  # noqa: F401
-    import worker.tasks.geo_tasks  # noqa: F401
-    import worker.tasks.collector_tasks  # noqa: F401
-    import worker.tasks.knowledge_tasks  # noqa: F401
-    import worker.tasks.maintenance_tasks  # noqa: F401
-    import worker.tasks.matching_tasks  # noqa: F401
-    import worker.tasks.partner_tasks  # noqa: F401
-    import worker.tasks.report_tasks  # noqa: F401
-    import worker.tasks.signal_tasks  # noqa: F401
-    import worker.tasks.source_tasks  # noqa: F401
+    """Import every task module the worker includes and finalize the app.
+
+    The modules come from the app's own ``include`` list, the one the worker
+    reads: a hand-kept copy here fell behind as soon as a module was added, and
+    the test then failed on tasks the real worker registers fine.
+    """
+    import importlib
+
     from worker.celery_app import celery_app
 
+    for module in celery_app.conf.include:
+        importlib.import_module(module)
     celery_app.finalize()
     return celery_app
 
