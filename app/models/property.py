@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import TIMESTAMP, Boolean, Date, Float, ForeignKey, Integer, Text
+from sqlalchemy import TIMESTAMP, BigInteger, Boolean, Date, Float, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,5 +53,10 @@ class Property(CreatedAtMixin, UpdatedAtMixin, Base):
     description_original: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="active")
     source_url: Mapped[Optional[str]] = mapped_column(Text)
+    # Avito sync (migration 061): where the row came from and its Avito twin.
+    avito_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    avito_status: Mapped[Optional[str]] = mapped_column(Text)
+    avito_synced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    source_system: Mapped[str] = mapped_column(Text, default="manual", server_default="manual")
     images: Mapped[list] = mapped_column(JSONB, default=list)
     ai_analysis: Mapped[dict] = mapped_column(JSONB, default=dict)

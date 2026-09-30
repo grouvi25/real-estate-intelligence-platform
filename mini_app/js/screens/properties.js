@@ -229,8 +229,10 @@ Screens.propertyImport = async function () {
         Сначала проверка — она ничего не записывает и показывает, что получится.
       </p>
     </div>
-    <div id="imp-report"></div>`);
+    <div id="imp-report"></div>
+    <div id="avito-box" style="margin-top:12px"></div>`);
 
+  loadAvitoBox();
   const fileInput = document.getElementById('imp-file');
   const report = document.getElementById('imp-report');
 
@@ -281,3 +283,30 @@ Screens.propertyImport = async function () {
 
   document.getElementById('imp-check').onclick = () => run(true);
 };
+
+// The catalogue can also come from the agency's Avito account, hourly. Says
+// plainly when no account is connected instead of offering a button that fails.
+async function loadAvitoBox() {
+  const box = document.getElementById('avito-box');
+  if (!box) return;
+  let d;
+  try { d = await API.avitoStatus(); } catch (e) { box.innerHTML = ''; return; }
+  const when = d.last_synced_at ? new Date(d.last_synced_at).toLocaleString('ru-RU') : 'ещё не было';
+  box.innerHTML = d.configured ? `
+    <div class="card">
+      <div class="between"><b>Каталог из Avito</b><span class="chip chip--accent">подключено</span></div>
+      <div class="item__sub" style="margin-top:8px">Объявлений: <b>${d.active}</b> активных из ${d.total} ·
+        последняя синхронизация: ${UI.esc(when)}. Обновляется раз в час сама.</div>
+      <button class="btn btn--secondary btn--block mt-3" id="avito-sync">${UI.icon('refresh')} Обновить сейчас</button>
+    </div>` : `
+    <div class="card">
+      <b>Каталог из Avito</b>
+      <div class="item__sub" style="margin-top:8px">Аккаунт Avito не подключён. Если агентство работает
+        в TopNLab, ключи можно получить там: Профиль → TopNLab CRM → «Получить ключи Avito».</div>
+    </div>`;
+  const btn = document.getElementById('avito-sync');
+  if (btn) btn.onclick = () => UI.busy(btn, async () => {
+    try { await API.avitoSync(); UI.toast('Синхронизация запущена, займёт минуту-две'); }
+    catch (e) { UI.toast(e.message); }
+  });
+}

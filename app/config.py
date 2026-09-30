@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     # === EXTERNAL INTEGRATIONS ===
     avito_api_base_url: Optional[str] = Field(default=None, alias="AVITO_API_BASE_URL")
     avito_api_token: Optional[str] = Field(default=None, alias="AVITO_API_TOKEN")
+    # Catalogue sync from the agency's Avito account (ТЗ «Avito + фильтрация»,
+    # блок 1). These .env keys serve the platform owner's agency; other agencies
+    # bring their own through TopNLab. Empty = no sync.
+    avito_client_id: Optional[str] = Field(default=None, alias="AVITO_CLIENT_ID")
+    avito_client_secret: Optional[str] = Field(default=None, alias="AVITO_CLIENT_SECRET")
+    avito_sync_interval_minutes: int = Field(default=60, alias="AVITO_SYNC_INTERVAL_MINUTES")
     cian_api_base_url: Optional[str] = Field(default=None, alias="CIAN_API_BASE_URL")
     cian_api_token: Optional[str] = Field(default=None, alias="CIAN_API_TOKEN")
     vk_service_token: Optional[str] = Field(default=None, alias="VK_SERVICE_TOKEN")

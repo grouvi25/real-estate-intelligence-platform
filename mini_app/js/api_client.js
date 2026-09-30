@@ -185,6 +185,10 @@
     topnlabRegisterReport: () => api.request('/topnlab/register-report', 'POST'),
     topnlabAvitoKeys: () => api.request('/topnlab/avito-credentials', 'POST'),
 
+    // Catalogue from the agency's Avito account (ТЗ «Avito + фильтрация»)
+    avitoStatus: () => api.request('/avito/status'),
+    avitoSync: () => api.request('/avito/sync', 'POST'),
+
     // The agency's own subscription (ТЗ «SaaS-слой»): status, limits, usage
     subscription: () => api.request('/billing/status'),
 

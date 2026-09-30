@@ -24,6 +24,7 @@ from app.routers import (
     admin,
     analytics,
     auth,
+    avito,
     billing,
     deals,
     documents,
@@ -174,6 +175,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(topnlab_webhooks.router, prefix="/api/topnlab", tags=["TopNLab"])
 app.include_router(topnlab.router, prefix="/api/topnlab", tags=["TopNLab"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
+app.include_router(avito.router, prefix="/api/avito", tags=["Avito"])
 app.include_router(operator.router, prefix="/api/operator", tags=["Operator"])
 app.include_router(platform.router, prefix="/api/platform", tags=["Platform"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
