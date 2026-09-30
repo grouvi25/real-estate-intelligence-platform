@@ -679,3 +679,17 @@ async def test_owner_settings_switch_the_agency_to_topnlab():
             assert err.value.status_code == 400
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_object_behind_an_avito_listing(api):
+    """Priority 7: avitoData. Found -> realty and agent; not found -> None."""
+    fake = api({"/call/main/avitoData/": lambda r: httpx.Response(200, json=(
+        {"status": "ok", "result": {"realty": {"id": 123, "action": "sale"},
+                                    "user": {"id": 9, "email": "a@agency.ru"}}}
+        if r.url.params["publication_id"] == "112233" else
+        {"status": "error", "errors": {"publication_id": "Не нашлось такого размещения"}}))})
+    found = await tl.get_object_by_avito_id(_settings(), 112233)
+    assert found["realty"]["id"] == 123 and found["user"]["email"] == "a@agency.ru"
+    assert fake.calls[0][2] == {"publication_id": "112233", "key": APPKEY}
+    assert await tl.get_object_by_avito_id(_settings(), 1) is None

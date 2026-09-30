@@ -69,8 +69,8 @@ def quiet(monkeypatch):
     async def tell(agency, text):
         told.append(text)
 
-    async def send(agency, user_id, text, buttons=None):
-        sent.append((user_id, text, [b.callback_data for b in buttons or []]))
+    async def send(agency, user_id, text, buttons=None, platform="telegram"):
+        sent.append((user_id, text, [b.callback_data for b in buttons or []], platform))
         return True
 
     async def daily(agency_id, increment=False):
@@ -382,3 +382,47 @@ async def test_settings_respect_the_plan():
     finally:
         await engine.dispose()
     assert ok["effective_mode"] == "assist" and ok["max_mode"] == "assist"
+
+
+@db_only
+@pytest.mark.asyncio
+async def test_the_same_dialogue_in_max(quiet, monkeypatch):
+    """ТЗ: MAX through the same bot layer. A MAX bot_started with the agency's
+    payload, a message, the consent callback -- and a lead from MAX."""
+    from sqlalchemy import select
+
+    from app.database import async_session, engine
+    from app.models.bot import BotConversation
+    from app.models.lead import Lead
+    from app.routers.webhooks import handle_max_event
+    from app.services import lead_from_bot
+    from app.services.bot_abstraction import _max_button, BotButton
+
+    monkeypatch.setattr(lead_from_bot, "queue_followups", lambda lead_id: None)
+    answers = iter([{"greeting_text": "Здравствуйте!"},
+                    {"message_to_client": "Передаю специалисту", "collected_data": {"budget": "6 млн"},
+                     "is_qualification_complete": True}])
+
+    async def ai(*a, **k):
+        return next(answers)
+
+    monkeypatch.setattr(bot_conversation, "_ai_json", ai)
+    max_user = 3 * 10 ** 12 + int(uuid.uuid4().int % 10 ** 9)
+    try:
+        agency_id, _ = await _setup("assist")
+        assert await handle_max_event({"update_type": "bot_started", "user": {"user_id": max_user, "name": "Ира"},
+                                       "payload": f"b_{agency_id.hex[:8]}"}) == "buyer"
+        await handle_max_event({"update_type": "message_created", "message": {
+            "sender": {"user_id": max_user, "name": "Ира"}, "body": {"text": "Ищу квартиру, 6 млн"}}})
+        assert quiet.sent[-1][2:] == (["consent:yes", "consent:no"], "max")
+        await handle_max_event({"update_type": "message_callback", "callback": {
+            "callback_id": "cb1", "payload": "consent:yes", "user": {"user_id": max_user}}})
+        async with async_session() as s:
+            conv = (await s.execute(select(BotConversation).where(BotConversation.user_id == max_user))).scalar_one()
+            lead = await s.get(Lead, conv.lead_id)
+    finally:
+        await engine.dispose()
+    assert conv.user_platform == "max" and conv.state == "qualified"
+    assert (lead.source_platform, lead.budget_max, lead.telegram_username) == ("max", 6_000_000, None)
+    assert _max_button(BotButton(text="Да", callback_data="consent:yes")) == {
+        "type": "callback", "text": "Да", "payload": "consent:yes"}

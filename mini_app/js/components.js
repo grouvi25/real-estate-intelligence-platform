@@ -101,7 +101,7 @@ const UI = (() => {
   const STATUS_RU = {
     new: 'Новый', in_progress: 'В работе', qualified: 'Квалифицирован', deal: 'Сделка',
     rejected: 'Отклонён', archived: 'Архив', referred: 'Передан',
-    active: 'Активен', reserved: 'Бронь', sold: 'Продан', draft: 'Черновик',
+    active: 'Активен', reserved: 'Бронь', sold: 'Продан', draft: 'Черновик', archive: 'Архив',
     // Reply states. 'none' used to render as "—": a freshly collected signal has
     // no reply state, and since that is exactly what the triage queue is full
     // of, the most common chip on the busiest screen was a dash.

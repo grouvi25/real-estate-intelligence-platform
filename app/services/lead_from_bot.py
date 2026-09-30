@@ -71,13 +71,14 @@ async def create_lead_from_conversation(session, agency, conv):
         lead = Lead(
             agency_id=agency.id, geo_location_id=geo_id,
             signal_id=conv.signal_id, source_signal_id=conv.signal_id,
-            source_type="bot_dm", source_platform="telegram",
+            source_type="bot_dm", source_platform=conv.user_platform,
             segment=signal.segment if signal is not None else None,
             intent_score=signal.intent_score if signal is not None else None,
             budget_max=parse_budget(data.get("budget")),
             purchase_goal=_pick(data.get("goal"), GOAL_WORDS),
             urgency=_pick(data.get("timeline"), URGENCY_WORDS) or "warm",
-            status="new", telegram_username=conv.username,
+            status="new",
+            telegram_username=conv.username if conv.user_platform == "telegram" else None,
             consent_given=True, consent_given_at=datetime.now(timezone.utc),
             consent_text=CONSENT_TEXT, consent_version=config.consent_version,
         )

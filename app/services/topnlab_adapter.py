@@ -498,6 +498,24 @@ async def get_avito_credentials(s: TopnlabSettings, site: str = "AVITO") -> Any:
     return _payload(body)
 
 
+async def get_object_by_avito_id(s: TopnlabSettings, publication_id: int | str) -> Optional[dict]:
+    """ТЗ, приоритет 7 (avitoData): the agency's property and its responsible
+    agent behind an Avito listing. The ТЗ leaves calling it to a later sprint
+    (auto-matching when the product grows); the adapter function is ready.
+
+    Returns {"realty": {...}, "user": {...}}, or None when TopNLab has no such
+    listing -- that answer is an ordinary "not found", not a failure.
+    """
+    try:
+        body = await _call(s, "GET", f"{s.base_url}/call/main/avitoData/",
+                           params={"publication_id": str(publication_id), "key": s.appkey},
+                           what="avitoData")
+    except TopnlabRejected:
+        return None
+    result = body.get("result")
+    return result if isinstance(result, dict) else None
+
+
 def encrypt_blob(value: Any) -> str:
     """JSON value → encrypted text fit for a JSONB field."""
     import json as _json  # noqa: PLC0415

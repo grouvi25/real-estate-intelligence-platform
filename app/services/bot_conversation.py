@@ -50,12 +50,13 @@ def _history(conv, role: str, text: str) -> None:
     conv.history = items[-HISTORY_LIMIT:]
 
 
-async def _send(agency, user_id: int, text: str, buttons=None) -> bool:
+async def _send(agency, user_id: int, text: str, buttons=None, platform: str = "telegram") -> bool:
+    """Through the agency's own Telegram bot if it has one; MAX has one platform bot."""
     from app.services.bot_abstraction import BotMessage, BotPlatform, bot_layer  # noqa: PLC0415
 
+    token = agency.telegram_bot_token if agency is not None and platform == "telegram" else None
     return await bot_layer.send_message(
-        user_id, BotPlatform.TELEGRAM, BotMessage(text=text, buttons=buttons),
-        agency.telegram_bot_token if agency is not None else None)
+        user_id, BotPlatform(platform), BotMessage(text=text, buttons=buttons), token)
 
 
 async def _ai_json(system: str, user: str, module: str, agency_id: str, fallback: dict) -> dict:
@@ -71,21 +72,22 @@ async def _ai_json(system: str, user: str, module: str, agency_id: str, fallback
         await ai.close()
 
 
-async def _open_conversation(session, agency_id, user_id: int):
+async def _open_conversation(session, agency_id, user_id: int, platform: str = "telegram"):
     from app.models.bot import BotConversation  # noqa: PLC0415
 
     q = select(BotConversation).where(
-        BotConversation.user_platform == "telegram", BotConversation.user_id == user_id,
+        BotConversation.user_platform == platform, BotConversation.user_id == user_id,
         BotConversation.state.in_(OPEN_STATES))
     if agency_id is not None:
         q = q.where(BotConversation.agency_id == agency_id)
     return (await session.execute(q.order_by(BotConversation.updated_at.desc()).limit(1))).scalars().first()
 
 
-async def _is_manager(session, user_id: int) -> bool:
+async def _is_manager(session, user_id: int, platform: str = "telegram") -> bool:
     from app.models.manager import Manager  # noqa: PLC0415
 
-    return bool(await session.scalar(select(Manager.id).where(Manager.telegram_id == user_id)))
+    column = Manager.telegram_id if platform == "telegram" else Manager.max_user_id
+    return bool(await session.scalar(select(Manager.id).where(column == user_id)))
 
 
 async def _agency_from_payload(session, payload: Optional[str]):
@@ -110,7 +112,8 @@ async def _agency_from_payload(session, payload: Optional[str]):
 
 # ------------------------------------------------------------- entry points
 
-async def handle_message(message: dict[str, Any], bot_agency_id: Optional[str] = None) -> bool:
+async def handle_message(message: dict[str, Any], bot_agency_id: Optional[str] = None,
+                         platform: str = "telegram") -> bool:
     """A private message to a bot. Returns True if it was a buyer's and is handled
     here; False leaves it to the cabinet handler (/start for managers etc.)."""
     from app.database import async_session  # noqa: PLC0415
@@ -129,12 +132,12 @@ async def handle_message(message: dict[str, Any], bot_agency_id: Optional[str] =
         return False  # a manager's invitation, not a buyer
 
     async with async_session() as session:
-        if await _is_manager(session, int(user_id)):
+        if await _is_manager(session, int(user_id), platform):
             return False
         agency, reply = await _agency_from_payload(session, payload)
         if agency is None and bot_agency_id:
             agency = await session.get(Agency, uuid.UUID(str(bot_agency_id)))
-        conv = await _open_conversation(session, agency.id if agency else None, int(user_id))
+        conv = await _open_conversation(session, agency.id if agency else None, int(user_id), platform)
         if conv is not None and agency is None:
             agency = await session.get(Agency, conv.agency_id)
         if agency is None or agency.bot_mode == "disabled":
@@ -143,7 +146,7 @@ async def handle_message(message: dict[str, Any], bot_agency_id: Optional[str] =
             if not text.startswith("/start") and not bot_agency_id:
                 return False  # a stray message to the platform bot
             conv = BotConversation(
-                agency_id=agency.id, user_platform="telegram", user_id=int(user_id),
+                agency_id=agency.id, user_platform=platform, user_id=int(user_id),
                 username=user.get("username"), display_name=user.get("first_name"),
                 state="greeting", history=[], collected_data={}, bot_mode=agency.bot_mode,
                 tone_variant=agency.bot_tone_ab_test if agency.bot_tone_ab_test != "rotating" else "expert",
@@ -158,7 +161,8 @@ async def handle_message(message: dict[str, Any], bot_agency_id: Optional[str] =
     return True
 
 
-async def handle_callback(callback: dict[str, Any], bot_agency_id: Optional[str] = None) -> bool:
+async def handle_callback(callback: dict[str, Any], bot_agency_id: Optional[str] = None,
+                          platform: str = "telegram") -> bool:
     """«Согласен» / «Не согласен» under the consent request."""
     from app.database import async_session  # noqa: PLC0415
     from app.models.agency import Agency  # noqa: PLC0415
@@ -169,7 +173,7 @@ async def handle_callback(callback: dict[str, Any], bot_agency_id: Optional[str]
         return False
     async with async_session() as session:
         agency_id = uuid.UUID(str(bot_agency_id)) if bot_agency_id else None
-        conv = await _open_conversation(session, agency_id, int(user_id))
+        conv = await _open_conversation(session, agency_id, int(user_id), platform)
         if conv is None or conv.state != "consent_pending":
             return True  # a stale button: nothing to do, but it was ours
         agency = await session.get(Agency, conv.agency_id)
@@ -178,7 +182,7 @@ async def handle_callback(callback: dict[str, Any], bot_agency_id: Optional[str]
             new_lead = await _consent_given(session, agency, conv)
         else:
             conv.state, conv.history, conv.collected_data = "silent", [], {}
-            await _send(agency, conv.user_id, _texts().CONSENT_NO)
+            await _send(agency, conv.user_id, platform=conv.user_platform, text=_texts().CONSENT_NO)
         await session.commit()
     if new_lead is not None:
         from app.services.lead_from_bot import queue_followups  # noqa: PLC0415
@@ -201,7 +205,7 @@ async def _step(session, agency, conv, text: str) -> None:
     t = _texts()
     if text and STOP_WORDS.search(text):
         conv.state, conv.history, conv.collected_data = "silent", [], {}
-        await _send(agency, conv.user_id, t.STOP_MESSAGE)
+        await _send(agency, conv.user_id, platform=conv.user_platform, text=t.STOP_MESSAGE)
         return
     if text and ESCALATION_WORDS.search(text):
         await _escalate(session, agency, conv, text)
@@ -218,7 +222,7 @@ async def _step(session, agency, conv, text: str) -> None:
         if text:
             _history(conv, "user", text)
         _history(conv, "bot", greeting)
-        await _send(agency, conv.user_id, html.escape(greeting))
+        await _send(agency, conv.user_id, platform=conv.user_platform, text=html.escape(greeting))
         return
     if conv.state == "consent_pending":
         await _ask_consent(agency, conv, None)
@@ -240,7 +244,7 @@ async def _step(session, agency, conv, text: str) -> None:
         await _ask_consent(agency, conv, answer)
         return
     _history(conv, "bot", answer)
-    await _send(agency, conv.user_id, html.escape(answer))
+    await _send(agency, conv.user_id, platform=conv.user_platform, text=html.escape(answer))
 
 
 async def _ask_consent(agency, conv, summary: Optional[str]) -> None:
@@ -251,8 +255,9 @@ async def _ask_consent(agency, conv, summary: Optional[str]) -> None:
     text = (html.escape(summary) + "\n\n" if summary else "") + t.CONSENT_REQUEST.format(privacy=privacy)
     conv.state = "consent_pending"
     _history(conv, "bot", "[запрос согласия]")
-    await _send(agency, conv.user_id, text, [BotButton(text="Согласен", callback_data=CONSENT_YES),
-                                             BotButton(text="Не согласен", callback_data=CONSENT_NO)])
+    await _send(agency, conv.user_id, platform=conv.user_platform, text=text,
+                buttons=[BotButton(text="Согласен", callback_data=CONSENT_YES),
+                         BotButton(text="Не согласен", callback_data=CONSENT_NO)])
 
 
 async def _consent_given(session, agency, conv) -> None:
@@ -260,7 +265,7 @@ async def _consent_given(session, agency, conv) -> None:
 
     lead = await create_lead_from_conversation(session, agency, conv)
     conv.lead_id, conv.state = lead.id, "qualified"
-    await _send(agency, conv.user_id, _texts().CONSENT_YES)
+    await _send(agency, conv.user_id, platform=conv.user_platform, text=_texts().CONSENT_YES)
     from app.services.bot_reply_engine import _tell_managers  # noqa: PLC0415
 
     who = f"@{conv.username}" if conv.username else (conv.display_name or "без имени")
@@ -276,7 +281,7 @@ async def _escalate(session, agency, conv, text: str) -> None:
     conv.state = "escalated"
     # No manager contact in the answer: managers are known by Telegram id, not
     # by a public handle, so the manager writes first.
-    await _send(agency, conv.user_id, _texts().ESCALATION_MESSAGE.format(contact=""))
+    await _send(agency, conv.user_id, platform=conv.user_platform, text=_texts().ESCALATION_MESSAGE.format(contact=""))
     who = f"@{conv.username}" if conv.username else f"id {conv.user_id}"
     await _tell_managers(agency, f"Покупатель {who} просит живого специалиста. Собрано: "
                                  f"{_summary(conv.collected_data)}. Последнее: «{text[:200]}»")

@@ -83,6 +83,9 @@ def _max_button(btn: BotButton) -> dict:
         if campaign:
             out["payload"] = campaign
         return out
+    if btn.callback_data:
+        # A press arrives as a message_callback update carrying this payload.
+        return {"type": "callback", "text": btn.text, "payload": btn.callback_data}
     return {"type": "link", "text": btn.text, "url": btn.url or btn.mini_app_url or config.base_url}
 
 

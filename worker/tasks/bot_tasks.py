@@ -49,7 +49,7 @@ async def _reminders(now=None) -> int:
             agency = await session.get(Agency, conv.agency_id)
             if agency is None or agency.bot_mode == "disabled":
                 continue
-            if await _send(agency, conv.user_id, REMINDER_TEXT):
+            if await _send(agency, conv.user_id, REMINDER_TEXT, platform=conv.user_platform):
                 sent += 1
             conv.reminded_at = now
             conv.state = "silent"

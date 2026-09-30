@@ -281,14 +281,32 @@ async def handle_max_event(update: dict[str, Any]) -> Optional[str]:
     from app.services.bot_abstraction import BotButton, BotMessage, BotPlatform, bot_layer
 
     event_type = update.get("update_type")
+    if event_type == "message_callback":
+        return event_type if await handle_max_callback(update) else None
     if event_type not in ("message_created", "bot_started"):
         return None
 
     message = update.get("message") or {}
-    user_id = (message.get("sender") or {}).get("user_id") or update.get("user_id")
+    sender = message.get("sender") or update.get("user") or {}
+    user_id = sender.get("user_id") or update.get("user_id")
     text = ((message.get("body") or {}).get("text") or "").strip()
     if not user_id:
         return None
+
+    # A buyer talking to the AI sales bot in MAX (ТЗ «AI-бот продажник»: MAX
+    # through the same bot layer). bot_started carries the deep link payload.
+    start_text = text or ("/start " + str(update.get("payload"))
+                          if event_type == "bot_started" and update.get("payload") else "/start")
+    try:
+        from app.services.bot_conversation import handle_message as buyer_message  # noqa: PLC0415
+
+        normalized = {"chat": {"id": int(user_id), "type": "private"}, "text": start_text,
+                      "from": {"id": int(user_id), "username": sender.get("username"),
+                               "first_name": sender.get("name") or sender.get("first_name")}}
+        if await buyer_message(normalized, None, platform="max"):
+            return "buyer"
+    except Exception as e:  # noqa: BLE001 - the cabinet must still answer /start
+        logger.error("MAX buyer conversation failed", error=str(e)[:200])
 
     # bot_started has no text; treat it as /start.
     if event_type == "bot_started" or text.split()[0:1] == ["/start"]:
@@ -308,6 +326,31 @@ async def handle_max_event(update: dict[str, Any]) -> Optional[str]:
         await bot_layer.send_message(int(user_id), BotPlatform.MAX, BotMessage(text=UNKNOWN_TEXT))
         return event_type
     return None
+
+
+async def handle_max_callback(update: dict[str, Any]) -> bool:
+    """A button press in MAX (the consent buttons). Always acknowledged: MAX,
+    like Telegram, keeps a pressed button waiting until it is answered."""
+    from app.services.bot_abstraction import bot_layer  # noqa: PLC0415
+    from app.services.bot_conversation import handle_callback  # noqa: PLC0415
+
+    callback = update.get("callback") or {}
+    user_id = (callback.get("user") or update.get("user") or {}).get("user_id")
+    if not callback.get("payload") or not user_id:
+        return False  # not a press we sent
+    try:
+        return await handle_callback({"data": callback.get("payload"), "from": {"id": user_id}}, None,
+                                     platform="max")
+    finally:
+        if callback.get("callback_id") and config.max_bot_token:
+            try:
+                await bot_layer.http.post(
+                    f"{config.max_base_url.rstrip('/')}/answers",
+                    params={"callback_id": callback["callback_id"]},
+                    headers={"Authorization": config.max_bot_token},
+                    json={"notification": "Принято"})
+            except Exception:  # noqa: BLE001
+                pass
 
 
 @router.post("/max")

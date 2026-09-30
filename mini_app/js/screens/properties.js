@@ -5,7 +5,8 @@
 // its own row and never wraps.
 window.Screens = window.Screens || {};
 
-const PROPERTY_TABS = [['', 'Все'], ['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Проданы']];
+const PROPERTY_TABS = [['', 'Все'], ['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Проданы'],
+  ['archive', 'Архив']];
 
 function propertyCard(p) {
   const meta = [
@@ -24,6 +25,7 @@ function propertyCard(p) {
         <span class="price" style="font-size:var(--t-lg)">${UI.money(p.price)}</span>
         ${UI.statusChip(p.status)}
       </div>
+      ${p.source_system === 'avito' ? '<div class="mt-1"><span class="chip">Avito</span></div>' : ''}
       ${meta ? `<div class="item__sub mt-1">${UI.esc(meta)}</div>` : ''}
       ${p.price_per_sqm ? `<div class="item__meta mt-1">${UI.money(p.price_per_sqm)} за м²</div>` : ''}
     </div>`;
