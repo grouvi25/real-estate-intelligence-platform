@@ -234,4 +234,6 @@ async def test_signal_detail_matches_the_list_shape():
         listed = (await list_signals(current=current, session=s))["signals"][0]
         detail = await get_signal(signal_id, current=current, session=s)
 
-    assert listed == detail
+    # Same fields, same values; the card adds only its lead, for «Лид создан — открыть».
+    assert {k: detail[k] for k in listed} == listed
+    assert set(detail) - set(listed) == {"lead_id"}
