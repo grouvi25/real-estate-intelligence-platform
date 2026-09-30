@@ -36,9 +36,14 @@ PLACEHOLDER_TOKENS = {"", "dev", "1:dev", "123:TEST"}
 
 
 class TelegramPoller:
-    def __init__(self, token: str, http=None):
+    """One bot. ``agency_id`` marks an agency's own bot (SaaS layer); ``on_update``
+    replaces the default handling (the platform's sales bot has its own)."""
+
+    def __init__(self, token: str, http=None, agency_id: Optional[str] = None, on_update=None):
         self.token = token
         self._http = http
+        self.agency_id = agency_id
+        self.on_update = on_update
         self.offset: Optional[int] = None
 
     @property
@@ -74,11 +79,14 @@ class TelegramPoller:
 
     async def handle(self, update: dict) -> None:
         """Same handling as the webhook route -- one place decides what /start does."""
+        if self.on_update is not None:
+            await self.on_update(update)
+            return
         from app.routers.webhooks import handle_telegram_message  # noqa: PLC0415
 
         message = update.get("message") or update.get("edited_message")
         if message:
-            await handle_telegram_message(message)
+            await handle_telegram_message(message, agency_id=self.agency_id)
 
     async def poll_once(self) -> int:
         updates = await self.fetch()
@@ -112,18 +120,84 @@ class TelegramPoller:
                 backoff = min(backoff * 2, MAX_BACKOFF)
 
 
+REFRESH_SECONDS = 60
+
+
+async def agency_bot_tokens() -> dict[str, str]:
+    """agency_id -> token for every agency with its own bot that is still served."""
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from app.database import async_session  # noqa: PLC0415
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    async with async_session() as session:
+        rows = (await session.execute(select(Agency).where(
+            Agency._telegram_bot_token_encrypted.is_not(None), Agency.is_active.is_(True)
+        ))).scalars().all()
+    return {str(a.id): a.telegram_bot_token for a in rows if a.telegram_bot_token}
+
+
+class PollingSupervisor:
+    """The platform bot plus one poller per agency bot, kept in step with the DB.
+
+    A bot added through the operator starts answering within REFRESH_SECONDS; a
+    removed or replaced token stops being polled. Extra fixed bots (the sales
+    bot) are passed in ``static``.
+    """
+
+    def __init__(self, static: dict[str, "TelegramPoller"], http=None):
+        self.static = static
+        self.http = http
+        self.tasks: dict[str, tuple[str, asyncio.Task]] = {}
+
+    def _start(self, key: str, poller: "TelegramPoller") -> None:
+        self.tasks[key] = (poller.token, asyncio.create_task(poller.run(), name=f"poll:{key}"))
+
+    async def sync(self) -> None:
+        for key, poller in self.static.items():
+            if key not in self.tasks:
+                self._start(key, poller)
+        try:
+            wanted = await agency_bot_tokens()
+        except Exception as e:  # noqa: BLE001 - a DB hiccup keeps the bots already running
+            logger.warning("Agency bots not refreshed", error=str(e)[:200])
+            return
+        for key in [k for k in self.tasks if k.startswith("agency:")]:
+            agency_id = key.split(":", 1)[1]
+            token, task = self.tasks[key]
+            if wanted.get(agency_id) != token:
+                task.cancel()
+                del self.tasks[key]
+                logger.info("Agency bot polling stopped", agency_id=agency_id)
+        for agency_id, token in wanted.items():
+            key = f"agency:{agency_id}"
+            if key not in self.tasks:
+                self._start(key, TelegramPoller(token, http=self.http, agency_id=agency_id))
+                logger.info("Agency bot polling started", agency_id=agency_id)
+
+    async def run(self) -> None:
+        while True:
+            await self.sync()
+            await asyncio.sleep(REFRESH_SECONDS)
+
+
 async def main() -> None:
     from app.logging_config import setup_logging  # noqa: PLC0415
 
     setup_logging()
+    if config.telegram_updates_mode == "webhook":
+        # Telegram calls us; polling at the same time would steal the updates.
+        logger.info("TELEGRAM_UPDATES_MODE=webhook, polling service is idle")
+        await asyncio.Event().wait()
+    static: dict[str, TelegramPoller] = {}
     token = (config.telegram_bot_token or "").strip()
     if token in PLACEHOLDER_TOKENS:
-        # Crash-looping the container would not make a token appear; idle instead
-        # and say so once, so the stand without a bot still comes up clean.
-        logger.warning("TELEGRAM_BOT_TOKEN is not set, Telegram polling is idle")
-        await asyncio.Event().wait()
+        # Crash-looping the container would not make a token appear; say so once.
+        logger.warning("TELEGRAM_BOT_TOKEN is not set, the platform bot is not polled")
+    else:
+        static["platform"] = TelegramPoller(token)
     logger.info("Telegram polling started", via_proxy=bool(config.telegram_proxy_url))
-    await TelegramPoller(token).run()
+    await PollingSupervisor(static).run()
 
 
 if __name__ == "__main__":

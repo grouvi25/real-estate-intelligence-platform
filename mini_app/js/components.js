@@ -267,7 +267,10 @@ const UI = (() => {
       ? `<button class="header__btn" id="hdr-back" aria-label="Назад">${icon('back')}</button>` : '';
     const action = opts.actionIcon
       ? `<button class="header__btn" id="hdr-action" aria-label="${esc(opts.actionLabel || 'Действие')}">${icon(opts.actionIcon)}</button>` : '';
-    h.innerHTML = `${back}<div class="header__l"><h1 class="header__title ellipsis">${esc(title)}</h1>` +
+    const brand = window._brand;
+    const logo = brand && brand.logo_url && !opts.back
+      ? `<img class="header__logo" src="${esc(brand.logo_url)}" alt="">` : '';
+    h.innerHTML = `${back}${logo}<div class="header__l"><h1 class="header__title ellipsis">${esc(title)}</h1>` +
       (sub ? `<div class="header__sub ellipsis">${esc(sub)}</div>` : '') + `</div>${action}`;
     const b = document.getElementById('hdr-back');
     if (b) b.onclick = () => history.back();

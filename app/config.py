@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # в Москве. Пусто — значит ходим напрямую (так работает где угодно, кроме
     # Yandex Cloud). Вебхуки приходят к нам сами и через прокси не идут.
     telegram_proxy_url: Optional[str] = Field(default=None, alias="TELEGRAM_PROXY_URL")
+    # How Telegram updates reach us, for the platform bot and every agency bot:
+    # "polling" (the `bot` service asks Telegram; works behind any firewall, which
+    # is what Yandex Cloud needed) or "webhook" (Telegram calls /api/webhooks/...).
+    telegram_updates_mode: Literal["polling", "webhook"] = Field(
+        default="polling", alias="TELEGRAM_UPDATES_MODE")
     max_bot_token: Optional[str] = Field(default=None, alias="MAX_BOT_TOKEN")
     max_bot_username: Optional[str] = Field(default=None, alias="MAX_BOT_USERNAME")
     max_webhook_path: str = Field(default="/max/webhook", alias="MAX_WEBHOOK_PATH")

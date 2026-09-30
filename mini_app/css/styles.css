@@ -178,6 +178,7 @@ body {
   padding-top: calc(var(--s-3) + env(safe-area-inset-top, 0px));
 }
 .header__l { min-width: 0; flex: 1; }
+.header__logo { width: 32px; height: 32px; flex: none; object-fit: contain; border-radius: var(--r-md); }
 
 /* Unpaid subscription: one line under the header, on every screen. */
 .subnotice {

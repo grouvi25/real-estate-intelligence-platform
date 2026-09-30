@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 import uuid
@@ -50,15 +51,20 @@ class AuthRequest(BaseModel):
     invite: Optional[str] = None
 
 
-def verify_telegram_init_data(init_data: str) -> Optional[dict]:
-    """Validate a Telegram WebApp initData string. Returns the user dict or None."""
+def verify_telegram_init_data(init_data: str, bot_token: Optional[str] = None) -> Optional[dict]:
+    """Validate a Telegram WebApp initData string. Returns the user dict or None.
+
+    initData is signed with the token of the bot that opened the Mini App, so a
+    cabinet opened from an agency's own bot (SaaS layer) needs that bot's token.
+    """
     pairs = dict(parse_qsl(init_data, strict_parsing=False))
     received_hash = pairs.pop("hash", None)
     if not received_hash:
         return None
 
     data_check_string = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
-    secret_key = hmac.new(b"WebAppData", config.telegram_bot_token.encode(), hashlib.sha256).digest()
+    token = bot_token or config.telegram_bot_token
+    secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
     calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(calculated_hash, received_hash):
@@ -175,6 +181,47 @@ async def _claim_owner_slot(session) -> bool:
         return False
 
 
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def brand_of(agency) -> Optional[dict]:
+    """White-label (ТЗ «SaaS-слой»): what the cabinet paints in the agency's
+    colours. Only well-formed values leave the server -- the colour goes straight
+    into a CSS variable, the logo into an <img>."""
+    if agency is None:
+        return None
+    color = (agency.brand_color or "").strip()
+    logo = (agency.logo_url or "").strip()
+    brand = {
+        "color": color if _HEX_COLOR.match(color) else None,
+        "logo_url": logo if logo.startswith("https://") else None,
+        "bot_username": agency.telegram_bot_username,
+    }
+    return brand if any(brand.values()) else None
+
+
+async def _verify_with_agency_bots(session, init_data: str) -> Optional[dict]:
+    """initData signed by one of the agencies' own bots (SaaS layer).
+
+    The platform bot is tried first by the caller; only then the agency bots.
+    One HMAC per agency with a bot -- cheap at the scale of «1 город = 1 клиент».
+    Which bot opened the cabinet does not decide the agency: that is still the
+    manager's own row or the invitation, exactly as through the platform bot.
+    """
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    agencies = (await session.execute(
+        select(Agency).where(Agency._telegram_bot_token_encrypted.is_not(None))
+    )).scalars().all()
+    for agency in agencies:
+        token = agency.telegram_bot_token
+        if token:
+            user = verify_telegram_init_data(init_data, token)
+            if user:
+                return user
+    return None
+
+
 async def _admit_to_agency(session, agency_id) -> None:
     """ТЗ «SaaS-слой» 3.3-3.4: a new manager is a write to an agency that must be
     paid for and have a free seat on its plan."""
@@ -195,11 +242,12 @@ async def _admit_to_agency(session, agency_id) -> None:
 @router.post("/platform")
 async def auth_platform(req: AuthRequest, session=Depends(get_session)):
     """Verify platform initData, upsert the manager, and issue a JWT."""
-    user = (
-        verify_telegram_init_data(req.init_data)
-        if req.platform == "telegram"
-        else verify_max_init_data(req.init_data)
-    )
+    if req.platform == "telegram":
+        user = verify_telegram_init_data(req.init_data)
+        if not user:
+            user = await _verify_with_agency_bots(session, req.init_data)
+    else:
+        user = verify_max_init_data(req.init_data)
     if not user or user.get("id") is None:
         # Refusals are logged with their reason because the only record we had
         # of a manager being turned away was a status code in the access log,
@@ -304,6 +352,7 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
             "id": str(manager.agency_id),
             "name": agency.name if agency else None,
             "city": agency.base_city if agency else None,
+            "brand": brand_of(agency),
         },
     }
 
@@ -471,8 +520,12 @@ async def public_config(
 ):
     """Non-secret front-end settings and the current manager's UI role."""
     manager = await session.get(Manager, uuid.UUID(current.manager_id))
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    agency = await session.get(Agency, uuid.UUID(current.agency_id))
     return {
         "maps_key": config.yandex_maps_api_key,
+        "brand": brand_of(agency),
         "manager": {
             "id": current.manager_id,
             "role": manager.role if manager else "manager",

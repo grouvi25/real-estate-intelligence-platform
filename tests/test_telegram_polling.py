@@ -41,7 +41,7 @@ def _update(uid, text="/start"):
 async def test_updates_reach_the_webhook_handler_and_the_offset_moves(monkeypatch):
     seen = []
 
-    async def handler(message):
+    async def handler(message, agency_id=None):
         seen.append(message["text"])
 
     monkeypatch.setattr("app.routers.webhooks.handle_telegram_message", handler)
@@ -58,7 +58,7 @@ async def test_updates_reach_the_webhook_handler_and_the_offset_moves(monkeypatc
 
 @pytest.mark.asyncio
 async def test_a_broken_update_is_skipped_not_fetched_forever(monkeypatch):
-    async def handler(message):
+    async def handler(message, agency_id=None):
         raise ValueError("boom")
 
     monkeypatch.setattr("app.routers.webhooks.handle_telegram_message", handler)
@@ -69,7 +69,7 @@ async def test_a_broken_update_is_skipped_not_fetched_forever(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_drops_the_webhook_first_and_survives_a_dead_proxy(monkeypatch):
-    async def handler(message):
+    async def handler(message, agency_id=None):
         stop.set()
 
     async def no_sleep(_):

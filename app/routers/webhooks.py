@@ -83,8 +83,29 @@ def start_payload(text: str) -> Optional[str]:
     return parts[1].strip() or None if len(parts) > 1 else None
 
 
-async def handle_telegram_message(message: dict[str, Any]) -> Optional[str]:
-    """Reply to a bot command. Returns the command handled, or None."""
+async def _agency_bot(agency_id: Optional[str]):
+    """(token, welcome text) of an agency's own bot, or (None, None)."""
+    if not agency_id:
+        return None, None
+    import uuid  # noqa: PLC0415
+
+    from app.database import async_session  # noqa: PLC0415
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    async with async_session() as session:
+        agency = await session.get(Agency, uuid.UUID(str(agency_id)))
+    if agency is None:
+        return None, None
+    return agency.telegram_bot_token, (agency.welcome_message or "").strip() or None
+
+
+async def handle_telegram_message(message: dict[str, Any],
+                                  agency_id: Optional[str] = None) -> Optional[str]:
+    """Reply to a bot command. Returns the command handled, or None.
+
+    ``agency_id``: the update came to that agency's own bot (SaaS layer), so the
+    answer goes out through it, with the agency's welcome text if it set one.
+    """
     from app.services.bot_abstraction import BotButton, BotMessage, BotPlatform, bot_layer
 
     chat_id = (message.get("chat") or {}).get("id")
@@ -92,6 +113,7 @@ async def handle_telegram_message(message: dict[str, Any]) -> Optional[str]:
     if not chat_id or not text.startswith("/"):
         return None
 
+    bot_token, welcome = await _agency_bot(agency_id)
     command = text.split()[0].split("@")[0]
     if command == "/start":
         payload = start_payload(text)
@@ -99,14 +121,15 @@ async def handle_telegram_message(message: dict[str, Any]) -> Optional[str]:
             chat_id,
             BotPlatform.TELEGRAM,
             BotMessage(
-                text=WELCOME_TEXT,
+                text=welcome or WELCOME_TEXT,
                 buttons=[BotButton(text="Открыть кабинет", mini_app_url=mini_app_url(payload))],
             ),
+            bot_token,
         )
-        logger.info("Telegram /start handled", chat_id=chat_id, payload=payload)
+        logger.info("Telegram /start handled", chat_id=chat_id, payload=payload, agency_id=agency_id)
         return command
 
-    await bot_layer.send_message(chat_id, BotPlatform.TELEGRAM, BotMessage(text=UNKNOWN_TEXT))
+    await bot_layer.send_message(chat_id, BotPlatform.TELEGRAM, BotMessage(text=UNKNOWN_TEXT), bot_token)
     logger.info("Telegram unknown command", chat_id=chat_id, command=command)
     return command
 
@@ -129,6 +152,39 @@ async def telegram_webhook(request: Request):
     except Exception as e:  # noqa: BLE001 - never bounce an update back to Telegram
         logger.error("Telegram update handling failed", error=str(e))
 
+    return {"ok": True}
+
+
+@router.post("/tg/{agency_id}")
+async def telegram_webhook_agency(agency_id: str, request: Request):
+    """ТЗ «SaaS-слой» 4.2: updates of an agency's own bot, when bots run on
+    webhooks (TELEGRAM_UPDATES_MODE=webhook). The per-agency secret is required:
+    without it anyone who guessed the URL could speak for the agency's bot."""
+    import uuid  # noqa: PLC0415
+
+    from app.database import async_session  # noqa: PLC0415
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    try:
+        agency_uuid = uuid.UUID(agency_id)
+    except ValueError:
+        raise ForbiddenError("Unknown agency bot") from None
+    async with async_session() as session:
+        agency = await session.get(Agency, agency_uuid)
+    if agency is None or not agency.telegram_webhook_secret:
+        raise ForbiddenError("Unknown agency bot")
+    _require_secret(request.headers.get(TELEGRAM_SECRET_HEADER),
+                    agency.telegram_webhook_secret, "telegram")
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        update = {}
+    try:
+        message = update.get("message") or update.get("edited_message")
+        if message:
+            await handle_telegram_message(message, agency_id=str(agency.id))
+    except Exception as e:  # noqa: BLE001 - never bounce an update back to Telegram
+        logger.error("Agency bot update handling failed", agency_id=agency_id, error=str(e)[:200])
     return {"ok": True}
 
 

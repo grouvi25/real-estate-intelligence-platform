@@ -22,11 +22,15 @@ logger = structlog.get_logger()
 # the exception text -- so every send failure wrote the token into the logs
 # verbatim. Observed in production while testing the /start handler.
 _TOKEN_IN_URL = re.compile(r"(https://api\.telegram\.org/bot)[^/\s]+")
+# Agency bots (SaaS layer) have tokens config knows nothing about; anything shaped
+# like a bot token is treated as one.
+_BARE_TOKEN = re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
 
 
 def _redact(text: str) -> str:
     """Strip bot tokens out of anything headed for the logs."""
     redacted = _TOKEN_IN_URL.sub(r"\1***", text)
+    redacted = _BARE_TOKEN.sub("***", redacted)
     for secret in (config.telegram_bot_token, config.max_bot_token):
         if secret and len(secret) > 6:
             redacted = redacted.replace(secret, "***")
@@ -102,10 +106,14 @@ class BotAbstractionLayer:
         """
         return self._telegram_http or self.http
 
-    async def send_message(self, user_id: int, platform: BotPlatform, message: BotMessage) -> bool:
+    async def send_message(self, user_id: int, platform: BotPlatform, message: BotMessage,
+                           bot_token: Optional[str] = None) -> bool:
+        """``bot_token``: an agency's own Telegram bot (SaaS layer). A person can
+        only be written to by a bot they have started, so a manager who came in
+        through the agency bot must hear from that bot, not the platform's."""
         try:
             if platform == BotPlatform.TELEGRAM:
-                return await self._send_telegram(user_id, message)
+                return await self._send_telegram(user_id, message, bot_token)
             if platform == BotPlatform.MAX:
                 return await self._send_max(user_id, message)
             logger.error("Unknown platform", platform=str(platform))
@@ -117,8 +125,9 @@ class BotAbstractionLayer:
             )
             return False
 
-    async def _send_telegram(self, chat_id: int, message: BotMessage) -> bool:
-        url = f"https://api.telegram.org/bot{config.telegram_bot_token}/sendMessage"
+    async def _send_telegram(self, chat_id: int, message: BotMessage,
+                             bot_token: Optional[str] = None) -> bool:
+        url = f"https://api.telegram.org/bot{bot_token or config.telegram_bot_token}/sendMessage"
         payload: dict = {
             "chat_id": chat_id,
             "text": message.text,
@@ -179,7 +188,13 @@ class BotAbstractionLayer:
             if not target_id:
                 logger.warning("Manager has no platform id", manager_id=manager_id, platform=platform.value)
                 return False
-            return await self.send_message(target_id, platform, BotMessage(text=text))
+            bot_token = None
+            if platform == BotPlatform.TELEGRAM:
+                from app.models.agency import Agency  # noqa: PLC0415
+
+                agency = await session.get(Agency, manager.agency_id)
+                bot_token = agency.telegram_bot_token if agency is not None else None
+            return await self.send_message(target_id, platform, BotMessage(text=text), bot_token)
 
     async def close(self) -> None:
         if self._telegram_http is not None:
