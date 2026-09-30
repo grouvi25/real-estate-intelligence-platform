@@ -178,6 +178,15 @@ body {
   padding-top: calc(var(--s-3) + env(safe-area-inset-top, 0px));
 }
 .header__l { min-width: 0; flex: 1; }
+
+/* Unpaid subscription: one line under the header, on every screen. */
+.subnotice {
+  margin: var(--s-3) var(--s-4) 0; padding: var(--s-3);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border-radius: var(--r-lg); font-size: var(--t-sm); line-height: 1.45;
+}
+.subnotice[hidden] { display: none; }
 .header__title { font-size: 19px; font-weight: 700; letter-spacing: -.015em; margin: 0; }
 .header__sub { color: var(--muted); font-size: var(--t-sm); margin-top: 1px; }
 /* An icon, not a button in a ring. The circle and border made the gear and the

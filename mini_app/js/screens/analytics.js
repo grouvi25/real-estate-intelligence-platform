@@ -314,6 +314,9 @@ Screens.settings = async function () {
       <button class="btn btn--secondary btn--block mt-3" id="ag-edit">${UI.icon('edit')} Настройки агентства</button>
     </div>
 
+    <div class="section-title" style="margin:18px 2px 8px">Подписка</div>
+    <div id="subscription">${UI.skelCard()}</div>
+
     <div class="section-title" style="margin:18px 2px 8px">С чего начать</div>
     <div id="setup">${UI.skelCard()}</div>
 
@@ -352,6 +355,7 @@ Screens.settings = async function () {
     () => {
       loadReadiness();
       loadSetup();
+      loadSubscription();
       // «Выйти» could not do what it said. Who you are comes from Telegram, not
       // from a session: dropping the token and reloading made the app ask
       // /auth/platform again, get a new one straight away, and land on the same
@@ -375,6 +379,30 @@ Screens.settings = async function () {
       loadGeos(); loadPartners(); loadInvite(); loadAiProvider(); loadTopnlab();
     });
 };
+
+const SUB_STATUS_RU = { active: 'активна', grace: 'истекла, только просмотр', expired: 'заблокирована' };
+
+// What the agency pays for and how much of it is used (ТЗ «SaaS-слой»). A limit
+// of null is no limit -- the agencies that predate billing have none.
+async function loadSubscription() {
+  const box = document.getElementById('subscription');
+  if (!box) return;
+  let d;
+  try { d = await API.subscription(); } catch (e) {
+    box.innerHTML = `<div class="card"><div class="item__sub">${UI.esc(e.message)}</div></div>`;
+    return;
+  }
+  const seat = (used, limit) => (limit == null ? `${used}` : `${used} из ${limit}`);
+  const until = d.expires_at ? new Date(d.expires_at).toLocaleDateString('ru-RU') : 'бессрочно';
+  box.innerHTML = `
+    <div class="card">
+      <div class="between"><span class="item__title">${UI.esc(d.plan || '—')}</span>
+        <span class="chip ${d.status === 'active' ? 'chip--accent' : ''}">${UI.esc(SUB_STATUS_RU[d.status] || d.status)}</span></div>
+      <div class="between mt-2"><span class="muted">Оплачено до</span><span class="item__meta">${UI.esc(until)}</span></div>
+      <div class="between mt-1"><span class="muted">Менеджеры</span><span class="item__meta">${UI.esc(seat(d.usage.managers, d.limits.managers))}</span></div>
+      <div class="between mt-1"><span class="muted">Города</span><span class="item__meta">${UI.esc(seat(d.usage.cities, d.limits.cities))}</span></div>
+    </div>`;
+}
 
 // The dashboard drops this card the moment the four steps are done. Here it
 // stays: an owner still wants to see what was asked of them, and a screen that

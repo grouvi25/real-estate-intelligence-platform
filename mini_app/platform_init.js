@@ -200,6 +200,13 @@ const api = {
     const err = new Error(typeof said === 'string' && said ? said : `API ${res.status}`);
     err.status = res.status;
     err.code = body && body.code;
+    // 402: the agency's subscription does not allow this. Every screen would
+    // otherwise show its own bare toast; app.js turns it into one standing notice.
+    if (res.status === 402) {
+      try {
+        window.dispatchEvent(new CustomEvent('reip:subscription', { detail: { code: err.code, message: err.message } }));
+      } catch (e) { /* no CustomEvent: the toast still says it */ }
+    }
     return err;
   },
   async request(endpoint, method = 'GET', body = null) {

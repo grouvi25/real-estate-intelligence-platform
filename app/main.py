@@ -24,6 +24,7 @@ from app.routers import (
     admin,
     analytics,
     auth,
+    billing,
     deals,
     documents,
     geo,
@@ -170,6 +171,7 @@ app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(topnlab_webhooks.router, prefix="/api/topnlab", tags=["TopNLab"])
 app.include_router(topnlab.router, prefix="/api/topnlab", tags=["TopNLab"])
+app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
 
 # Serve the Mini App SPA as static files (bot opens /mini-app/). html=True makes

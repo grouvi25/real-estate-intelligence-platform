@@ -185,6 +185,9 @@
     topnlabRegisterReport: () => api.request('/topnlab/register-report', 'POST'),
     topnlabAvitoKeys: () => api.request('/topnlab/avito-credentials', 'POST'),
 
+    // The agency's own subscription (ТЗ «SaaS-слой»): status, limits, usage
+    subscription: () => api.request('/billing/status'),
+
     // Which AI answers, and whether the data leaves Russia (152-ФЗ)
     aiProvider: () => api.request('/auth/ai-provider'),
     setAiProvider: (provider) => api.request('/auth/ai-provider', 'PUT', { provider }),

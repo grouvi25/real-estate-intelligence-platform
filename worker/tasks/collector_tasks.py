@@ -148,6 +148,7 @@ async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
     from app.database import async_session
     from app.models.geo_location import GeoLocation
     from app.models.source import Source
+    from app.services.billing import collectable_agency_ids
 
     # Пауза ставится, только когда работать было нечем. Если с тех пор в очереди
     # появился живой аккаунт — держать её незачем: иначе новый аккаунт завели, а
@@ -190,6 +191,7 @@ async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
                 sources = (await session.execute(
                     select(Source).where(
                         Source.status.in_(("active", "sandbox")),
+                        Source.agency_id.in_(collectable_agency_ids()),
                         Source.source_type.in_(("telegram_chat", "telegram_channel")),
                     )
                 )).scalars().all()
@@ -244,6 +246,7 @@ async def _collect_vk_sources(limit_per_source: int = 50) -> int:
     from app.database import async_session
     from app.models.geo_location import GeoLocation
     from app.models.source import Source
+    from app.services.billing import collectable_agency_ids
 
     collector = VkCollector()
     if not collector.is_available():
@@ -256,6 +259,7 @@ async def _collect_vk_sources(limit_per_source: int = 50) -> int:
             sources = (await session.execute(
                 select(Source).where(
                     Source.status.in_(("active", "sandbox")),
+                    Source.agency_id.in_(collectable_agency_ids()),
                     Source.source_type == "vk_group",
                 )
             )).scalars().all()
@@ -295,6 +299,7 @@ async def _collect_web_sources(limit_per_source: int = 50) -> int:
     from app.database import async_session
     from app.models.geo_location import GeoLocation
     from app.models.source import Source
+    from app.services.billing import collectable_agency_ids
 
     rss, youtube = RssCollector(), YoutubeCollector()
     # A forum is read as a feed: the ones worth watching publish one, and a
@@ -307,6 +312,7 @@ async def _collect_web_sources(limit_per_source: int = 50) -> int:
             sources = (await session.execute(
                 select(Source).where(
                     Source.status.in_(("active", "sandbox")),
+                    Source.agency_id.in_(collectable_agency_ids()),
                     Source.source_type.in_(("rss", "website", "forum", "youtube")),
                 )
             )).scalars().all()

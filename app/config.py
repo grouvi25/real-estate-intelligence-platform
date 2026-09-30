@@ -125,6 +125,19 @@ class Settings(BaseSettings):
     topnlab_sync_enabled: bool = Field(default=False, alias="TOPNLAB_SYNC_ENABLED")
     topnlab_lead_min_score: int = Field(default=40, alias="TOPNLAB_LEAD_MIN_SCORE")
     topnlab_task_delay_minutes: int = Field(default=5, alias="TOPNLAB_TASK_DELAY_MINUTES")
+    # === PLATFORM (SaaS layer, ТЗ «SaaS-слой» 3.1) ===
+    # Telegram ids of platform operators, comma-separated. Operators approve
+    # onboarding requests in the sales bot and manage every agency.
+    platform_operator_ids_raw: str = Field(default="", alias="PLATFORM_OPERATOR_IDS")
+    # The platform's own sales bot (not a client bot): takes requests from
+    # agencies that want to buy REIP. Empty = onboarding bot off.
+    platform_onboarding_bot_token: Optional[str] = Field(
+        default=None, alias="PLATFORM_ONBOARDING_BOT_TOKEN")
+    platform_onboarding_bot_username: Optional[str] = Field(
+        default=None, alias="PLATFORM_ONBOARDING_BOT_USERNAME")
+    platform_landing_url: Optional[str] = Field(default=None, alias="PLATFORM_LANDING_URL")
+    platform_trial_days: int = Field(default=0, alias="PLATFORM_TRIAL_DAYS")
+    platform_reminder_days_raw: str = Field(default="7,3,1", alias="PLATFORM_REMINDER_DAYS_BEFORE")
     yookassa_shop_id: Optional[str] = Field(default=None, alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: Optional[str] = Field(default=None, alias="YOOKASSA_SECRET_KEY")
 
@@ -138,6 +151,20 @@ class Settings(BaseSettings):
     # Владельцем становится тот, кто вошёл с одним из этих идентификаторов,
     # без приглашения. Пусто — значит в MAX доверенных нет.
     max_admin_ids_raw: str = Field(default="", alias="MAX_ADMIN_IDS")
+
+    @property
+    def operator_telegram_ids(self) -> set[int]:
+        return {int(p) for p in (x.strip() for x in self.platform_operator_ids_raw.split(","))
+                if p.isdigit()}
+
+    @property
+    def reminder_days(self) -> list[int]:
+        return sorted({int(p) for p in (x.strip() for x in self.platform_reminder_days_raw.split(","))
+                       if p.isdigit()}, reverse=True)
+
+    @property
+    def billing_enabled(self) -> bool:
+        return bool(self.yookassa_shop_id and self.yookassa_secret_key)
 
     @property
     def max_admin_ids(self) -> set[int]:

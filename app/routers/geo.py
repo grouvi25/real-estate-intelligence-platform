@@ -174,7 +174,13 @@ async def create_geo(
     session=Depends(get_session),
 ):
     await require_owner(session, current)
-    return await _create_geo(session, uuid.UUID(current.agency_id), req)
+    from app.services.billing import check_plan_limit  # noqa: PLC0415
+
+    agency_id = uuid.UUID(current.agency_id)
+    cities = await session.scalar(
+        select(func.count(GeoLocation.id)).where(GeoLocation.agency_id == agency_id))
+    check_plan_limit(await session.get(Agency, agency_id), "cities", cities or 0)
+    return await _create_geo(session, agency_id, req)
 
 
 @router.post("/agencies/{agency_id}/geo", status_code=status.HTTP_201_CREATED)

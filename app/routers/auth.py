@@ -175,6 +175,23 @@ async def _claim_owner_slot(session) -> bool:
         return False
 
 
+async def _admit_to_agency(session, agency_id) -> None:
+    """ТЗ «SaaS-слой» 3.3-3.4: a new manager is a write to an agency that must be
+    paid for and have a free seat on its plan."""
+    from sqlalchemy import func  # noqa: PLC0415
+
+    from app.models.agency import Agency  # noqa: PLC0415
+    from app.services.billing import check_plan_limit, require_active_subscription  # noqa: PLC0415
+
+    agency = await session.get(Agency, agency_id)
+    if agency is None:
+        return
+    require_active_subscription(agency, write_operation=True)
+    active = await session.scalar(select(func.count(Manager.id)).where(
+        Manager.agency_id == agency_id, Manager.is_active.is_(True)))
+    check_plan_limit(agency, "managers", active or 0)
+
+
 @router.post("/platform")
 async def auth_platform(req: AuthRequest, session=Depends(get_session)):
     """Verify platform initData, upsert the manager, and issue a JWT."""
@@ -252,6 +269,7 @@ async def auth_platform(req: AuthRequest, session=Depends(get_session)):
                     platform=req.platform, platform_user_id=platform_user_id,
                     has_invite=bool(req.invite), code=e.code)
                 raise
+        await _admit_to_agency(session, agency_id)
         manager = Manager(
             agency_id=agency_id,
             name=user.get("first_name", "Unknown"),

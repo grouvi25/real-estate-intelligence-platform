@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Header
+from fastapi import Header, Request
 
 from app.exceptions import AppException
 from app.security import TokenError, decode_access_token
@@ -16,7 +16,10 @@ class CurrentManager:
     agency_id: str
 
 
-async def get_current_manager(authorization: Optional[str] = Header(default=None)) -> CurrentManager:
+async def get_current_manager(
+    authorization: Optional[str] = Header(default=None),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it
+) -> CurrentManager:
     """Validate the Bearer JWT and return the manager/agency context.
 
     The agency is taken from the token (not client input), so all data access is
@@ -40,10 +43,20 @@ async def get_current_manager(authorization: Optional[str] = Header(default=None
     from app.models.manager import Manager
     import uuid
 
+    from app.models.agency import Agency
+
     async with async_session() as session:
         manager = await session.get(Manager, uuid.UUID(str(manager_id)))
+        agency = await session.get(Agency, manager.agency_id) if manager is not None else None
     if manager is None or not manager.is_active or str(manager.agency_id) != str(agency_id):
         raise AppException(status_code=401, detail="Доступ к кабинету отозван", code="USER_REVOKED")
+
+    # ТЗ «SaaS-слой» 3.3: an unpaid agency reads during the grace period and is
+    # blocked after it. Called without a request (tests, internal use) = no gate.
+    if request is not None and agency is not None:
+        from app.services.billing import gate_request
+
+        gate_request(agency, request.method, request.url.path)
 
     return CurrentManager(manager_id=str(manager_id), agency_id=str(agency_id))
 

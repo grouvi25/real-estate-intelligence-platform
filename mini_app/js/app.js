@@ -66,11 +66,22 @@
     }
     document.body.innerHTML =
       '<header class="header" id="hdr"></header>' +
+      '<div class="subnotice" id="subnotice" role="alert" hidden></div>' +
       '<main id="view"></main>' +
       '<nav class="nav">' + nav.map(([r, ic, l]) =>
         `<a class="nav__item" data-route="${r}" href="#/${r}">${Icons.svg(ic, 'nav__ico')}<span>${l}</span></a>`
       ).join('') + '</nav>';
   }
+
+  // One standing notice for an unpaid subscription (ТЗ «SaaS-слой» 3.3), raised
+  // by any 402 in platform_init.js. It stays until reload: the state it reports
+  // does not change while the cabinet is open.
+  window.addEventListener('reip:subscription', (e) => {
+    const box = document.getElementById('subnotice');
+    if (!box || !e.detail) return;
+    box.textContent = e.detail.message || 'Подписка неактивна';
+    box.hidden = false;
+  });
 
   async function boot() {
     try {
