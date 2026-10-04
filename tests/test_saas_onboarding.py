@@ -291,7 +291,9 @@ async def test_daily_check_reminds_and_suspends(monkeypatch, outbox):
     try:
         async with async_session() as s:
             soon = Agency(name="Скоро-" + uuid.uuid4().hex[:4], base_city="Ейск",
-                          subscription_expires_at=now + timedelta(days=3, hours=1))
+                          # exactly 3 days: "+3 days 1 hour" crossed midnight when
+                          # CI ran after 23:00 UTC and counted 4 calendar days
+                          subscription_expires_at=now + timedelta(days=3))
             gone = Agency(name="Всё-" + uuid.uuid4().hex[:4], base_city="Ейск",
                           subscription_expires_at=now - timedelta(days=20))
             s.add_all([soon, gone])
