@@ -17,6 +17,9 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.config import config
+from app.logging_config import quiet_secret_bearing_loggers
+
+quiet_secret_bearing_loggers()
 
 celery_app = Celery(
     "real_estate_intelligence",

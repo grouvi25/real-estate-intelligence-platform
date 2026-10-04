@@ -16,7 +16,19 @@ import logging
 import structlog
 
 
+# These clients log every request URL at INFO, and our URLs carry secrets: the
+# VK access_token in the query string, the bot token in api.telegram.org/bot<token>.
+# The worker printed them into the container log on every collection run.
+SECRET_BEARING_LOGGERS = ("httpx", "httpcore", "telethon.network")
+
+
+def quiet_secret_bearing_loggers() -> None:
+    for name in SECRET_BEARING_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def setup_logging(level: int = logging.INFO) -> None:
+    quiet_secret_bearing_loggers()
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
