@@ -120,6 +120,11 @@ async def deep_health_check() -> DeepHealthResponse:
     except Exception as e:  # noqa: BLE001
         checks["ai"] = f"error: {str(e)[:100]}"
 
+    # Avito catalogue sync (ТЗ «Avito + фильтрация» 1.14): configured or not.
+    checks["avito"] = ("configured (sync active)"
+                       if config.avito_client_id and config.avito_client_secret
+                       else "not_configured")
+
     # Telegram bot reachability (non-critical). getMe is bounded so a slow or
     # blocked network never stalls the probe. A dummy/dev token reports an error
     # rather than failing readiness.

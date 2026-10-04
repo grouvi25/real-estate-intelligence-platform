@@ -178,6 +178,26 @@
     agency: () => api.request('/auth/agency'),
     updateAgency: (body) => api.request('/auth/agency', 'PATCH', body),
 
+    // TopNLab CRM (owner only): settings and the three actions of ТЗ 8.2
+    topnlab: () => api.request('/topnlab/settings'),
+    saveTopnlab: (body) => api.request('/topnlab/settings', 'PUT', body),
+    topnlabCheck: () => api.request('/topnlab/check', 'POST'),
+    topnlabRegisterReport: () => api.request('/topnlab/register-report', 'POST'),
+    topnlabAvitoKeys: () => api.request('/topnlab/avito-credentials', 'POST'),
+
+    // AI sales bot (ТЗ «AI-бот продажник»): settings, what it did, its numbers
+    botSettings: () => api.request('/bot/settings'),
+    updateBotSettings: (body) => api.request('/bot/settings', 'PATCH', body),
+    botReplies: () => api.request('/bot/replies'),
+    botPerformance: () => api.request('/bot/performance'),
+
+    // Catalogue from the agency's Avito account (ТЗ «Avito + фильтрация»)
+    avitoStatus: () => api.request('/avito/status'),
+    avitoSync: () => api.request('/avito/sync', 'POST'),
+
+    // The agency's own subscription (ТЗ «SaaS-слой»): status, limits, usage
+    subscription: () => api.request('/billing/status'),
+
     // Which AI answers, and whether the data leaves Russia (152-ФЗ)
     aiProvider: () => api.request('/auth/ai-provider'),
     setAiProvider: (provider) => api.request('/auth/ai-provider', 'PUT', { provider }),

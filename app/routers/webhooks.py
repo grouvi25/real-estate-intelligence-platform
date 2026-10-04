@@ -83,15 +83,64 @@ def start_payload(text: str) -> Optional[str]:
     return parts[1].strip() or None if len(parts) > 1 else None
 
 
-async def handle_telegram_message(message: dict[str, Any]) -> Optional[str]:
-    """Reply to a bot command. Returns the command handled, or None."""
+async def handle_telegram_callback(callback: dict[str, Any], agency_id: Optional[str] = None) -> None:
+    """Inline button presses: the consent buttons of the sales bot. The press is
+    always acknowledged, or Telegram keeps the button spinning."""
+    from app.services.bot_abstraction import bot_layer  # noqa: PLC0415
+    from app.services.bot_conversation import handle_callback  # noqa: PLC0415
+
+    try:
+        await handle_callback(callback, agency_id)
+    finally:
+        token, _ = await _agency_bot(agency_id)
+        try:
+            await bot_layer.telegram_http.post(
+                f"https://api.telegram.org/bot{token or config.telegram_bot_token}/answerCallbackQuery",
+                json={"callback_query_id": callback.get("id")})
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _agency_bot(agency_id: Optional[str]):
+    """(token, welcome text) of an agency's own bot, or (None, None)."""
+    if not agency_id:
+        return None, None
+    import uuid  # noqa: PLC0415
+
+    from app.database import async_session  # noqa: PLC0415
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    async with async_session() as session:
+        agency = await session.get(Agency, uuid.UUID(str(agency_id)))
+    if agency is None:
+        return None, None
+    return agency.telegram_bot_token, (agency.welcome_message or "").strip() or None
+
+
+async def handle_telegram_message(message: dict[str, Any],
+                                  agency_id: Optional[str] = None) -> Optional[str]:
+    """Reply to a bot command. Returns the command handled, or None.
+
+    ``agency_id``: the update came to that agency's own bot (SaaS layer), so the
+    answer goes out through it, with the agency's welcome text if it set one.
+    """
     from app.services.bot_abstraction import BotButton, BotMessage, BotPlatform, bot_layer
 
     chat_id = (message.get("chat") or {}).get("id")
     text = (message.get("text") or "").strip()
+    # A buyer talking to the AI sales bot (ТЗ «AI-бот продажник»): handled
+    # there, and managers and invitations fall through to the cabinet below.
+    try:
+        from app.services.bot_conversation import handle_message as buyer_message  # noqa: PLC0415
+
+        if await buyer_message(message, agency_id):
+            return "buyer"
+    except Exception as e:  # noqa: BLE001 - the cabinet must still answer /start
+        logger.error("Buyer conversation failed", error=str(e)[:200])
     if not chat_id or not text.startswith("/"):
         return None
 
+    bot_token, welcome = await _agency_bot(agency_id)
     command = text.split()[0].split("@")[0]
     if command == "/start":
         payload = start_payload(text)
@@ -99,14 +148,15 @@ async def handle_telegram_message(message: dict[str, Any]) -> Optional[str]:
             chat_id,
             BotPlatform.TELEGRAM,
             BotMessage(
-                text=WELCOME_TEXT,
+                text=welcome or WELCOME_TEXT,
                 buttons=[BotButton(text="Открыть кабинет", mini_app_url=mini_app_url(payload))],
             ),
+            bot_token,
         )
-        logger.info("Telegram /start handled", chat_id=chat_id, payload=payload)
+        logger.info("Telegram /start handled", chat_id=chat_id, payload=payload, agency_id=agency_id)
         return command
 
-    await bot_layer.send_message(chat_id, BotPlatform.TELEGRAM, BotMessage(text=UNKNOWN_TEXT))
+    await bot_layer.send_message(chat_id, BotPlatform.TELEGRAM, BotMessage(text=UNKNOWN_TEXT), bot_token)
     logger.info("Telegram unknown command", chat_id=chat_id, command=command)
     return command
 
@@ -126,9 +176,99 @@ async def telegram_webhook(request: Request):
         message = update.get("message") or update.get("edited_message")
         if message:
             await handle_telegram_message(message)
+        elif update.get("callback_query"):
+            await handle_telegram_callback(update["callback_query"])
     except Exception as e:  # noqa: BLE001 - never bounce an update back to Telegram
         logger.error("Telegram update handling failed", error=str(e))
 
+    return {"ok": True}
+
+
+@router.post("/tg/{agency_id}")
+async def telegram_webhook_agency(agency_id: str, request: Request):
+    """ТЗ «SaaS-слой» 4.2: updates of an agency's own bot, when bots run on
+    webhooks (TELEGRAM_UPDATES_MODE=webhook). The per-agency secret is required:
+    without it anyone who guessed the URL could speak for the agency's bot."""
+    import uuid  # noqa: PLC0415
+
+    from app.database import async_session  # noqa: PLC0415
+    from app.models.agency import Agency  # noqa: PLC0415
+
+    try:
+        agency_uuid = uuid.UUID(agency_id)
+    except ValueError:
+        raise ForbiddenError("Unknown agency bot") from None
+    async with async_session() as session:
+        agency = await session.get(Agency, agency_uuid)
+    if agency is None or not agency.telegram_webhook_secret:
+        raise ForbiddenError("Unknown agency bot")
+    _require_secret(request.headers.get(TELEGRAM_SECRET_HEADER),
+                    agency.telegram_webhook_secret, "telegram")
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        update = {}
+    try:
+        message = update.get("message") or update.get("edited_message")
+        if message:
+            await handle_telegram_message(message, agency_id=str(agency.id))
+        elif update.get("callback_query"):
+            await handle_telegram_callback(update["callback_query"], agency_id=str(agency.id))
+    except Exception as e:  # noqa: BLE001 - never bounce an update back to Telegram
+        logger.error("Agency bot update handling failed", agency_id=agency_id, error=str(e)[:200])
+    return {"ok": True}
+
+
+def sales_webhook_secret() -> str:
+    """Secret for the sales bot's webhook, derived from SECRET_KEY: nothing to add
+    to .env, and it changes whenever the app secret does."""
+    import hashlib  # noqa: PLC0415
+    import hmac  # noqa: PLC0415
+
+    return hmac.new(config.secret_key.encode(), b"sales-bot-webhook", hashlib.sha256).hexdigest()
+
+
+@router.post("/sales")
+async def sales_bot_webhook(request: Request):
+    """ТЗ «SaaS-слой» 5.4: the platform's sales bot, when bots run on webhooks.
+    The ТЗ version accepted anything; operator commands arrive here, so the
+    secret is required."""
+    _require_secret(request.headers.get(TELEGRAM_SECRET_HEADER), sales_webhook_secret(), "telegram")
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        update = {}
+    try:
+        from app.services.sales_bot import handle_update  # noqa: PLC0415
+
+        await handle_update(update)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Sales bot update handling failed", error=str(e)[:200])
+    return {"ok": True}
+
+
+@router.post("/yookassa")
+async def yookassa_webhook(request: Request):
+    """ТЗ «SaaS-слой» 5.6. The body is only a hint: the payment is fetched back
+    from ЮKassa before anything counts (app/services/yookassa.py). Always 200 --
+    ЮKassa retries anything else for a day."""
+    from app.database import async_session  # noqa: PLC0415
+    from app.services import yookassa  # noqa: PLC0415
+
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        return {"ok": True}
+    try:
+        async with async_session() as session:
+            paid = await yookassa.handle_notification(session, body)
+        if paid:
+            from app.services.sales_bot import notify_operators  # noqa: PLC0415
+
+            await notify_operators(f"Оплата получена по заявке {paid[:8]}.\n"
+                                   f"Создать агентство: /create_{paid[:8]} [токен бота агентства]")
+    except Exception as e:  # noqa: BLE001
+        logger.error("ЮKassa notification failed", error=str(e)[:200])
     return {"ok": True}
 
 
@@ -141,14 +281,32 @@ async def handle_max_event(update: dict[str, Any]) -> Optional[str]:
     from app.services.bot_abstraction import BotButton, BotMessage, BotPlatform, bot_layer
 
     event_type = update.get("update_type")
+    if event_type == "message_callback":
+        return event_type if await handle_max_callback(update) else None
     if event_type not in ("message_created", "bot_started"):
         return None
 
     message = update.get("message") or {}
-    user_id = (message.get("sender") or {}).get("user_id") or update.get("user_id")
+    sender = message.get("sender") or update.get("user") or {}
+    user_id = sender.get("user_id") or update.get("user_id")
     text = ((message.get("body") or {}).get("text") or "").strip()
     if not user_id:
         return None
+
+    # A buyer talking to the AI sales bot in MAX (ТЗ «AI-бот продажник»: MAX
+    # through the same bot layer). bot_started carries the deep link payload.
+    start_text = text or ("/start " + str(update.get("payload"))
+                          if event_type == "bot_started" and update.get("payload") else "/start")
+    try:
+        from app.services.bot_conversation import handle_message as buyer_message  # noqa: PLC0415
+
+        normalized = {"chat": {"id": int(user_id), "type": "private"}, "text": start_text,
+                      "from": {"id": int(user_id), "username": sender.get("username"),
+                               "first_name": sender.get("name") or sender.get("first_name")}}
+        if await buyer_message(normalized, None, platform="max"):
+            return "buyer"
+    except Exception as e:  # noqa: BLE001 - the cabinet must still answer /start
+        logger.error("MAX buyer conversation failed", error=str(e)[:200])
 
     # bot_started has no text; treat it as /start.
     if event_type == "bot_started" or text.split()[0:1] == ["/start"]:
@@ -168,6 +326,31 @@ async def handle_max_event(update: dict[str, Any]) -> Optional[str]:
         await bot_layer.send_message(int(user_id), BotPlatform.MAX, BotMessage(text=UNKNOWN_TEXT))
         return event_type
     return None
+
+
+async def handle_max_callback(update: dict[str, Any]) -> bool:
+    """A button press in MAX (the consent buttons). Always acknowledged: MAX,
+    like Telegram, keeps a pressed button waiting until it is answered."""
+    from app.services.bot_abstraction import bot_layer  # noqa: PLC0415
+    from app.services.bot_conversation import handle_callback  # noqa: PLC0415
+
+    callback = update.get("callback") or {}
+    user_id = (callback.get("user") or update.get("user") or {}).get("user_id")
+    if not callback.get("payload") or not user_id:
+        return False  # not a press we sent
+    try:
+        return await handle_callback({"data": callback.get("payload"), "from": {"id": user_id}}, None,
+                                     platform="max")
+    finally:
+        if callback.get("callback_id") and config.max_bot_token:
+            try:
+                await bot_layer.http.post(
+                    f"{config.max_base_url.rstrip('/')}/answers",
+                    params={"callback_id": callback["callback_id"]},
+                    headers={"Authorization": config.max_bot_token},
+                    json={"notification": "Принято"})
+            except Exception:  # noqa: BLE001
+                pass
 
 
 @router.post("/max")

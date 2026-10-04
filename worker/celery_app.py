@@ -17,6 +17,9 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.config import config
+from app.logging_config import quiet_secret_bearing_loggers
+
+quiet_secret_bearing_loggers()
 
 celery_app = Celery(
     "real_estate_intelligence",
@@ -34,6 +37,10 @@ celery_app = Celery(
         "worker.tasks.report_tasks",
         "worker.tasks.collector_tasks",
         "worker.tasks.signal_tasks",
+        "worker.tasks.billing_tasks",
+        "worker.tasks.avito_tasks",
+        "worker.tasks.bot_tasks",
+        "worker.tasks.topnlab_sync",
     ],
 )
 
@@ -106,6 +113,27 @@ celery_app.conf.beat_schedule = {
         # keeps well inside the YouTube daily quota.
         "task": "worker.tasks.collector_tasks.collect_web_sources",
         "schedule": crontab(minute=35),  # hourly
+    },
+    "billing-subscription-check": {
+        "task": "worker.tasks.billing_tasks.check_subscriptions",
+        "schedule": crontab(hour=9, minute=0),  # 09:00 MSK daily (ТЗ «SaaS-слой» 7.2)
+    },
+    "avito-property-sync": {
+        "task": "worker.tasks.avito_tasks.sync_avito",
+        # ТЗ 1.10: every N minutes. A no-op for agencies without an Avito account.
+        "schedule": max(config.avito_sync_interval_minutes, 10) * 60,
+    },
+    "bot-conversation-timeouts": {
+        "task": "worker.tasks.bot_tasks.pause_quiet_conversations",
+        "schedule": crontab(minute="*/10"),  # ТЗ: 30 min of silence -> silent
+    },
+    "bot-conversation-reminders": {
+        "task": "worker.tasks.bot_tasks.send_conversation_reminders",
+        "schedule": crontab(minute=30),  # hourly: BOT_REMINDER_HOURS after, one reminder
+    },
+    "bot-learning-pool-update": {
+        "task": "worker.tasks.bot_tasks.update_bot_learning_pool",
+        "schedule": crontab(hour=4, minute=0, day_of_week=0),  # Sun 04:00 MSK
     },
     "intent-scoring-batch": {
         "task": "worker.tasks.signal_tasks.score_intent_batch",

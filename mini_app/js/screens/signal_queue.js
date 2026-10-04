@@ -16,7 +16,7 @@ Screens.queue = async function () {
       <div class="card">
         <div class="between gap-2">
           <div class="row gap-2">${UI.scoreEl(s.intent_score)}
-            <span class="chip">${UI.esc(UI.channel(s.origin_system || s.reply_channel))}</span></div>
+            <span class="chip">${UI.esc(UI.channel(s.reply_channel || s.origin_system))}</span></div>
           ${UI.statusChip(s.reply_status)}
         </div>
         <div class="item__sub clamp-3 mt-3" style="color:var(--fg)">${UI.esc(s.raw_text || '')}</div>
@@ -62,14 +62,8 @@ Screens.queue = async function () {
     }));
     // Triage straight from the queue: §5.1 puts all four actions on the card,
     // and until now only «Ответить» was there.
-    document.querySelectorAll('[data-lead]').forEach((b) => b.onclick = () => UI.busy(b, async () => {
-      try {
-        const r = await API.createLead(b.getAttribute('data-lead'),
-          { consent_text: 'Согласие получено в чате (152-ФЗ)' });
-        UI.toast(r && r.already_exists ? 'Лид уже был создан' : 'Лид создан');
-        Router.go('leads');
-      } catch (e) { UI.toast('Не удалось: ' + e.message); }
-    }));
+    document.querySelectorAll('[data-lead]').forEach((b) => b.onclick = () =>
+      UI.leadFromSignal(b.getAttribute('data-lead')));
     document.querySelectorAll('[data-esc]').forEach((b) => b.onclick = () => UI.busy(b, async () => {
       try {
         await API.escalateSignal(b.getAttribute('data-esc'), 'Передан из очереди');
@@ -94,7 +88,9 @@ Screens.queue = async function () {
       try {
         await API.setReplyDraft(id, { reply_draft: text });
         const r = await API.sendReply(id);
-        UI.toast(r.reply_status === 'sent' ? 'Отправлено' : 'Статус: ' + r.reply_status);
+        // The server words the outcome; a reply that did not go out says why
+        // and what to do, instead of a status code.
+        UI.toast(r.message || (r.result && r.result.sent ? 'Ответ отправлен' : 'Не отправлено'));
         setTimeout(() => Router.resolve(), 400);
       } catch (e) { UI.toast('Не удалось: ' + e.message); }
     }));

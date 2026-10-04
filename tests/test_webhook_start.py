@@ -22,7 +22,7 @@ class _Recorder:
     def __init__(self):
         self.sent = []
 
-    async def send_message(self, user_id, platform, message):
+    async def send_message(self, user_id, platform, message, bot_token=None):
         self.sent.append((user_id, platform, message))
         return True
 

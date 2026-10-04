@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # в Москве. Пусто — значит ходим напрямую (так работает где угодно, кроме
     # Yandex Cloud). Вебхуки приходят к нам сами и через прокси не идут.
     telegram_proxy_url: Optional[str] = Field(default=None, alias="TELEGRAM_PROXY_URL")
+    # How Telegram updates reach us, for the platform bot and every agency bot:
+    # "polling" (the `bot` service asks Telegram; works behind any firewall, which
+    # is what Yandex Cloud needed) or "webhook" (Telegram calls /api/webhooks/...).
+    telegram_updates_mode: Literal["polling", "webhook"] = Field(
+        default="polling", alias="TELEGRAM_UPDATES_MODE")
     max_bot_token: Optional[str] = Field(default=None, alias="MAX_BOT_TOKEN")
     max_bot_username: Optional[str] = Field(default=None, alias="MAX_BOT_USERNAME")
     max_webhook_path: str = Field(default="/max/webhook", alias="MAX_WEBHOOK_PATH")
@@ -102,6 +107,12 @@ class Settings(BaseSettings):
     # === EXTERNAL INTEGRATIONS ===
     avito_api_base_url: Optional[str] = Field(default=None, alias="AVITO_API_BASE_URL")
     avito_api_token: Optional[str] = Field(default=None, alias="AVITO_API_TOKEN")
+    # Catalogue sync from the agency's Avito account (ТЗ «Avito + фильтрация»,
+    # блок 1). These .env keys serve the platform owner's agency; other agencies
+    # bring their own through TopNLab. Empty = no sync.
+    avito_client_id: Optional[str] = Field(default=None, alias="AVITO_CLIENT_ID")
+    avito_client_secret: Optional[str] = Field(default=None, alias="AVITO_CLIENT_SECRET")
+    avito_sync_interval_minutes: int = Field(default=60, alias="AVITO_SYNC_INTERVAL_MINUTES")
     cian_api_base_url: Optional[str] = Field(default=None, alias="CIAN_API_BASE_URL")
     cian_api_token: Optional[str] = Field(default=None, alias="CIAN_API_TOKEN")
     vk_service_token: Optional[str] = Field(default=None, alias="VK_SERVICE_TOKEN")
@@ -115,6 +126,40 @@ class Settings(BaseSettings):
     # account. It is billed per request and never leaves the server.
     yandex_geocoder_api_key: Optional[str] = Field(
         default=None, alias="YANDEX_GEOCODER_API_KEY")
+    # TopNLab CRM (ТЗ «Интеграция с TopNLab» v1.0, раздел 7). Ключа агентства
+    # здесь нет: он в agency_crm_config, у каждого агентства свой appkey.
+    topnlab_base_url: str = Field(default="https://agencies-p.topnlab.ru", alias="TOPNLAB_BASE_URL")
+    topnlab_calendar_url: str = Field(
+        default="https://calendar-p.topnlab.ru", alias="TOPNLAB_CALENDAR_URL")
+    # Общий рубильник поверх флага каждого агентства. Выключен по умолчанию:
+    # включается в .env осознанно, когда ключ агентства проверен.
+    topnlab_sync_enabled: bool = Field(default=False, alias="TOPNLAB_SYNC_ENABLED")
+    topnlab_lead_min_score: int = Field(default=40, alias="TOPNLAB_LEAD_MIN_SCORE")
+    topnlab_task_delay_minutes: int = Field(default=5, alias="TOPNLAB_TASK_DELAY_MINUTES")
+    # === AI SALES BOT (ТЗ «AI-бот продажник» 3.1) ===
+    # Per-agency settings live in agencies.bot_*; these are the defaults a new
+    # agency starts with and the dialogue timings.
+    bot_default_mode: Literal["disabled", "assist", "semi_auto", "auto"] = Field(
+        default="assist", alias="BOT_DEFAULT_MODE")
+    bot_reply_threshold: int = Field(default=60, alias="BOT_REPLY_THRESHOLD")
+    bot_semi_auto_delay_minutes: int = Field(default=5, alias="BOT_SEMI_AUTO_DELAY_MINUTES")
+    bot_daily_reply_limit: int = Field(default=50, alias="BOT_DAILY_REPLY_LIMIT")
+    bot_conversation_timeout_minutes: int = Field(default=30, alias="BOT_CONVERSATION_TIMEOUT_MINUTES")
+    bot_reminder_hours: int = Field(default=24, alias="BOT_REMINDER_HOURS")
+
+    # === PLATFORM (SaaS layer, ТЗ «SaaS-слой» 3.1) ===
+    # Telegram ids of platform operators, comma-separated. Operators approve
+    # onboarding requests in the sales bot and manage every agency.
+    platform_operator_ids_raw: str = Field(default="", alias="PLATFORM_OPERATOR_IDS")
+    # The platform's own sales bot (not a client bot): takes requests from
+    # agencies that want to buy REIP. Empty = onboarding bot off.
+    platform_onboarding_bot_token: Optional[str] = Field(
+        default=None, alias="PLATFORM_ONBOARDING_BOT_TOKEN")
+    platform_onboarding_bot_username: Optional[str] = Field(
+        default=None, alias="PLATFORM_ONBOARDING_BOT_USERNAME")
+    platform_landing_url: Optional[str] = Field(default=None, alias="PLATFORM_LANDING_URL")
+    platform_trial_days: int = Field(default=0, alias="PLATFORM_TRIAL_DAYS")
+    platform_reminder_days_raw: str = Field(default="7,3,1", alias="PLATFORM_REMINDER_DAYS_BEFORE")
     yookassa_shop_id: Optional[str] = Field(default=None, alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: Optional[str] = Field(default=None, alias="YOOKASSA_SECRET_KEY")
 
@@ -128,6 +173,20 @@ class Settings(BaseSettings):
     # Владельцем становится тот, кто вошёл с одним из этих идентификаторов,
     # без приглашения. Пусто — значит в MAX доверенных нет.
     max_admin_ids_raw: str = Field(default="", alias="MAX_ADMIN_IDS")
+
+    @property
+    def operator_telegram_ids(self) -> set[int]:
+        return {int(p) for p in (x.strip() for x in self.platform_operator_ids_raw.split(","))
+                if p.isdigit()}
+
+    @property
+    def reminder_days(self) -> list[int]:
+        return sorted({int(p) for p in (x.strip() for x in self.platform_reminder_days_raw.split(","))
+                       if p.isdigit()}, reverse=True)
+
+    @property
+    def billing_enabled(self) -> bool:
+        return bool(self.yookassa_shop_id and self.yookassa_secret_key)
 
     @property
     def max_admin_ids(self) -> set[int]:

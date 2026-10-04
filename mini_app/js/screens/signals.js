@@ -91,30 +91,29 @@ Screens.signalDetail = async function (params) {
           <p class="mt-3" style="margin-bottom:0;white-space:pre-wrap">${UI.esc(s.raw_text)}</p>
           <hr class="divider">
           <div class="between">
-            <span class="item__meta">${UI.esc(UI.channel(s.origin_system || s.reply_channel))}
+            <span class="item__meta">${UI.esc(s.source_name || UI.channel(s.source_type || s.reply_channel || s.origin_system))}
               ${s.created_at ? `<span class="dot"></span>${UI.esc(UI.dateTime(s.created_at))}` : ''}</span>
             ${s.signal_url ? `<a class="btn btn--ghost btn--sm" href="${UI.esc(s.signal_url)}"
                target="_blank" rel="noopener">${UI.icon('link')} Источник</a>` : ''}
           </div>
         </div>
 
+        ${s.status === 'rejected' ? `
+        <div class="card mt-3"><div class="item__sub">Отсеян фильтром${s.triage_reason ? ': ' + UI.esc(s.triage_reason) : ''}.
+          Это не покупатель, поэтому сигнала нет ни в списке, ни в очереди ответов.</div></div>` : `
         <button class="btn btn--block mt-3" id="mk">
           ${UI.icon('leads')} ${qualified ? 'Лид создан — открыть' : 'Квалифицировать в лид'}
         </button>
         <button class="btn btn--secondary btn--block mt-2" id="toq">
           ${UI.icon('queue')} Ответить в очереди
-        </button>`,
+        </button>`}`,
         () => {
-          document.getElementById('toq').onclick = () => Router.go('queue');
+          const toq = document.getElementById('toq');
+          if (!toq) return;  // rejected: nothing to act on
+          toq.onclick = () => Router.go('queue');
           const b = document.getElementById('mk');
-          if (qualified) { b.onclick = () => Router.go('leads'); return; }
-          b.onclick = () => UI.busy(b, async () => {
-            try {
-              const r = await API.createLead(s.id, { consent_text: 'Согласие получено в чате (152-ФЗ)' });
-              UI.toast(r && r.already_exists ? 'Лид уже был создан' : 'Лид создан');
-              Router.go('leads');
-            } catch (e) { UI.toast('Не удалось: ' + e.message); }
-          });
+          if (qualified) { b.onclick = () => Router.go(s.lead_id ? 'leads/' + s.lead_id : 'leads'); return; }
+          b.onclick = () => UI.leadFromSignal(s.id);
         });
     });
 };

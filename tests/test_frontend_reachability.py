@@ -36,6 +36,23 @@ NOT_UI_REACHABLE = {
     "POST /api/geo/agencies/{}/geo",    # onboarding path; the UI uses POST /geo
     "PATCH /api/leads/{}/matches/{}",   # superseded by POST .../feedback
     "GET /api/tasks/{}",                # the list carries every field the UI shows
+    "POST /api/topnlab/report-webhook",  # called by TopNLab («Аналитика REIP»)
+    "GET /api/topnlab/report-files/{}",  # the link TopNLab hands to its user
+    "POST /api/topnlab/incoming-webhook",  # called by TopNLab on card events
+    "POST /api/webhooks/tg/{}",         # agency bots (SaaS), called by Telegram
+    "POST /api/webhooks/sales",         # the platform sales bot, called by Telegram
+    "POST /api/webhooks/yookassa",      # payment notifications from ЮKassa
+    "GET /api/platform/city-check",     # the public sales landing, not the cabinet
+    "GET /api/platform/cities/taken",
+}
+# The platform operator works through the operator JWT and the sales bot, not
+# through an agency's cabinet: none of these can appear in the Mini App.
+NOT_UI_REACHABLE |= {
+    "GET /api/operator/dashboard", "GET /api/operator/agencies",
+    "POST /api/operator/agencies/{}/extend", "POST /api/operator/agencies/{}/suspend",
+    "POST /api/operator/agencies/{}/unsuspend", "PATCH /api/operator/agencies/{}",
+    "PUT /api/operator/agencies/{}/bot", "GET /api/operator/onboarding",
+    "GET /api/operator/cities", "GET /api/operator/stats",
 }
 # Public buyer-facing endpoints: TZ 30 lists 13 manager screens and none of them
 # are lead magnets, which live on separate landing pages.

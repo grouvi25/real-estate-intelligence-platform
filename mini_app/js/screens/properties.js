@@ -5,7 +5,11 @@
 // its own row and never wraps.
 window.Screens = window.Screens || {};
 
-const PROPERTY_TABS = [['', 'Все'], ['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Проданы']];
+const PROPERTY_TABS = [['', 'Все'], ['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Проданы'],
+  ['archive', 'Архив']];
+
+// The statuses the properties table allows (CHECK in migration 001).
+const PROPERTY_STATUS_SET = [['active', 'В продаже'], ['reserved', 'Бронь'], ['sold', 'Продан'], ['archive', 'Архив']];
 
 function propertyCard(p) {
   const meta = [
@@ -24,6 +28,7 @@ function propertyCard(p) {
         <span class="price" style="font-size:var(--t-lg)">${UI.money(p.price)}</span>
         ${UI.statusChip(p.status)}
       </div>
+      ${p.source_system === 'avito' ? '<div class="mt-1"><span class="chip">Avito</span></div>' : ''}
       ${meta ? `<div class="item__sub mt-1">${UI.esc(meta)}</div>` : ''}
       ${p.price_per_sqm ? `<div class="item__meta mt-1">${UI.money(p.price_per_sqm)} за м²</div>` : ''}
     </div>`;
@@ -111,12 +116,34 @@ Screens.propertyDetail = async function (params) {
       <button class="btn btn--block" id="save">${UI.icon('check')} Сохранить цену</button>
     </div>
 
+    <div class="card mt-3">
+      <div class="field" style="margin-bottom:0"><label>Статус</label>
+        <div class="segmented" role="tablist">${PROPERTY_STATUS_SET.map(([v, l]) =>
+          `<button class="segmented__opt${v === p.status ? ' segmented__opt--active' : ''}" role="tab"
+             aria-selected="${v === p.status}" data-status="${v}">${l}</button>`).join('')}</div>
+        <div class="field__hint">${p.source_system === 'avito'
+          ? 'Из Avito: снятое там объявление уйдёт в архив само, а «Бронь» и «Продан» синхронизация не трогает.'
+          : 'Подбор предлагает покупателям только объекты «В продаже».'}</div>
+      </div>
+      ${p.source_url ? `<a class="btn btn--ghost btn--block mt-2" href="${UI.esc(p.source_url)}" target="_blank"
+         rel="noopener">${UI.icon('link')} ${p.source_system === 'avito' ? 'Объявление на Avito' : 'Источник'}</a>` : ''}
+    </div>
+
     <div class="section-title">Документы и продвижение</div>
     <button class="btn btn--secondary btn--block" id="report">${UI.icon('file')} Отчёт по объекту</button>
     <button class="btn btn--secondary btn--block mt-2" id="listing">${UI.icon('sparkles')} Сгенерировать объявление</button>
     <button class="btn btn--secondary btn--block mt-2" id="checklist">${UI.icon('check')} Чек-лист документов</button>`,
     () => {
       Maps.paint(map);
+      document.querySelectorAll('[data-status]').forEach((b) => b.onclick = () => UI.busy(b, async () => {
+        const status = b.getAttribute('data-status');
+        if (status === p.status) return;
+        try {
+          await API.updateProperty(p.id, { status });
+          UI.toast('Статус: ' + (PROPERTY_STATUS_SET.find((x) => x[0] === status) || [0, status])[1]);
+          Router.resolve();
+        } catch (e) { UI.toast('Не удалось: ' + e.message); }
+      }));
       const saveBtn = document.getElementById('save');
       saveBtn.onclick = () => UI.busy(saveBtn, async () => {
         const price = parseInt(document.getElementById('price').value, 10);
@@ -229,8 +256,10 @@ Screens.propertyImport = async function () {
         Сначала проверка — она ничего не записывает и показывает, что получится.
       </p>
     </div>
-    <div id="imp-report"></div>`);
+    <div id="imp-report"></div>
+    <div id="avito-box" style="margin-top:12px"></div>`);
 
+  loadAvitoBox();
   const fileInput = document.getElementById('imp-file');
   const report = document.getElementById('imp-report');
 
@@ -281,3 +310,30 @@ Screens.propertyImport = async function () {
 
   document.getElementById('imp-check').onclick = () => run(true);
 };
+
+// The catalogue can also come from the agency's Avito account, hourly. Says
+// plainly when no account is connected instead of offering a button that fails.
+async function loadAvitoBox() {
+  const box = document.getElementById('avito-box');
+  if (!box) return;
+  let d;
+  try { d = await API.avitoStatus(); } catch (e) { box.innerHTML = ''; return; }
+  const when = d.last_synced_at ? new Date(d.last_synced_at).toLocaleString('ru-RU') : 'ещё не было';
+  box.innerHTML = d.configured ? `
+    <div class="card">
+      <div class="between"><b>Каталог из Avito</b><span class="chip chip--accent">подключено</span></div>
+      <div class="item__sub" style="margin-top:8px">Объявлений: <b>${d.active}</b> активных из ${d.total} ·
+        последняя синхронизация: ${UI.esc(when)}. Обновляется раз в час сама.</div>
+      <button class="btn btn--secondary btn--block mt-3" id="avito-sync">${UI.icon('refresh')} Обновить сейчас</button>
+    </div>` : `
+    <div class="card">
+      <b>Каталог из Avito</b>
+      <div class="item__sub" style="margin-top:8px">Аккаунт Avito не подключён. Если агентство работает
+        в TopNLab, владелец может получить ключи там: Профиль → TopNLab CRM → «Получить ключи Avito».</div>
+    </div>`;
+  const btn = document.getElementById('avito-sync');
+  if (btn) btn.onclick = () => UI.busy(btn, async () => {
+    try { await API.avitoSync(); UI.toast('Синхронизация запущена, займёт минуту-две'); }
+    catch (e) { UI.toast(e.message); }
+  });
+}

@@ -37,6 +37,14 @@ os.environ.setdefault("NODE_ENV", "development")
 
 import pytest  # noqa: E402
 
+# Every .delay() must go to Redis, as in the web process (app.main does this on
+# import). Without it a test that ran before anything imported app.main sent its
+# task to Celery's default amqp:// broker and failed -- the suite only passed in
+# an order where some earlier test happened to import the app.
+from worker.celery_app import celery_app as _celery_app  # noqa: E402
+
+_celery_app.set_default()
+
 _OPTIONAL_CREDENTIALS = (
     "telethon_api_id", "telethon_api_hash", "telethon_phone", "telethon_dc_port",
     "vk_service_token", "youtube_api_key",

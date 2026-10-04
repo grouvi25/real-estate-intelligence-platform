@@ -99,6 +99,19 @@ async def export_lead_to_crm(session, lead: Any) -> dict:
         return {"exported": False, "reason": "no_consent"}
 
     cfg = await _active_config(session, lead.agency_id)
+    if cfg is not None and (cfg.crm_type or "").lower() == "topnlab":
+        # TopNLab is more than one POST: order, task «Позвонить», manager, call
+        # log -- and the same lead may already have gone out when it was
+        # created. One flow for both triggers keeps it to a single order.
+        from app.services.topnlab_adapter import (  # noqa: PLC0415
+            TopnlabUnavailable,
+            sync_lead_to_topnlab,
+        )
+
+        try:
+            return await sync_lead_to_topnlab(session, lead, force=True)
+        except TopnlabUnavailable as e:
+            return {"exported": False, "reason": "transport_error", "error": str(e)}
     if cfg is not None:
         adapter = adapter_from_config(cfg)
         if adapter is not None:
@@ -149,6 +162,11 @@ async def push_outcome_to_crm(session, lead: Any, outcome: Any) -> dict:
     cfg = await _active_config(session, lead.agency_id)
     if cfg is None:
         return {"exported": False, "reason": "no_connector"}
+    if (cfg.crm_type or "").lower() == "topnlab":
+        # TopNLab has no call for a closed deal; the default outcome POST would
+        # land on importClient and open a new empty order. The deal is led in
+        # TopNLab itself, so there is nothing to report back.
+        return {"exported": False, "reason": "not_supported", "crm": "topnlab"}
     adapter = adapter_from_config(cfg)
     if adapter is None:
         return {"exported": False, "reason": "unknown_connector", "crm_type": cfg.crm_type}

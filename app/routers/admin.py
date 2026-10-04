@@ -34,6 +34,16 @@ async def update_manager(manager_id: uuid.UUID, req: ManagerUpdate, current: Cur
     if req.role is not None:
         m.role = req.role
     if req.is_active is not None:
+        if req.is_active and not m.is_active:
+            # Switching someone back on is adding a seat, as far as the plan goes.
+            from sqlalchemy import func  # noqa: PLC0415
+
+            from app.models.agency import Agency  # noqa: PLC0415
+            from app.services.billing import check_plan_limit  # noqa: PLC0415
+
+            active = await session.scalar(select(func.count(Manager.id)).where(
+                Manager.agency_id == m.agency_id, Manager.is_active.is_(True)))
+            check_plan_limit(await session.get(Agency, m.agency_id), "managers", active or 0)
         m.is_active = req.is_active
     await session.commit()
     return dto(m)

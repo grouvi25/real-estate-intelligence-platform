@@ -182,6 +182,21 @@ Screens.leadNew = async function () {
     });
 };
 
+const LEAD_SOURCE_RU = {
+  signal: 'Сигнал из чата', lead_magnet: 'Лид-магнит', manual: 'Вручную', referral: 'От партнёра',
+  incoming_call: 'Входящий звонок', bot_dm: 'ИИ-бот в личке',
+};
+const BOT_FACTS = [['property_type', 'Ищет'], ['district', 'Район'], ['budget', 'Бюджет (со слов)'],
+  ['timeline', 'Срок'], ['mortgage', 'Ипотека'], ['goal', 'Цель']];
+
+// What the AI bot found out in the conversation, when the lead came from it.
+function botFacts(profile) {
+  if (!profile || profile.collected_via !== 'bot_qualification') return '';
+  const rows = BOT_FACTS.filter(([k]) => profile[k]).map(([k, label]) =>
+    `<div class="between mt-2"><span class="muted">${label}</span><span class="item__meta">${UI.esc(String(profile[k]))}</span></div>`);
+  return rows.length ? `<hr class="divider"><div class="item__sub">Со слов покупателя в диалоге с ботом</div>${rows.join('')}` : '';
+}
+
 Screens.leadDetail = async function (params) {
   UI.setHeader('Лид', '', { back: true });
 
@@ -206,6 +221,7 @@ Screens.leadDetail = async function (params) {
         l.phone ? `<a class="btn btn--secondary btn--sm" href="tel:${UI.esc(l.phone)}">${UI.icon('phone')} Позвонить</a>` : '',
         l.telegram_username ? `<a class="btn btn--secondary btn--sm" target="_blank" rel="noopener"
            href="https://t.me/${UI.esc(String(l.telegram_username).replace(/^@/, ''))}">${UI.icon('send')} Написать</a>` : '',
+        l.signal_id ? `<button class="btn btn--secondary btn--sm" data-go="signals/${UI.esc(l.signal_id)}">${UI.icon('link')} Сообщение</button>` : '',
       ].filter(Boolean).join('');
 
       UI.render(`
@@ -225,6 +241,11 @@ Screens.leadDetail = async function (params) {
           <div class="between mt-2"><span class="muted">Статус</span>${UI.statusChip(l.status)}</div>
           <div class="between mt-2"><span class="muted">Создан</span>
             <span class="item__meta">${UI.esc(UI.dateTime(l.created_at))}</span></div>
+          <div class="between mt-2"><span class="muted">Откуда</span>
+            <span class="item__meta">${UI.esc(LEAD_SOURCE_RU[l.source_type] || l.source_type || '—')}</span></div>
+          ${l.topnlab_client_id ? `<div class="between mt-2"><span class="muted">TopNLab</span>
+            <span class="item__meta">заявка ${UI.esc(String(l.topnlab_client_id))}</span></div>` : ''}
+          ${botFacts(l.buyer_profile)}
         </div>
 
         <div class="section-title">Действия</div>
@@ -263,6 +284,7 @@ function wire(l) {
     UI.toast(toastMsg);
     goBack ? Router.go('leads') : Router.resolve();
   };
+  Router.bindGo();  // «Сообщение»: back to the chat message the lead came from
   const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
   on('qual', (e) => UI.busy(e.currentTarget, () => doStatus('qualified', 'Квалифицирован', false)));
   on('arch', (e) => UI.busy(e.currentTarget, () => doStatus('archived', 'В архиве', true)));

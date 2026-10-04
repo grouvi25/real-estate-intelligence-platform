@@ -9,20 +9,35 @@ from app.services.crm.base import CRMAdapter
 
 
 class TopnlabAdapter(CRMAdapter):
+    """Shape of a TopNLab buyer order (API колл-центра, раздел 2).
+
+    The export itself does not go through here: crm_export hands TopNLab leads
+    to app.services.topnlab_adapter, which also sets the call task and keeps the
+    order id on the lead. This class stays so the registry, the settings screen
+    and anything reading the payload shape see the real endpoint -- it used to
+    point at an invented /api/leads.
+    """
+
     crm_type = "topnlab"
 
     def endpoint(self) -> str:
-        return f"{self.base_url}/api/leads" if self.base_url else ""
+        from app.config import config  # noqa: PLC0415
+
+        return f"{self.base_url or config.topnlab_base_url.rstrip('/')}/call/main/importClient/"
+
+    def headers(self) -> dict:
+        return {}  # the key travels in the body as appkey
 
     def build_payload(self, lead_values: dict) -> dict:
+        phone = "".join(ch for ch in str(lead_values.get("phone") or "") if ch.isdigit())
         return {
-            "name": lead_values.get("name"),
-            "phone": lead_values.get("phone"),
-            "email": lead_values.get("email"),
-            "budget": lead_values.get("budget_max"),
-            "segment": lead_values.get("segment"),
-            "source": lead_values.get("source_type"),
-            "external_id": lead_values.get("lead_id"),
+            "appkey": self.api_key,
+            "fullname": lead_values.get("name") or "Покупатель из REIP",
+            "phone": phone,
+            "action": 1,
+            "object_type": "flat",
+            "comment": f"[REIP] Score: {lead_values.get('intent_score') or 0}/100 | "
+                       f"lead {lead_values.get('lead_id')}"[:500],
         }
 
 

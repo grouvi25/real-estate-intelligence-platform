@@ -23,7 +23,7 @@ class ContentUnit(CreatedAtMixin, Base):
     agency_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False
     )
-    title: Mapped[str] = mapped_column(Text, nullable=False, default="??? ????????")
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="Без названия")
     topic_tag: Mapped[Optional[str]] = mapped_column(Text)
     platform: Mapped[Optional[str]] = mapped_column(Text)
     external_post_url: Mapped[Optional[str]] = mapped_column(Text)

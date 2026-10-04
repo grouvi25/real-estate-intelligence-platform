@@ -23,7 +23,12 @@ from app.models.property import Property
 logger = structlog.get_logger()
 router = APIRouter()
 
-PROPERTY_STATUSES = {"active", "reserved", "sold", "archived", "draft"}
+# What the properties CHECK constraint allows (migration 001). The list used to
+# say "archived" and "draft", neither of which the table accepts: archiving a
+# property from the cabinet ended in a 500. "archived" is still taken and
+# stored as "archive", so a client that learned the old word keeps working.
+PROPERTY_STATUSES = {"active", "reserved", "sold", "archive"}
+STATUS_ALIASES = {"archived": "archive"}
 MAX_PAGE = 200
 MAX_IMPORT_BYTES = 10_000_000
 # Enough to show the pattern of what went wrong without returning a novel.
@@ -47,6 +52,9 @@ def _property_summary(prop: Property) -> dict:
         "district": prop.district,
         "status": prop.status,
         "deal_type": prop.deal_type,
+        # Where the row came from: manual | import | avito (Avito ТЗ, 1.16).
+        "source_system": prop.source_system,
+        "source_url": prop.source_url,
     }
 
 
@@ -83,6 +91,8 @@ async def update_property(
     session=Depends(get_session),
 ):
     """Update a property. A price change triggers a background rematch."""
+    if req.status is not None:
+        req.status = STATUS_ALIASES.get(req.status, req.status)
     if req.status is not None and req.status not in PROPERTY_STATUSES:
         raise ValidationError("status", f"недопустимый статус: {req.status}")
 

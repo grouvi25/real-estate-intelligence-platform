@@ -24,18 +24,25 @@ from app.routers import (
     admin,
     analytics,
     auth,
+    avito,
+    billing,
+    bot,
     deals,
     documents,
     geo,
     health,
     lead_magnets,
     leads,
+    operator,
     partners,
+    platform,
     properties,
     referrals,
     signals,
     sources,
     tasks,
+    topnlab,
+    topnlab_webhooks,
     webhooks,
 )
 from app.services.ai_cost_tracker import init_cost_tracker
@@ -120,6 +127,12 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+# Registered after the two above, so it is the outermost layer: TopNLab's
+# browser preflight must be answered before CORSMiddleware, which admits only
+# REIP's own origin, turns it away.
+app.middleware("http")(topnlab_webhooks.topnlab_cors)
+
+
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail, "code": exc.code})
@@ -160,6 +173,13 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(topnlab_webhooks.router, prefix="/api/topnlab", tags=["TopNLab"])
+app.include_router(topnlab.router, prefix="/api/topnlab", tags=["TopNLab"])
+app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
+app.include_router(avito.router, prefix="/api/avito", tags=["Avito"])
+app.include_router(bot.router, prefix="/api/bot", tags=["AI bot"])
+app.include_router(operator.router, prefix="/api/operator", tags=["Operator"])
+app.include_router(platform.router, prefix="/api/platform", tags=["Platform"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
 
 # Serve the Mini App SPA as static files (bot opens /mini-app/). html=True makes

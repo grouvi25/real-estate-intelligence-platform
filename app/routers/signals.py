@@ -61,7 +61,12 @@ REPLY_QUEUE_STATUSES = ("pending",)
 
 
 def _signal_dto(s: Signal) -> dict:
-    """Shared shape for the list and the single-signal endpoints."""
+    """Shared shape for the list and the single-signal endpoints.
+
+    The card shows where the message came from and links to it; those fields
+    were never sent, so the «Источник» button and the channel line were always
+    empty.
+    """
     return {
         "id": str(s.id),
         "raw_text": s.raw_text,
@@ -71,6 +76,13 @@ def _signal_dto(s: Signal) -> dict:
         "status": s.status,
         "geo_location_id": str(s.geo_location_id) if s.geo_location_id else None,
         "created_at": s.created_at.isoformat(),
+        "signal_url": s.signal_url,
+        "source_name": s.source.source_name if s.source is not None else None,
+        "source_type": s.source.source_type if s.source is not None else None,
+        "origin_system": s.origin_system,
+        "reply_channel": s.reply_channel,
+        "reply_status": s.reply_status,
+        "triage_reason": s.triage_reason,
     }
 
 
@@ -89,6 +101,10 @@ async def list_signals(
     offset = max(offset, 0)
 
     stmt = select(Signal).where(Signal.agency_id == uuid.UUID(current.agency_id))
+    # Rejected by the filter (rental, adverts -- ТЗ фильтрации 2.6) stays out of
+    # the manager's list unless asked for by status.
+    if status is None:
+        stmt = stmt.where(Signal.status != "rejected")
     if geo_id is not None:
         stmt = stmt.where(Signal.geo_location_id == geo_id)
     if status is not None:
@@ -179,6 +195,11 @@ async def create_lead_from_signal(
     except Exception as exc:  # noqa: BLE001
         matching_queued = False
         logger.error("Failed to enqueue matching for lead", lead_id=str(lead.id), error=str(exc))
+
+    # ТЗ TopNLab 6.1: new lead -> order in the agency's TopNLab (score-gated there).
+    from worker.tasks.topnlab_sync import queue_topnlab_sync
+
+    queue_topnlab_sync(str(lead.id))
 
     return {"lead_id": str(lead.id), "tasks_created": 1,
             "matching_queued": matching_queued, "already_exists": False}
@@ -284,7 +305,26 @@ async def _scoped_signal(signal_id: uuid.UUID, current: CurrentManager, session)
     return signal
 
 
+async def _settle_bot_reply(session, signal_id, *, sent: bool, manager_id: Optional[str]) -> None:
+    """The AI bot's draft for this signal follows what the manager did with it,
+    or the bot's numbers count a reply sent by hand as a draft forever."""
+    from app.models.bot import BotPublicReply  # noqa: PLC0415
+
+    reply = (await session.execute(select(BotPublicReply).where(
+        BotPublicReply.signal_id == signal_id,
+        BotPublicReply.status.in_(("draft", "scheduled", "failed"))))).scalars().first()
+    if reply is None:
+        return
+    if sent:
+        reply.status, reply.sent_by, reply.sent_at = "sent", "manager", datetime.now(timezone.utc)
+        if manager_id:
+            reply.approved_by = uuid.UUID(str(manager_id))
+    else:
+        reply.status = "rejected"
+
+
 async def _triage(signal, status: str, manager_id: str, reason: Optional[str], session) -> dict:
+    await _settle_bot_reply(session, signal.id, sent=False, manager_id=None)
     signal.reply_status = status
     signal.triage_reason = reason
     signal.triaged_by_manager_id = uuid.UUID(manager_id) if manager_id else None
@@ -346,7 +386,25 @@ async def send_reply(
     from app.services.signal_bus import send_signal_reply
 
     result = await send_signal_reply(session, signal, manager_id=manager_id or current.manager_id)
-    return {"id": str(signal.id), "reply_status": signal.reply_status, "result": result}
+    if result.get("sent"):
+        await _settle_bot_reply(session, signal.id, sent=True, manager_id=current.manager_id)
+        await session.commit()
+    return {"id": str(signal.id), "reply_status": signal.reply_status, "result": result,
+            "message": _send_message(result)}
+
+
+def _send_message(result: dict) -> str:
+    """What the manager is told, instead of a status code."""
+    if result.get("sent"):
+        return "Ответ отправлен"
+    if result.get("detail"):
+        return str(result["detail"])
+    return {
+        "no_draft": "Сначала напишите ответ",
+        "no_target": "Неизвестно, куда отвечать: у сигнала нет чата. Ответьте вручную по ссылке «Исходник».",
+        "unknown_channel": "Этот канал не поддерживает ответ из кабинета. Ответьте вручную по ссылке «Исходник».",
+    }.get(str(result.get("reason")), "Не отправлено: бот не состоит в этом чате или Telegram недоступен. "
+                                      "Черновик сохранён — отправьте его вручную по ссылке «Исходник».")
 
 
 # Registered last on purpose: a UUID path param would reject "/queue" with a 422
@@ -361,4 +419,7 @@ async def get_signal(
     signal = await session.get(Signal, signal_id)
     if signal is None or str(signal.agency_id) != current.agency_id:
         raise NotFoundError("Signal", str(signal_id))
-    return _signal_dto(signal)
+    dto = _signal_dto(signal)
+    dto["lead_id"] = str(await session.scalar(
+        select(Lead.id).where(Lead.signal_id == signal.id).limit(1)) or "") or None
+    return dto

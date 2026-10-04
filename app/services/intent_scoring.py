@@ -23,7 +23,18 @@ NEGATIVE_KEYWORDS = [
     # Реклама поездок и продавец, раздающий сведения: обе прошли фильтр на живом
     # прогоне, потому что содержали и название посёлка, и слово про жильё.
     "по запросу", "экскурси", "поездка на море", "однодневная",
+    # ТЗ «Фильтрация сигналов» 2.3: остальная аренда, гостиницы и туризм, реклама
+    # агентств. Всё это курортный рынок пишет рядом с «квартира» и «Геленджик».
+    "снять", "арендую", "арендовать", "по суткам", "на сутки",
+    "квартирант", "квартиросъём", "квартиросъем", "жильцы",
+    "гостевой дом", "гостевом доме", "гостиниц", "хостел", "отель",
+    "база отдыха", "базе отдыха", "санатори", "пансионат",
+    "продаём", "продаем", "наша компания", "застройщик предлагает",
+    "предлагаем объекты", "наши объекты", "наши квартиры", "портфель объектов",
 ]
+# Deliberately NOT taken from the ТЗ list: "номер" (every "номер телефона"),
+# "на месяц" (a mortgage payment per month), "звоните" (buyers write "предложения
+# звоните") -- each would have dropped real buyers.
 
 # Baseline purchase intent. quick_filter unions this with the geo's own
 # intent_phrases so recall does not depend on what the AI happened to generate
@@ -51,6 +62,33 @@ BUY_INTENT_KEYWORDS = [
 ]
 
 
+# A city stem followed by an adjective ending: «Геленджикский», «анапской».
+_ADJECTIVE_TAIL = r"ск(?:ий|ая|ое|ие|ого|ому|ой|им|их|ую|ими|ом)"
+_WORD_START = r"(?<![0-9a-zа-яё])"
+
+
+def city_mentioned(text: str, variations: list[Any]) -> bool:
+    """Does the text name the city itself?
+
+    Stems stay stems -- «геленджик» must still find «в Геленджике», so a
+    whole-word match as the ТЗ proposes would lose every declined mention. Two
+    things are refused instead: a stem inside a longer word, and the adjective
+    («Геленджикский санаторий», «пр. Геленджикский» in a furniture advert): a
+    place called after the city is not a person looking for a home in it.
+    """
+    import re
+
+    lowered = (text or "").lower()
+    for value in variations or []:
+        stem = str(value).strip().lower()
+        if not stem:
+            continue
+        pattern = _WORD_START + re.escape(stem) + r"(?!" + _ADJECTIVE_TAIL + r")"
+        if re.search(pattern, lowered):
+            return True
+    return False
+
+
 def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
     """Stage 1: fast pre-filter. Returns True if the message is worth AI scoring."""
     text = (message_text or "").lower()
@@ -58,7 +96,7 @@ def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
     def _any(key: str) -> bool:
         return any(str(v).lower() in text for v in geo_keywords.get(key, []))
 
-    city_mentioned = _any("city_variations")
+    city_is_named = city_mentioned(text, geo_keywords.get("city_variations", []))
     intent_signal = _any("intent_phrases") or any(p in text for p in BUY_INTENT_KEYWORDS)
     financial_signal = _any("financial_terms")
     property_signal = _any("property_terms")
@@ -69,7 +107,7 @@ def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
     # stem "дома" (inside "домашняя"). Of 25 collected messages, 25 were noise.
     # Purchase intent is now required -- it is what the whole pipeline is looking
     # for, and TZ 35.4 expects this stage to drop >80% before any AI spend.
-    passes = city_mentioned and intent_signal and (financial_signal or property_signal)
+    passes = city_is_named and intent_signal and (financial_signal or property_signal)
     # TZ 16.1 hardcodes the negative list and never reads the geo's own
     # negative_keywords, so the per-geo vocabulary the keyword builder generates
     # and stores was dead data. It cost real precision: the baseline has "продаю"

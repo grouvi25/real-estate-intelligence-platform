@@ -15,6 +15,15 @@ function inviteToken() {
   return String(value).startsWith('inv_') ? value : null;
 }
 
+// White-label (ТЗ «SaaS-слой»): the agency's accent colour and logo. The server
+// only sends a #rrggbb colour and an https logo, so both go in as they are.
+function applyBrand(brand) {
+  window._brand = brand || null;
+  const root = document.documentElement;
+  if (brand && brand.color) root.style.setProperty('--accent', brand.color);
+  else root.style.removeProperty('--accent');
+}
+
 async function rememberMapsKey(key) {
   Maps.setKey(key);
   try {
@@ -29,6 +38,11 @@ async function refreshConfig() {
   try {
     const cfg = await API.appConfig();
     await rememberMapsKey(cfg && cfg.maps_key);
+    applyBrand(cfg && cfg.brand);
+    if (cfg && cfg.agency) {
+      window._agency = cfg.agency;
+      try { sessionStorage.setItem('agency', JSON.stringify(cfg.agency)); } catch (e) { /* private mode */ }
+    }
     if (cfg && cfg.manager) {
       window._manager = cfg.manager;
       try { sessionStorage.setItem('manager', JSON.stringify(cfg.manager)); } catch (e) { /* private mode */ }
@@ -87,5 +101,6 @@ async function authenticate() {
     try { sessionStorage.setItem('agency', JSON.stringify(res.agency)); } catch (e) { /* private mode */ }
   }
   await rememberMapsKey(res.maps_key);
+  applyBrand(res.agency && res.agency.brand);
   return res.token;
 }

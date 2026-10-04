@@ -66,7 +66,7 @@ async def ingest_content(
         cu = ContentUnit(
             agency_id=agency_id,
             source_id=source_id,
-            title=(norm.meta or {}).get("title") or (norm.raw_content or "")[:200] or "??? ????????",
+            title=(norm.meta or {}).get("title") or (norm.raw_content or "")[:200] or "Без названия",
             topic_tag=(norm.meta or {}).get("topic_tag"),
             platform=norm.channel,
             external_post_url=norm.url,

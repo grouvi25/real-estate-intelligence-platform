@@ -14,6 +14,8 @@ from urllib.parse import quote
 
 import pytest
 
+from tests.helpers import unique_max_user_id
+
 from app.config import config
 from app.routers.auth import verify_max_init_data
 
@@ -302,20 +304,20 @@ async def test_the_window_admits_exactly_two_and_then_closes(monkeypatch):
         await _set_slots(s, 2)
 
     async with async_session() as s:
-        first = await auth_platform(_max_login(900001, "Первый"), session=s)
+        first = await auth_platform(_max_login(unique_max_user_id(), "Первый"), session=s)
         assert first["manager"]["role"] == "owner"
         assert str(first["manager"]["agency_id"]) == str(agency.id)
         assert await _slots(s) == 1
 
     async with async_session() as s:
-        second = await auth_platform(_max_login(900002, "Второй"), session=s)
+        second = await auth_platform(_max_login(unique_max_user_id(), "Второй"), session=s)
         assert second["manager"]["role"] == "owner"
         assert await _slots(s) == 0
 
     # Третий — уже мимо: окно закрылось само, без чьего-либо участия.
     async with async_session() as s:
         with pytest.raises(AppException) as refused:
-            await auth_platform(_max_login(900003, "Третий"), session=s)
+            await auth_platform(_max_login(unique_max_user_id(), "Третий"), session=s)
         assert refused.value.status_code == 403
 
 
