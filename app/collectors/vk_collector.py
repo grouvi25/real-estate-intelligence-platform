@@ -328,6 +328,7 @@ class VkCollector:
         from sqlalchemy import select  # noqa: PLC0415
 
         from app.models.signal import Signal  # noqa: PLC0415
+        from app.services.signal_classifier import category_for  # noqa: PLC0415
         from app.services.signal_bus import ingest_content  # noqa: PLC0415
 
         domain = self._domain(source)
@@ -362,6 +363,7 @@ class VkCollector:
                 geo_location_id=source.geo_location_id,
                 content_unit_id=cu.id,
                 raw_text=text,
+                signal_category=await category_for(session, source.agency_id, text),
                 author_hash=norm.author_hash,
                 author_display_name=norm.author_display_name,
                 signal_url=norm.url,
