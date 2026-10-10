@@ -11,6 +11,7 @@ from app.models.bot import BotConversation, BotLearningPool, BotPublicReply
 from app.models.billing import BillingEvent, OnboardingRequest, PlatformOperator, SubscriptionPlan
 from app.models.content_unit import ContentUnit
 from app.models.deal_outcome import DealOutcome
+from app.models.discovery import DiscoveryCandidate, DiscoveryForumSeed, DiscoveryLog
 from app.models.geo_location import GeoLocation
 from app.models.lead import Lead
 from app.models.manager import Manager
@@ -41,6 +42,9 @@ __all__ = [
     "SubscriptionPlan",
     "ContentUnit",
     "DealOutcome",
+    "DiscoveryCandidate",
+    "DiscoveryForumSeed",
+    "DiscoveryLog",
     "GeoLocation",
     "Lead",
     "Manager",

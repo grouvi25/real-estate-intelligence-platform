@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import structlog
@@ -90,4 +91,56 @@ async def revive(name: Optional[str] = None) -> int:
         logger.error("Не снять пометку", error=str(e)[:120])
         return 0
     finally:
+        await client.aclose()
+
+
+# ---------------------------------------------------------------- один клиент
+
+LOCK_KEY = "telethon:busy"
+LOCK_TTL_SECONDS = 15 * 60  # дольше любого прохода: зависший процесс не держит вечно
+
+
+@asynccontextmanager
+async def telethon_lock(wait_seconds: float = 60):
+    """Аккаунтом Telegram в один момент работает один процесс.
+
+    Сессия Telethon — файл SQLite. Сбор (каждые 10 минут), автопоиск и проверка
+    живости источников открывают один и тот же файл, и два клиента сразу дают
+    «database is locked» и рваные запросы, за которые Telegram банит аккаунт
+    быстрее. Отдаёт True, если замок взят; False — не дождались, работу с
+    Telegram в этот раз надо пропустить. Недоступный Redis замок не держит:
+    лучше рискнуть пересечением, чем остановить сбор целиком.
+    """
+    import asyncio  # noqa: PLC0415
+    import secrets  # noqa: PLC0415
+    import time  # noqa: PLC0415
+
+    token = secrets.token_hex(8)
+    try:
+        client = await _redis()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Замок Telethon без Redis", error=str(e)[:120])
+        yield True
+        return
+    acquired = False
+    try:
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                acquired = bool(await client.set(LOCK_KEY, token, nx=True, ex=LOCK_TTL_SECONDS))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Замок Telethon без Redis", error=str(e)[:120])
+                acquired = None
+                break
+            if acquired or time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(2)
+        yield acquired is not False
+    finally:
+        if acquired:
+            try:
+                if (await client.get(LOCK_KEY)) in (token, token.encode()):
+                    await client.delete(LOCK_KEY)
+            except Exception:  # noqa: BLE001
+                pass
         await client.aclose()

@@ -28,6 +28,7 @@ from app.routers import (
     billing,
     bot,
     deals,
+    discovery,
     documents,
     geo,
     health,
@@ -172,6 +173,7 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"]
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
+app.include_router(discovery.router, prefix="/api/discovery", tags=["Discovery"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(topnlab_webhooks.router, prefix="/api/topnlab", tags=["TopNLab"])
 app.include_router(topnlab.router, prefix="/api/topnlab", tags=["TopNLab"])

@@ -32,7 +32,7 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 # migrations/001_init.sql + 008_status_extensions.sql
-VALID_STATUSES = {"sandbox", "active", "paused", "blocked", "dead"}
+VALID_STATUSES = {"sandbox", "active", "paused", "blocked", "dead", "disabled"}
 SOURCE_TYPES = {"telegram_chat", "telegram_channel", "vk_group", "youtube",
                 "rss", "website", "forum"}
 # A link that ends in one of these is a feed, whatever the site calls itself.
@@ -142,6 +142,13 @@ def _source_dto(
         "last_signal_at": last_signal_at.isoformat() if last_signal_at else None,
         "last_checked_at": s.last_checked_at.isoformat() if s.last_checked_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
+        # ТЗ «Сигналы» v1.0, апгрейд A
+        "discovered_by": s.discovered_by,
+        "sandbox_score": s.sandbox_score,
+        "health_status": s.health_status or "unknown",
+        "last_health_check": s.last_health_check.isoformat() if s.last_health_check else None,
+        "last_post_at": s.last_post_at.isoformat() if s.last_post_at else None,
+        "consecutive_failures": s.consecutive_failures or 0,
     }
 
 
@@ -296,7 +303,7 @@ async def collection_status(
     # The one sentence a person actually needs. Ordered by what to fix first.
     if not any(c["working"] for c in channels):
         verdict = {"tone": "blocker", "text": "Ни один источник не в работе — собирать пока неоткуда.",
-                   "action": "Добавьте источники или дождитесь еженедельного поиска (понедельник, 02:00)."}
+                   "action": "Добавьте источники или дождитесь автопоиска — он идёт каждый час."}
     elif any(c["working"] and not c["ready"] for c in channels):
         off = ", ".join(c["name"] for c in channels if c["working"] and not c["ready"])
         verdict = {"tone": "blocker", "text": f"Источники есть, но канал не настроен: {off}.",
@@ -409,6 +416,10 @@ async def update_source(
     if req.status is not None:
         if req.status not in VALID_STATUSES:
             raise ValidationError("status", f"недопустимый статус: {req.status}")
+        if req.status in ("active", "sandbox") and source.status in ("disabled", "dead"):
+            # switched back on by hand: the failure streak starts over
+            source.consecutive_failures = 0
+            source.health_status = "unknown"
         source.status = req.status
     if req.source_name is not None:
         source.source_name = req.source_name
@@ -454,3 +465,47 @@ async def delete_source(
     await session.commit()
     logger.info("Source deleted", source_id=str(source_id))
     return {"deleted": True, "id": str(source_id)}
+
+
+def _health_dto(s: Source, reason: str = "") -> dict:
+    return {
+        "id": str(s.id),
+        "status": s.status,
+        "health_status": s.health_status or "unknown",
+        "last_health_check": s.last_health_check.isoformat() if s.last_health_check else None,
+        "last_post_at": s.last_post_at.isoformat() if s.last_post_at else None,
+        "consecutive_failures": s.consecutive_failures or 0,
+        "reason": reason,
+    }
+
+
+@router.get("/{source_id}/health")
+async def source_health(
+    source_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Health of one source (ТЗ «Сигналы» 4): alive, quiet or unreadable."""
+    source = await session.get(Source, source_id)
+    if source is None or str(source.agency_id) != current.agency_id:
+        raise NotFoundError("Source", str(source_id))
+    return _health_dto(source)
+
+
+@router.post("/{source_id}/recheck")
+async def recheck_source_health(
+    source_id: uuid.UUID,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Check one source right now instead of waiting for the hourly check (owner)."""
+    from app.services.discovery.health import recheck_source  # noqa: PLC0415
+
+    await require_owner(session, current)
+    source = await session.get(Source, source_id)
+    if source is None or str(source.agency_id) != current.agency_id:
+        raise NotFoundError("Source", str(source_id))
+    result = await recheck_source(session, source)
+    reason = result.reason or {"healthy": "Источник жив", "degraded": "Читается, но давно молчит",
+                               "dead": "Не удалось прочитать"}.get(result.status, "")
+    return {**_health_dto(source, reason), "checked": result.status != "skipped"}

@@ -26,15 +26,34 @@ const SOURCE_STATUS_RU = {
   paused: 'остановлен',
   blocked: 'заблокирован',
   dead: 'мёртвый',
+  disabled: 'отключён',
 };
 
+// ТЗ «Сигналы» v1.0, апгрейд A: проверка живости раз в час.
+function healthChip(s) {
+  const h = s.health_status;
+  if (h === 'healthy') return '<span class="chip chip--success">жив</span>';
+  if (h === 'degraded') return '<span class="chip chip--warm">давно молчит</span>';
+  if (h === 'dead') {
+    return `<span class="chip chip--hot">не читается${s.status === 'disabled' ? '' : ` ${s.consecutive_failures || 0}/3`}</span>`;
+  }
+  return '';
+}
+
 function sourceStatusChip(s) {
-  const mod = s === 'active' ? ' chip--accent' : (s === 'paused' || s === 'dead' ? ' chip--hot' : '');
+  const mod = s === 'active' ? ' chip--accent' : (['paused', 'dead', 'disabled'].includes(s) ? ' chip--hot' : '');
   return `<span class="chip${mod}">${UI.esc(SOURCE_STATUS_RU[s] || s)}</span>`;
 }
 
 Screens.sources = async function () {
   let filter = {};
+
+  // Owner-only: a manager gets 403 here and simply does not see the card.
+  let discovery = null;
+  try {
+    const [cfg, log] = await Promise.all([API.discoveryConfig(), API.discoveryLog(1)]);
+    discovery = { enabled: cfg.config.enabled, last: (log.runs || [])[0] || null };
+  } catch (e) { discovery = null; }
 
   async function draw() {
     UI.render(UI.skelList(3));
@@ -52,11 +71,13 @@ Screens.sources = async function () {
         <button class="chip chip--btn ${filter.status === 'active' ? 'chip--accent' : ''}" data-s="active">В работе</button>
         <button class="chip chip--btn ${filter.status === 'sandbox' ? 'chip--accent' : ''}" data-s="sandbox">Песочница</button>
         <button class="chip chip--btn ${filter.status === 'paused' ? 'chip--accent' : ''}" data-s="paused">Остановлены</button>
+        <button class="chip chip--btn ${filter.status === 'disabled' ? 'chip--accent' : ''}" data-s="disabled">Отключены</button>
       </div>
       <button class="btn btn--secondary btn--block mt-3" id="add">${UI.icon('plus')} Добавить источник</button>
       <div class="item__meta mt-2">Читаются и «в работе», и «песочница» — разница только в доверии:
         в песочницу робот кладёт то, что нашёл сам, пока вы не подтвердили.
-        «Остановлен» не читается вовсе.</div>`;
+        «Остановлен» не читается вовсе. «Отключён» — три проверки подряд источник
+        не удалось прочитать (удалён или закрыт); включить можно кнопкой «В работу».</div>`;
 
     const body = UI.list(data.sources, (s) => {
       const kind = sourceKind(s.source_type);
@@ -80,15 +101,18 @@ Screens.sources = async function () {
             сигналов <span class="num">${s.signals_total}</span></span>
           ${s.signals_per_day ? `<span class="chip"><span class="num">${s.signals_per_day}</span> в день</span>` : ''}
           ${s.auto_found ? '<span class="chip">нашёл робот</span>' : ''}
+          ${healthChip(s)}
         </div>
         ${dead ? '<div class="item__meta mt-2">В работе, но пока ничего не принёс.</div>' : ''}
         <div class="item__meta mt-2 ${stale ? 'text--warning' : ''}">
           Последний сигнал: ${s.last_signal_at ? UI.esc(UI.ago(s.last_signal_at)) : 'никогда'}
           ${stale ? ` ⚠️ ${staleDays} дн. без сигналов` : ''}
+          ${s.last_post_at ? `<br>Последняя публикация: ${UI.esc(UI.ago(s.last_post_at))}` : ''}
         </div>
         <div class="btn-row mt-3">
           ${s.status !== 'active' ? `<button class="btn btn--sm" data-act="active" data-id="${s.id}">${UI.icon('check')} В работу</button>` : ''}
           ${s.status !== 'paused' ? `<button class="btn btn--secondary btn--sm" data-act="paused" data-id="${s.id}">${UI.icon('pause')} Остановить</button>` : ''}
+          <button class="btn btn--ghost btn--sm" data-recheck="${s.id}">${UI.icon('refresh')} Проверить</button>
           <button class="btn btn--danger btn--sm" data-del="${s.id}">${UI.icon('trash')} Удалить</button>
         </div>
       </div>`;
@@ -96,11 +120,37 @@ Screens.sources = async function () {
       icon: 'settings',
       title: filter.status ? 'В этом статусе пусто' : 'Источников нет',
       sub: filter.status ? 'Посмотрите другие фильтры'
-        : 'Робот ищет чаты сам раз в неделю — или добавьте свой',
+        : 'Автопоиск ищет источники сам каждый час — или добавьте свой',
       actionLabel: filter.status ? null : 'Добавить источник', actionIcon: 'plus', actionId: 'add-empty',
     });
 
-    UI.render(tabs + body, () => {
+    const discoveryCard = discovery ? `
+      <div class="card card--tap" id="go-discovery" style="margin-bottom:12px">
+        <div class="between gap-2">
+          <span class="item__title">${UI.icon('signals')} Автопоиск источников</span>
+          <span class="chip${discovery.enabled ? ' chip--success' : ''}">${discovery.enabled ? 'включён' : 'выключен'}</span>
+        </div>
+        <div class="item__sub mt-1">${discovery.last
+          ? `Последний поиск ${UI.esc(UI.ago(discovery.last.run_at))}: найдено ${discovery.last.found},
+             подключено ${discovery.last.activated}, в песочнице ${discovery.last.sandboxed}`
+          : 'Ещё не запускался — первый поиск в начале следующего часа'}</div>
+        <div class="item__meta mt-2">Находки, журнал и площадки ›</div>
+      </div>` : '';
+
+    UI.render(discoveryCard + tabs + body, () => {
+      const gd = document.getElementById('go-discovery');
+      if (gd) gd.onclick = () => Router.go('sources/discovery');
+
+      document.querySelectorAll('[data-recheck]').forEach((b) => {
+        b.onclick = () => UI.busy(b, async () => {
+          try {
+            const r = await API.recheckSource(b.getAttribute('data-recheck'));
+            UI.toast(r.checked ? r.reason : 'Сейчас не проверить: ' + r.reason);
+            await draw();
+          } catch (e) { UI.toast('Не удалось: ' + e.message); }
+        });
+      });
+
       document.querySelectorAll('[data-s]').forEach((b) => {
         b.onclick = () => {
           const v = b.getAttribute('data-s');
@@ -225,14 +275,14 @@ Screens.collection = async function () {
         const [label, cls] = STATE[s.status] || [s.status, ''];
         const seen = s.last_checked_at ? UI.ago(s.last_checked_at) : 'ни разу';
         return `
-          <div class="item">
+          <div class="item"><div class="grow">
             <div class="between gap-2">
               <span class="item__title">${UI.esc(s.name || s.url || '—')}</span>
               <span class="chip${cls}">${label}</span>
             </div>
             <div class="item__meta mt-1">заходили: ${UI.esc(seen)}${
               s.signals_per_day ? ' · сигналов в день: ' + s.signals_per_day : ''}</div>
-          </div>`;
+          </div></div>`;
       };
 
       // Плашка раскрывается на месте. Уводить на другой экран ради ответа

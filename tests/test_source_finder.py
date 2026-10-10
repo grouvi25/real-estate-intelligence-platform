@@ -63,13 +63,21 @@ async def test_evaluate_and_save_sources(monkeypatch):
 
 @pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
 @pytest.mark.asyncio
-async def test_geo_discovery_cron_runs():
-    from app.database import run_migrations
-    from worker.tasks.source_tasks import _geo_discovery_cron
+async def test_geo_discovery_cron_runs(monkeypatch):
+    """The old weekly entry point now hands due cities to the hourly pipeline
+    (a beat schedule saved before the upgrade may still call it)."""
+    from app.database import engine, run_migrations
+    from worker.tasks import discovery, source_tasks
 
+    queued = []
+    monkeypatch.setattr(discovery.run_discovery_for_geo, "apply_async",
+                        lambda args, queue=None, **kw: queued.append((args[0], queue)))
     await run_migrations()
-    # search_telegram_sources returns [] (no Telethon) -> nothing saved, no error.
-    assert await _geo_discovery_cron() == 0
+    try:
+        n = await source_tasks._geo_discovery_cron()
+    finally:
+        await engine.dispose()
+    assert n == len(queued) and all(q == "discovery" for _, q in queued)
 
 
 @pytest.mark.skipif(os.getenv("RUN_DB_TESTS") != "1", reason="requires live PostgreSQL")
