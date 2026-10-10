@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     # account. It is billed per request and never leaves the server.
     yandex_geocoder_api_key: Optional[str] = Field(
         default=None, alias="YANDEX_GEOCODER_API_KEY")
+    # "API Поиска по организациям" -- a third Yandex product, a third key. Source
+    # discovery uses it to find the agency's competitors (ТЗ «Сигналы» 2.3, 7).
+    yandex_places_api_key: Optional[str] = Field(default=None, alias="YANDEX_PLACES_API_KEY")
     # TopNLab CRM (ТЗ «Интеграция с TopNLab» v1.0, раздел 7). Ключа агентства
     # здесь нет: он в agency_crm_config, у каждого агентства свой appkey.
     topnlab_base_url: str = Field(default="https://agencies-p.topnlab.ru", alias="TOPNLAB_BASE_URL")

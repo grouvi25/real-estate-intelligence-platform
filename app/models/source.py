@@ -35,3 +35,11 @@ class Source(CreatedAtMixin, UpdatedAtMixin, Base):
     last_checked_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
     auto_found: Mapped[bool] = mapped_column(Boolean, default=False)
     meta: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
+    # ТЗ «Сигналы» v1.0, апгрейд A (migration 065): where the source came from
+    # and whether it is still alive.
+    discovered_by: Mapped[Optional[str]] = mapped_column(Text)
+    sandbox_score: Mapped[Optional[float]] = mapped_column(Float)
+    last_health_check: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    health_status: Mapped[str] = mapped_column(Text, default="unknown")
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    last_post_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))

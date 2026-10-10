@@ -41,6 +41,7 @@ celery_app = Celery(
         "worker.tasks.avito_tasks",
         "worker.tasks.bot_tasks",
         "worker.tasks.topnlab_sync",
+        "worker.tasks.discovery",
     ],
 )
 
@@ -53,6 +54,12 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=300,
     worker_prefetch_multiplier=1,
+    # ТЗ «Сигналы» 5: discovery has its own queue so a slow search never holds up
+    # collection and scoring. The worker consumes both (docker-compose: -Q).
+    task_routes={
+        "worker.tasks.discovery.*": {"queue": "discovery"},
+        "worker.tasks.source_tasks.*": {"queue": "discovery"},
+    },
 )
 
 # --- Beat schedule (enabled entries only) ---
@@ -61,9 +68,19 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.maintenance_tasks.reset_daily_ai_cost",
         "schedule": crontab(hour=0, minute=1),  # 00:01 daily
     },
-    "geo-discovery-weekly": {
-        "task": "worker.tasks.source_tasks.geo_discovery_cron",
-        "schedule": crontab(hour=2, minute=0, day_of_week=1),  # Mon 02:00 MSK
+    # ТЗ «Сигналы» v1.0, раздел 5. Replaces the weekly geo_discovery_cron: the
+    # search now runs every hour, a few queries at a time.
+    "discovery-hourly": {
+        "task": "worker.tasks.discovery.run_discovery_for_all_agencies",
+        "schedule": crontab(minute=15),
+    },
+    "source-health-check": {
+        "task": "worker.tasks.discovery.check_source_health",
+        "schedule": crontab(minute=45),
+    },
+    "discovery-sandbox-retry": {
+        "task": "worker.tasks.discovery.retry_sandbox_candidates",
+        "schedule": crontab(hour=4, minute=30),
     },
     "check-referral-expiry": {
         "task": "worker.tasks.partner_tasks.check_referral_expiry",

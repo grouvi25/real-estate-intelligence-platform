@@ -44,6 +44,7 @@
     ['referrals', () => Screens.referrals()],
     ['tasks', () => Screens.tasks()],
     ['sources', () => Screens.sources()],
+    ['sources/discovery', () => Screens.discovery()],
     ['collection', () => Screens.collection()],
     ['admin', () => Screens.admin()],
     ['admin/geo', () => Screens.adminGeo()],

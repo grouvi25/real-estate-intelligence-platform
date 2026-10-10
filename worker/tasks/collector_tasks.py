@@ -141,6 +141,18 @@ def _stamp(src) -> None:
 
 
 async def _collect_telegram_sources(limit_per_source: int = 50) -> int:
+    """Сбор под общим замком аккаунта: автопоиск и проверка живости источников
+    работают тем же файлом сессии (см. telethon_sessions.telethon_lock)."""
+    from app.collectors.telethon_sessions import telethon_lock
+
+    async with telethon_lock(wait_seconds=240) as got:
+        if not got:
+            logger.warning("Telegram collection skipped: account busy")
+            return 0
+        return await _collect_telegram_sources_locked(limit_per_source)
+
+
+async def _collect_telegram_sources_locked(limit_per_source: int = 50) -> int:
     from sqlalchemy import select
 
     from app.collectors import telethon_sessions
