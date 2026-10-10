@@ -134,6 +134,7 @@ class RssCollector:
         from sqlalchemy import select  # noqa: PLC0415
 
         from app.models.signal import Signal  # noqa: PLC0415
+        from app.services.signal_classifier import category_for  # noqa: PLC0415
         from app.services.channels.base import author_hash  # noqa: PLC0415
         from app.services.signal_bus import ingest_content  # noqa: PLC0415
 
@@ -168,6 +169,7 @@ class RssCollector:
                 geo_location_id=source.geo_location_id,
                 content_unit_id=cu.id,
                 raw_text=item["text"],
+                signal_category=await category_for(session, source.agency_id, item["text"]),
                 author_hash=author_hash("rss", item["id"]),
                 signal_url=item["url"],
                 origin_system=ORIGIN_SCOUTING,

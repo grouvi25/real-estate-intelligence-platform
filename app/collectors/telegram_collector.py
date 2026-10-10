@@ -17,6 +17,7 @@ from app.config import config
 from app.services.channels import get_channel_adapter
 from app.services.intent_scoring import content_fingerprint, quick_filter
 from app.services.signal_bus import ingest_content
+from app.services.signal_classifier import category_for
 
 logger = structlog.get_logger()
 
@@ -279,6 +280,7 @@ class TelegramCollector:
                     geo_location_id=source.geo_location_id,
                     content_unit_id=cu.id,
                     raw_text=text,
+                    signal_category=await category_for(session, source.agency_id, text),
                     content_fingerprint=fingerprint,
                     author_hash=norm.author_hash,
                     author_display_name=norm.author_display_name,
