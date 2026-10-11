@@ -239,10 +239,15 @@ async def credentials_for(session, agency) -> Optional[tuple[str, str]]:
     candidates = blob if isinstance(blob, list) else [blob]
     for entry in candidates:
         if isinstance(entry, dict):
-            cid = entry.get("client_id") or entry.get("clientId")
-            secret = entry.get("client_secret") or entry.get("clientSecret")
-            if cid and secret:
-                return str(cid), str(secret)
+            # partner/credentials answers [{"format": "AVITO", "feed": [...],
+            # "extras": {"client_id": ..., "client_secret": ...}}]
+            for where in (entry, entry.get("extras") or {}):
+                if not isinstance(where, dict):
+                    continue
+                cid = where.get("client_id") or where.get("clientId")
+                secret = where.get("client_secret") or where.get("clientSecret")
+                if cid and secret:
+                    return str(cid), str(secret)
     if config.avito_client_id and config.avito_client_secret:
         owner = config.platform_owner_agency_id
         if owner and str(agency.id) == str(owner):

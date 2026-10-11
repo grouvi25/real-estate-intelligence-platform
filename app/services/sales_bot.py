@@ -53,11 +53,12 @@ BAD_PHONE = "Не похоже на номер телефона. Напишит�
 
 # ------------------------------------------------------------------ transport
 
-async def send(chat_id: int, text: str, reply_markup: Optional[dict] = None) -> bool:
+async def send(chat_id: int, text: str, reply_markup: Optional[dict] = None,
+               *, token: Optional[str] = None) -> bool:
     """Through the sales bot. Never raises: a lost message is logged, not fatal."""
     from app.services.bot_abstraction import _redact, bot_layer  # noqa: PLC0415
 
-    token = config.platform_onboarding_bot_token
+    token = token or config.platform_onboarding_bot_token
     if not token:
         logger.warning("Sales bot token is not set, message not sent")
         return False
@@ -87,8 +88,11 @@ async def notify_operators(text: str) -> None:
                 PlatformOperator.is_active.is_(True)))).scalars())
     except Exception as e:  # noqa: BLE001
         logger.warning("Operators list unavailable", error=str(e)[:120])
+    # Without a sales bot the operators still have to hear about a request (the
+    # demo form leaves them too): REIP's own bot, which they use anyway.
+    token = config.platform_onboarding_bot_token or config.telegram_bot_token
     for op in ids:
-        await send(op, text)
+        await send(op, text, token=token)
 
 
 async def _redis():

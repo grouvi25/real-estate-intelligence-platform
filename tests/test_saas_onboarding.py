@@ -134,7 +134,7 @@ def outbox(monkeypatch):
 
     sent = []
 
-    async def send(chat_id, text, reply_markup=None):
+    async def send(chat_id, text, reply_markup=None, **kw):
         sent.append((chat_id, text))
         return True
 
