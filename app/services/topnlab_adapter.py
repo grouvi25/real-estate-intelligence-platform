@@ -76,6 +76,9 @@ URGENCY_RU = {"hot": "горячий", "warm": "тёплый", "cold": "холо
 REPORT_PAGE_TITLE = "Заявки - Продажа"
 REPORT_PAGE_FALLBACK_ID = 8
 REPORT_TITLE = "Аналитика REIP"
+# (button title, ?format=) -- the PDF one keeps the plain address, so a button
+# registered before there were two formats now gives a PDF, as the ТЗ asks.
+REPORT_BUTTONS = ((REPORT_TITLE, None), ("Аналитика REIP (Excel)", "xlsx"))
 REPORT_ORDER = 10
 
 
@@ -175,8 +178,16 @@ async def _call(
     json: Optional[dict] = None,
     params: Optional[dict] = None,
     what: str,
+    public: bool = False,
 ) -> dict:
-    """One request to TopNLab, classified per the documented answer kinds."""
+    """One request to TopNLab, classified per the documented answer kinds.
+
+    ``public`` -- the /public/* methods (menu, partner credentials) answer 200
+    with the object or list itself, no {"status": ...} around it. Seen live on
+    11.10.2026: menu/create returned {"id": 46, ...} and partner/credentials a
+    list, and both were taken for failures -- the button was created in the CRM
+    while REIP reported «TopNLab не отвечает».
+    """
     try:
         async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
             resp = await client.request(method, url, json=json, params=params)
@@ -197,11 +208,18 @@ async def _call(
                        status=resp.status_code, errors=errors)
         raise TopnlabRejected(f"{what}: TopNLab отклонил запрос", errors)
 
+    if public and resp.status_code == 200 and (
+            isinstance(body, list) or (isinstance(body, dict) and "status" not in body)):
+        return {"status": "ok", "data": body}
+
     if resp.status_code != 200 or not isinstance(body, dict) \
             or body.get("status") not in ("ok", "success"):
+        # Only the shape of the answer, never its text: partner/credentials
+        # carries client secrets, menu answers carry our webhook token.
+        shape = (sorted(body)[:10] if isinstance(body, dict)
+                 else type(body).__name__ if body is not None else f"{len(resp.content)} bytes")
         logger.warning("TopNLab answered unexpectedly", what=what, agency_id=s.agency_id,
-                       status=resp.status_code,
-                       body=_hide(resp.text[:200], s.appkey))
+                       status=resp.status_code, shape=shape)
         raise TopnlabUnavailable(f"{what}: TopNLab ответил {resp.status_code}")
 
     if body.get("errors"):
@@ -494,7 +512,7 @@ async def get_avito_credentials(s: TopnlabSettings, site: str = "AVITO") -> Any:
         raise TopnlabRejected("Не задан ID компании в TopNLab")
     body = await _call(
         s, "POST", f"{s.base_url}/public/partner/{quote(s.company_id, safe='')}/credentials",
-        params={"site": site, "key": s.appkey}, what="partner/credentials")
+        params={"site": site, "key": s.appkey}, what="partner/credentials", public=True)
     return _payload(body)
 
 
@@ -538,13 +556,14 @@ def decrypt_blob(value: Optional[str]) -> Any:
 
 # ---------------------------------------------------------- отчёт «Аналитика REIP»
 
-def report_webhook_url(token: str) -> str:
-    return f"{config.base_url.rstrip('/')}/api/topnlab/report-webhook?token={token}"
+def report_webhook_url(token: str, fmt: Optional[str] = None) -> str:
+    url = f"{config.base_url.rstrip('/')}/api/topnlab/report-webhook?token={token}"
+    return f"{url}&format={fmt}" if fmt else url
 
 
 async def find_report_page(s: TopnlabSettings) -> int:
     body = await _call(s, "GET", f"{s.base_url}/public/menu/get-all-pages",
-                       params={"key": s.appkey}, what="menu/get-all-pages")
+                       params={"key": s.appkey}, what="menu/get-all-pages", public=True)
     pages = _payload(body)
     if isinstance(pages, dict):
         for page_id, title in pages.items():
@@ -555,43 +574,52 @@ async def find_report_page(s: TopnlabSettings) -> int:
 
 async def list_reports(s: TopnlabSettings) -> list[dict]:
     body = await _call(s, "POST", f"{s.base_url}/public/menu/list/",
-                       json={"appkey": s.appkey}, what="menu/list")
+                       json={"appkey": s.appkey}, what="menu/list", public=True)
     items = _payload(body)
     return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
 
 
-async def register_reip_report(s: TopnlabSettings) -> tuple[int, str, bool]:
-    """ТЗ 4.8: put «Аналитика REIP» into TopNLab's mass-action menu.
+async def register_reip_report(s: TopnlabSettings) -> tuple[dict, str, int]:
+    """ТЗ 4.8: put «Аналитика REIP» into TopNLab's mass-action menu -- one button
+    for a PDF report and one for Excel.
 
-    Returns (menu id, token, created). Registering twice must not leave two
-    buttons: if the menu already holds our current address, that entry is kept.
-    The token in the address is what the webhook trusts -- TopNLab signs nothing,
-    and without it anyone who learnt the URL could pull the agency's leads.
+    Returns ({format: menu id}, token, how many buttons were created now).
+    Registering again must not leave duplicates: a button whose address is
+    already in the menu is kept. The token in the address is what the webhook
+    trusts -- TopNLab signs nothing, and without it anyone who learnt the URL
+    could pull the agency's leads.
     """
     token = s.report_token or secrets.token_urlsafe(24)
-    url = report_webhook_url(token)
     try:
         existing = await list_reports(s)
-    except TopnlabRejected:
+    except TopnlabError:
         existing = []
-    for item in existing:
-        if str(item.get("url", "")) == url and _first_id(item.get("id")) is not None:
-            return _first_id(item.get("id")), token, False
-
-    page_id = await find_report_page(s)
-    body = await _call(s, "GET", f"{s.base_url}/public/menu/create", params={
-        "key": s.appkey, "title": REPORT_TITLE, "page_id": page_id,
-        "order": REPORT_ORDER, "url": url,
-    }, what="menu/create")
-    menu_id = _first_id(_payload(body)) or _first_id(body)
-    if menu_id is None:
-        # Кнопка могла появиться — найдём её по адресу, а не будем плодить вторую.
-        for item in await list_reports(s):
-            if str(item.get("url", "")) == url:
-                menu_id = _first_id(item.get("id"))
-    if menu_id is None:
-        raise TopnlabRejected("menu/create: TopNLab не вернул id отчёта", body)
-    return menu_id, token, True
+    by_url = {str(i.get("url", "")): _first_id(i.get("id")) for i in existing}
+    page_id: Optional[int] = None
+    ids: dict = {}
+    created = 0
+    for title, fmt in REPORT_BUTTONS:
+        url = report_webhook_url(token, fmt)
+        if by_url.get(url) is not None:
+            ids[fmt or "pdf"] = by_url[url]
+            continue
+        if page_id is None:
+            page_id = await find_report_page(s)
+        body = await _call(s, "GET", f"{s.base_url}/public/menu/create", params={
+            "key": s.appkey, "title": title, "page_id": page_id,
+            "order": REPORT_ORDER + len(ids), "url": url,
+        }, what="menu/create", public=True)
+        menu_id = _first_id(_payload(body)) or _first_id(body)
+        if menu_id is None:
+            # Кнопка могла появиться — найдём её по адресу, а не будем плодить вторую.
+            for item in await list_reports(s):
+                if str(item.get("url", "")) == url:
+                    menu_id = _first_id(item.get("id"))
+        if menu_id is None:
+            raise TopnlabRejected("menu/create: TopNLab не вернул id отчёта", None)
+        ids[fmt or "pdf"] = menu_id
+        created += 1
+    return ids, token, created
 
 
 async def check_connection(s: TopnlabSettings) -> int:

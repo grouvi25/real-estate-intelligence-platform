@@ -48,8 +48,13 @@ PUBLIC_PREFIXES = (
     "/api/topnlab/incoming-webhook",
 )
 REPORT_PREFIX = "topnlab_reports/"
-REPORT_NAME = re.compile(r"^[0-9a-f]{32}\.xlsx$")
+REPORT_NAME = re.compile(r"^[0-9a-f]{32}\.(xlsx|pdf)$")
 XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+PDF_TYPE = "application/pdf"
+CONTENT_TYPES = {"xlsx": XLSX_TYPE, "pdf": PDF_TYPE}
+# TopNLab waits 10 s for the answer; a PDF that is not ready by then is sent as
+# Excel instead -- a report in the other format beats no report.
+PDF_BUDGET_SECONDS = 6.0
 MAX_IDS = 1000
 
 
@@ -148,9 +153,53 @@ HEADERS = ["Заявка TopNLab", "Лид создан (UTC)", "Score", "Сег
            "Источник", "Ссылка на сообщение", "Сообщение"]
 
 
+def build_report_pdf(rows: list[list[Any]], requested: int) -> bytes:
+    """The same table as a PDF (A4 landscape) -- the format the ТЗ names.
+    WeasyPrint is in the image for documents (Dockerfile, DejaVu for Cyrillic)."""
+    from html import escape  # noqa: PLC0415
+
+    from weasyprint import HTML  # noqa: PLC0415
+
+    def cell(value: Any, idx: int) -> str:
+        if value is None:
+            return ""
+        if idx in (5, 6) and isinstance(value, (int, float)):
+            return f"{int(value):,}".replace(",", "\u00a0")
+        text = str(value)
+        if idx == 12 and len(text) > 400:
+            text = text[:400] + "…"
+        if idx == 11 and text.startswith("http"):
+            return f'<a href="{escape(text)}">ссылка</a>'
+        return escape(text)
+
+    stamp = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    head = "".join(f"<th>{escape(h)}</th>" for h in HEADERS)
+    body = "".join("<tr>" + "".join(f"<td>{cell(v, i)}</td>" for i, v in enumerate(r)) + "</tr>"
+                   for r in rows)
+    if not rows:
+        body = f'<tr><td colspan="{len(HEADERS)}">Среди выбранных заявок ({requested}) нет пришедших из REIP.</td></tr>'
+    html = f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><style>
+      @page {{ size: A4 landscape; margin: 12mm; }}
+      body {{ font-family: "DejaVu Sans", sans-serif; font-size: 7.5pt; color: #111; }}
+      h1 {{ font-size: 13pt; margin: 0 0 2mm; }}
+      .meta {{ color: #555; margin-bottom: 4mm; }}
+      table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+      th {{ background: #f0f0f0; text-align: left; }}
+      th, td {{ border: 0.5pt solid #bbb; padding: 1.2mm; vertical-align: top;
+               overflow-wrap: anywhere; }}
+      th:nth-child(13), td:nth-child(13) {{ width: 30%; }}
+      tr {{ page-break-inside: avoid; }}
+    </style></head><body>
+      <h1>Аналитика REIP — лиды</h1>
+      <div class="meta">Выбрано заявок: {requested}, из REIP: {len(rows)}. Сформировано {stamp}.</div>
+      <table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>
+    </body></html>"""
+    return HTML(string=html).write_pdf()
+
+
 def build_report_xlsx(rows: list[list[Any]], requested: int) -> bytes:
-    """One sheet, one row per lead. Excel rather than PDF: it is built in
-    milliseconds with no system libraries, so the 10-second limit is safe."""
+    """One sheet, one row per lead. Built in milliseconds with no system
+    libraries; also the fallback when a PDF does not fit TopNLab's 10 seconds."""
     from openpyxl import Workbook  # noqa: PLC0415
     from openpyxl.styles import Font  # noqa: PLC0415
 
@@ -173,9 +222,27 @@ def build_report_xlsx(rows: list[list[Any]], requested: int) -> bytes:
     return buf.getvalue()
 
 
+async def build_report(rows: list[list[Any]], requested: int, fmt: str) -> tuple[bytes, str]:
+    """(file, extension). PDF unless Excel was asked for, or the PDF did not
+    make it within PDF_BUDGET_SECONDS, or WeasyPrint is not available."""
+    import asyncio  # noqa: PLC0415
+
+    if fmt != "xlsx":
+        try:
+            data = await asyncio.wait_for(
+                asyncio.to_thread(build_report_pdf, rows, requested), PDF_BUDGET_SECONDS)
+            return data, "pdf"
+        except Exception as e:  # noqa: BLE001 - timeout, missing libs: Excel instead
+            logger.warning("TopNLab PDF report fell back to Excel", rows=len(rows),
+                           error=f"{type(e).__name__}: {str(e)[:120]}")
+    return build_report_xlsx(rows, requested), "xlsx"
+
+
 @router.post("/report-webhook")
-async def report_webhook(request: Request, token: Optional[str] = None):
-    """ТЗ 5.1: build the «Лиды REIP» report for the orders a TopNLab user chose."""
+async def report_webhook(request: Request, token: Optional[str] = None,
+                         format: Optional[str] = None):  # noqa: A002 - the ТЗ's query name
+    """ТЗ 5.1: build the «Лиды REIP» report for the orders a TopNLab user chose.
+    ``?format=xlsx`` gives Excel (the second button); otherwise PDF."""
     from app.services.storage import get_storage  # noqa: PLC0415
 
     try:
@@ -193,9 +260,9 @@ async def report_webhook(request: Request, token: Optional[str] = None):
         ids = _ids(body.get("ids"))
         rows = await _report_rows(session, cfg.agency_id, ids)
 
-    data = build_report_xlsx(rows, len(ids))
-    name = f"{uuid.uuid4().hex}.xlsx"
-    await get_storage().upload(REPORT_PREFIX + name, data, XLSX_TYPE)
+    data, ext = await build_report(rows, len(ids), (format or "pdf").lower())
+    name = f"{uuid.uuid4().hex}.{ext}"
+    await get_storage().upload(REPORT_PREFIX + name, data, CONTENT_TYPES[ext])
     url = f"{config.base_url.rstrip('/')}/api/topnlab/report-files/{name}"
     logger.info("TopNLab report built", agency_id=str(cfg.agency_id),
                 requested=len(ids), found=len(rows), report_id=body.get("report_id"))
@@ -215,9 +282,10 @@ async def report_file(name: str):
     except Exception:  # noqa: BLE001 - absent object: the same answer as a bad name
         return _json({"error": "Файл не найден"}, status_code=404)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return Response(content=data, media_type=XLSX_TYPE, headers={
+    ext = name.rsplit(".", 1)[-1]
+    return Response(content=data, media_type=CONTENT_TYPES[ext], headers={
         **CORS_HEADERS,
-        "Content-Disposition": f'attachment; filename="reip-leads-{stamp}.xlsx"',
+        "Content-Disposition": f'attachment; filename="reip-leads-{stamp}.{ext}"',
         "Cache-Control": "private, max-age=3600",
     })
 

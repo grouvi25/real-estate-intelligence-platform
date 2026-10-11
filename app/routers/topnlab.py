@@ -200,14 +200,17 @@ async def register_report(
 
     row, s = await _settings_or_400(session, current)
     try:
-        menu_id, token, created = await register_reip_report(s)
+        ids, token, created = await register_reip_report(s)
     except TopnlabError as e:
         raise _topnlab_error(e) from None
-    row.config = {**(row.config or {}), "report_menu_id": menu_id, "report_token": token}
+    row.config = {**(row.config or {}), "report_menu_id": ids.get("pdf"),
+                  "report_menu_ids": ids, "report_token": token}
     await session.commit()
-    return {"ok": True, "report_menu_id": menu_id, "created": created,
-            "message": f"Отчёт зарегистрирован. ID: {menu_id}" if created
-            else f"Отчёт уже был зарегистрирован. ID: {menu_id}"}
+    listed = ", ".join(f"{'PDF' if k == 'pdf' else 'Excel'} — {v}" for k, v in ids.items())
+    return {"ok": True, "report_menu_id": ids.get("pdf"), "report_menu_ids": ids,
+            "created": created,
+            "message": (f"Кнопки «Аналитика REIP» в TopNLab: {listed}" if created
+                        else f"Кнопки уже были в TopNLab: {listed}")}
 
 
 @router.post("/avito-credentials")

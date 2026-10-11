@@ -295,7 +295,7 @@ async def test_transfer_only_with_an_email(api):
 @pytest.mark.asyncio
 async def test_avito_credentials_need_the_company_id(api):
     fake = api({"/public/partner/207413/credentials":
-                (200, {"status": "ok", "data": {"client_id": "a", "client_secret": "b"}})})
+                (200, {"client_id": "a", "client_secret": "b"})})
     with pytest.raises(tl.TopnlabRejected):
         await tl.get_avito_credentials(_settings())
     creds = await tl.get_avito_credentials(_settings(company_id="207413"))
@@ -317,29 +317,98 @@ PAGES = {"status": "ok", "response": {"7": "Заявки - Аренда", "8": "
 
 @pytest.mark.asyncio
 async def test_report_is_registered_on_the_sale_orders_page(api):
+    """Two buttons, PDF and Excel. The menu answers come back bare -- the object
+    or the list itself, no {"status": ...} -- as TopNLab's live API does."""
     fake = api({
-        "/public/menu/list/": (200, {"status": "ok", "data": []}),
+        "/public/menu/list/": (200, []),
         "/public/menu/get-all-pages": (200, PAGES),
-        "/public/menu/create": (200, {"status": "ok", "data": {"id": 888}}),
+        "/public/menu/create": (200, {"id": 888, "page_id": 8, "title": "Аналитика REIP"}),
     })
-    menu_id, token, created = await tl.register_reip_report(_settings())
-    assert (menu_id, created) == (888, True)
+    ids, token, created = await tl.register_reip_report(_settings())
+    assert (ids, created) == ({"pdf": 888, "xlsx": 888}, 2)
     assert len(token) >= 24
-    params = [c for c in fake.calls if c[1] == "/public/menu/create"][0][2]
-    assert params["page_id"] == "8" and params["title"] == "Аналитика REIP"
-    assert params["url"] == f"https://test.local/api/topnlab/report-webhook?token={token}"
+    params = [c[2] for c in fake.calls if c[1] == "/public/menu/create"]
+    assert [p["title"] for p in params] == ["Аналитика REIP", "Аналитика REIP (Excel)"]
+    assert params[0]["page_id"] == "8"
+    assert params[0]["url"] == f"https://test.local/api/topnlab/report-webhook?token={token}"
+    assert params[1]["url"] == f"https://test.local/api/topnlab/report-webhook?token={token}&format=xlsx"
 
 
 @pytest.mark.asyncio
 async def test_registering_twice_keeps_one_button(api):
+    """A button already in the menu -- e.g. created by a run that then failed to
+    read TopNLab's answer -- is adopted, not created a second time."""
     url = tl.report_webhook_url("tok-existing-000000000000")
-    fake = api({"/public/menu/list/": (200, {"status": "ok", "data": [
-        {"id": 3, "title": "Другое", "url": "https://x"},
-        {"id": 888, "title": "Аналитика REIP", "url": url}]})})
-    menu_id, token, created = await tl.register_reip_report(
+    fake = api({
+        "/public/menu/list/": (200, [{"id": 3, "title": "Другое", "url": "https://x"},
+                                     {"id": 46, "title": "Аналитика REIP", "url": url}]),
+        "/public/menu/get-all-pages": (200, PAGES),
+        "/public/menu/create": (200, {"id": 47}),
+    })
+    ids, token, created = await tl.register_reip_report(
         _settings(report_token="tok-existing-000000000000"))
-    assert (menu_id, token, created) == (888, "tok-existing-000000000000", False)
-    assert "/public/menu/create" not in fake.paths()
+    assert (ids, token, created) == ({"pdf": 46, "xlsx": 47}, "tok-existing-000000000000", 1)
+    creates = [c[2]["title"] for c in fake.calls if c[1] == "/public/menu/create"]
+    assert creates == ["Аналитика REIP (Excel)"]
+
+
+@pytest.mark.asyncio
+async def test_a_bare_answer_is_not_logged(api, capsys):
+    """partner/credentials answers with client secrets in the body; an
+    unexpected answer is logged by its shape only."""
+    api({"/public/partner/207413/credentials": (500, {"extras": {"client_secret": "s3cr3t-value"}})})
+    with pytest.raises(tl.TopnlabUnavailable):
+        await tl.get_avito_credentials(_settings(company_id="207413"))
+    assert "s3cr3t-value" not in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_avito_keys_from_topnlab_extras_are_used():
+    """partner/credentials answers a list of feeds with the keys in "extras"."""
+    from types import SimpleNamespace
+
+    from app.services import avito_sync
+
+    answer = [{"feed": [{"path": "https://feed-p.topnlab.ru/x/feed.xml"}], "param": [],
+               "format": "AVITO", "extras": {"client_id": "cid-1", "client_secret": "sec-1"}}]
+    cfg = SimpleNamespace(config={"avito_credentials_encrypted": tl.encrypt_blob(answer)})
+
+    async def load_config(session, agency_id):
+        return cfg
+
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(tl, "load_config", load_config)
+    try:
+        creds = await avito_sync.credentials_for(None, SimpleNamespace(id="a"))
+    finally:
+        mp.undo()
+    assert creds == ("cid-1", "sec-1")
+
+
+@pytest.mark.asyncio
+async def test_report_pdf_and_its_fallback(monkeypatch):
+    from app.routers import topnlab_webhooks as w
+
+    rows = [[100500, "30.09.2026 09:00", 82, "семья", "горячий", 5_000_000, 8_000_000, "new",
+             "Анна", "@buyer", "чат", "https://t.me/x/1", "Ищу двушку у моря"]]
+    try:  # CI installs the pdf extra with its system libraries; a dev box may not
+        import weasyprint  # noqa: F401
+        has_pdf = True
+    except Exception:  # noqa: BLE001
+        has_pdf = False
+    data, ext = await w.build_report(rows, 2, "pdf")
+    if has_pdf:
+        assert ext == "pdf" and data[:5] == b"%PDF-"
+    data, ext = await w.build_report(rows, 2, "xlsx")
+    assert ext == "xlsx" and data[:2] == b"PK"
+
+    def broken(*a):
+        raise OSError("no pango")
+
+    monkeypatch.setattr(w, "build_report_pdf", broken)
+    data, ext = await w.build_report(rows, 2, "pdf")
+    assert ext == "xlsx"  # a report in the other format beats no report
 
 
 def test_report_workbook():

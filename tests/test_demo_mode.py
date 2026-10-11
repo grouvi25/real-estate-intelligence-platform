@@ -255,7 +255,7 @@ async def test_demo_request_form_reaches_the_operators(client, demo_redis, monke
 
     sent = []
 
-    async def send(chat_id, text, reply_markup=None):
+    async def send(chat_id, text, reply_markup=None, **kw):
         sent.append(chat_id)
         return True
 
