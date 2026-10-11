@@ -665,11 +665,19 @@ async def test_report_webhook_end_to_end(tmp_path, monkeypatch):
             "report_id": 7}
     assert client.post("/api/topnlab/report-webhook?token=wrong-token-0000000", json=body
                        ).status_code == 404
-    resp = client.post(f"/api/topnlab/report-webhook?token={token}", json=body)
+    # the plain address is the PDF button (or Excel where WeasyPrint is missing)
+    pdf = client.post(f"/api/topnlab/report-webhook?token={token}", json=body)
+    assert pdf.status_code == 200 and pdf.json()["url"].endswith((".pdf", ".xlsx"))
+    pdf_file = client.get(pdf.json()["url"].replace("https://test.local", ""))
+    assert pdf_file.status_code == 200
+    if pdf.json()["url"].endswith(".pdf"):
+        assert pdf_file.content[:5] == b"%PDF-" and pdf_file.headers["content-type"] == "application/pdf"
+
+    resp = client.post(f"/api/topnlab/report-webhook?token={token}&format=xlsx", json=body)
     assert resp.status_code == 200
     assert resp.headers["access-control-allow-origin"] == "*"
     url = resp.json()["url"]
-    assert url.startswith("https://test.local/api/topnlab/report-files/")
+    assert url.startswith("https://test.local/api/topnlab/report-files/") and url.endswith(".xlsx")
 
     file_resp = client.get(url.replace("https://test.local", ""))
     assert file_resp.status_code == 200
