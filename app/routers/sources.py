@@ -143,12 +143,20 @@ def _source_dto(
         "last_checked_at": s.last_checked_at.isoformat() if s.last_checked_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         # ТЗ «Сигналы» v1.0, апгрейд A
-        "discovered_by": s.discovered_by,
-        "sandbox_score": s.sandbox_score,
-        "health_status": s.health_status or "unknown",
-        "last_health_check": s.last_health_check.isoformat() if s.last_health_check else None,
-        "last_post_at": s.last_post_at.isoformat() if s.last_post_at else None,
-        "consecutive_failures": s.consecutive_failures or 0,
+        **_health_fields(s),
+    }
+
+
+def _health_fields(s) -> dict:
+    health_check = getattr(s, "last_health_check", None)
+    last_post = getattr(s, "last_post_at", None)
+    return {
+        "discovered_by": getattr(s, "discovered_by", None),
+        "sandbox_score": getattr(s, "sandbox_score", None),
+        "health_status": getattr(s, "health_status", None) or "unknown",
+        "last_health_check": health_check.isoformat() if health_check else None,
+        "last_post_at": last_post.isoformat() if last_post else None,
+        "consecutive_failures": getattr(s, "consecutive_failures", None) or 0,
     }
 
 
