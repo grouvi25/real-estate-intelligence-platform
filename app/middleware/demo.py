@@ -86,6 +86,9 @@ class DemoModeMiddleware(BaseHTTPMiddleware):
             body = respond(data, path, dict(request.query_params), sess["city"])
             if body is None:
                 return _restricted()
+            if body.get("__demo_not_found__"):
+                return JSONResponse({"error": "Не найдено — в этом городе такой записи нет",
+                                     "code": "NOT_FOUND"}, status_code=404, headers=DEMO_HEADERS)
             return JSONResponse(body, headers=DEMO_HEADERS)
         except Exception as e:  # noqa: BLE001 - never fall through to a real handler
             logger.warning("Demo request failed", path=request.url.path, error=str(e)[:160])

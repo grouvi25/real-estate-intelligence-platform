@@ -129,7 +129,11 @@
         try { sessionStorage.setItem('demo_city', r.city); } catch (e) { /* ignore */ }
         document.getElementById('demobar').innerHTML = demoBar();
         wireDemoBar();
-        Router.resolve();
+        // A lead or a signal of the old city does not exist in the new one:
+        // go back to the list of the tab instead of re-reading that card.
+        const top = location.hash.replace(/^#\/?/, '').split('/')[0] || 'dashboard';
+        if (location.hash.replace(/^#\/?/, '').includes('/')) Router.go(top);
+        else Router.resolve();
       } catch (e) { UI.toast('Не удалось: ' + e.message); sel.disabled = false; }
     };
   }
