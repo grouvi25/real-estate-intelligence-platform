@@ -82,13 +82,13 @@ async function openDemoSession(fresh) {
   let info = null;
   if (token) {
     api.demoToken = token;
-    try { info = await api.request('/demo/session'); } catch (e) { info = null; }
+    try { info = await API.demoSession(); } catch (e) { info = null; }
   }
   if (!info) {
     api.demoToken = null;
     let city = null;
     try { city = sessionStorage.getItem('demo_city'); } catch (e) { /* ignore */ }
-    const res = await api.request('/demo/session', 'POST', city ? { city } : {});
+    const res = await API.openDemoSession(city ? { city } : {});
     api.demoToken = res.token;
     try { sessionStorage.setItem('demo_token', res.token); } catch (e) { /* ignore */ }
     info = res;

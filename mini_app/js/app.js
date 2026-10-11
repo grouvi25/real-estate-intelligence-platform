@@ -105,7 +105,7 @@
         if (!document.getElementById('dr-consent').checked) { UI.toast('Нужно согласие на обработку данных'); return; }
         if (!val('dr-agency') || !val('dr-phone')) { UI.toast('Укажите агентство и телефон'); return; }
         try {
-          const r = await api.request('/demo/request', 'POST', {
+          const r = await API.demoRequest({
             city: val('dr-city'), agency_name: val('dr-agency'), name: val('dr-name'),
             phone: val('dr-phone'), consent: true,
           });
@@ -123,7 +123,7 @@
     sel.onchange = async () => {
       sel.disabled = true;
       try {
-        const r = await api.request('/demo/session', 'PATCH', { city: sel.value });
+        const r = await API.setDemoCity(sel.value);
         window._demo.city = r.city;
         window._agency = { id: 'demo', name: 'Демо-агентство · ' + r.city, city: r.city };
         try { sessionStorage.setItem('demo_city', r.city); } catch (e) { /* ignore */ }

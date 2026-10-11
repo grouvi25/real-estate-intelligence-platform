@@ -71,6 +71,21 @@ async def open_demo_session(req: DemoSessionRequest, request: Request):
             "cta_url": _cta_url()}
 
 
+@router.get("/session")
+async def demo_session_without_token():
+    """The current demo session (city, allowed tabs). Answered by the demo
+    middleware when X-Demo-Token is present; reaching this handler means there
+    is no session."""
+    raise AppException(401, "Нет демо-сессии — откройте демо заново", "DEMO_EXPIRED")
+
+
+@router.patch("/session")
+async def demo_city_without_token(req: DemoSessionRequest):
+    """Switch the demo city: {"city": "Сочи"}. Answered by the demo middleware;
+    without X-Demo-Token there is no session to switch."""
+    raise AppException(401, "Нет демо-сессии — откройте демо заново", "DEMO_EXPIRED")
+
+
 @router.get("/settings")
 async def demo_settings(operator_id: int = Depends(get_platform_operator)):
     from app.services.demo.session import load_config_from_db  # noqa: PLC0415
