@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import TIMESTAMP, ForeignKey, Integer, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import TIMESTAMP, ForeignKey, Integer, Text, event, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, CreatedAtMixin, UpdatedAtMixin
@@ -67,7 +67,31 @@ class Signal(CreatedAtMixin, UpdatedAtMixin, Base):
         UUID(as_uuid=True), ForeignKey("managers.id", ondelete="SET NULL")
     )
     triaged_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    # ТЗ «Сигналы» v1.0, апгрейд B (migration 066): purchase | rental | news |
+    # competitor | other. Collectors set it with the agency's competitor names;
+    # anything else that inserts a signal gets the keyword category below.
+    signal_category: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
     # One-directional convenience relationships (used by scoring/pipeline code).
     geo_location: Mapped[Optional[GeoLocation]] = relationship("GeoLocation", lazy="joined")
     source: Mapped[Optional[Source]] = relationship("Source", lazy="joined")
+
+
+class AgencySignalFilter(Base):
+    """Which categories the signal list opens with (ТЗ «Сигналы» 6.1)."""
+    __tablename__ = "agency_signal_filters"
+
+    id = None  # the agency is the key; Base's UUID id does not exist here
+    agency_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencies.id", ondelete="CASCADE"), primary_key=True)
+    enabled_cats: Mapped[list] = mapped_column(ARRAY(Text), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), onupdate=text("now()"))
+
+
+@event.listens_for(Signal, "before_insert")
+def _default_category(mapper, connection, target) -> None:
+    if not target.signal_category:
+        from app.services.signal_classifier import classify_category  # noqa: PLC0415
+
+        target.signal_category = classify_category(target.raw_text)

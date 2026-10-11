@@ -24,10 +24,11 @@ from sqlalchemy import select
 from app.config import config
 from app.database import get_session
 from app.dependencies import CurrentManager, get_current_manager
-from app.exceptions import NotFoundError
+from app.exceptions import NotFoundError, ValidationError
 from app.models.lead import Lead
 from app.models.signal import Signal
 from app.models.task import Task
+from app.services.signal_classifier import CATEGORIES, CATEGORY_RU
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -83,6 +84,9 @@ def _signal_dto(s: Signal) -> dict:
         "reply_channel": s.reply_channel,
         "reply_status": s.reply_status,
         "triage_reason": s.triage_reason,
+        # ТЗ «Сигналы» v1.0, апгрейд B
+        "signal_category": s.signal_category or "other",
+        "signal_category_label": CATEGORY_RU.get(s.signal_category or "other", "Прочее"),
     }
 
 
@@ -92,11 +96,13 @@ async def list_signals(
     status: Optional[str] = None,
     urgency: Optional[str] = None,
     min_intent_score: Optional[int] = None,
+    category: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     current: CurrentManager = Depends(get_current_manager),
     session=Depends(get_session),
 ):
+    """``category`` — comma-separated (ТЗ «Сигналы» 6.3): ?category=purchase,news."""
     limit = min(max(limit, 1), MAX_PAGE)
     offset = max(offset, 0)
 
@@ -113,10 +119,43 @@ async def list_signals(
         stmt = stmt.where(Signal.urgency == urgency)
     if min_intent_score is not None:
         stmt = stmt.where(Signal.intent_score >= min_intent_score)
+    if category:
+        wanted = parse_categories(category)
+        stmt = stmt.where(Signal.signal_category.in_(wanted))
     stmt = stmt.order_by(Signal.created_at.desc()).limit(limit).offset(offset)
 
     rows = (await session.execute(stmt)).scalars().all()
     return {"count": len(rows), "signals": [_signal_dto(s) for s in rows]}
+
+
+def parse_categories(raw: str) -> list[str]:
+    wanted = [c.strip() for c in (raw or "").split(",") if c.strip()]
+    bad = [c for c in wanted if c not in CATEGORIES]
+    if bad or not wanted:
+        raise ValidationError("category", f"недопустимая категория: {', '.join(bad) or raw}")
+    return wanted
+
+
+class CategoryRequest(BaseModel):
+    category: str
+
+
+@router.patch("/{signal_id}/category")
+async def set_signal_category(
+    signal_id: uuid.UUID,
+    req: CategoryRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    """Manual correction of the keyword category (ТЗ «Сигналы» 6.2)."""
+    if req.category not in CATEGORIES:
+        raise ValidationError("category", f"недопустимая категория: {req.category}")
+    signal = await session.get(Signal, signal_id)
+    if signal is None or str(signal.agency_id) != current.agency_id:
+        raise NotFoundError("Signal", str(signal_id))
+    signal.signal_category = req.category
+    await session.commit()
+    return _signal_dto(signal)
 
 
 @router.post("/{signal_id}/create-lead", status_code=http_status.HTTP_201_CREATED)
