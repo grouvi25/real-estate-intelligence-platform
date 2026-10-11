@@ -11,6 +11,7 @@ lands with the operators, who drive it on from the same chat:
     /reject_<id>                  decline
     /extend_<agency> <months>     extend a subscription
     /suspend_<agency>, /unsuspend_<agency>
+    /demo_on, /demo_off, /demo   демо-режим (ТЗ «Сигналы» 7): включить, выключить, статус
 
 Ids are the first 8 characters, as printed in the notifications. Conversation
 state lives in Redis for a week; nothing about a prospect is written to the
@@ -214,12 +215,13 @@ async def handle_operator_command(op_id: int, text: str) -> None:
     handlers = {
         "requests": _cmd_requests, "approve": _cmd_approve, "paid": _cmd_paid,
         "create": _cmd_create, "reject": _cmd_reject, "extend": _cmd_extend,
-        "suspend": _cmd_suspend, "unsuspend": _cmd_unsuspend,
+        "suspend": _cmd_suspend, "unsuspend": _cmd_unsuspend, "demo": _cmd_demo,
     }
     handler = handlers.get(command.split("@")[0])
     if handler is None:
         await send(op_id, "Команды: /requests, /approve_<id> [тариф], /paid_<id>, /create_<id> [токен бота], "
-                          "/reject_<id>, /extend_<агентство> <мес>, /suspend_<агентство>, /unsuspend_<агентство>")
+                          "/reject_<id>, /extend_<агентство> <мес>, /suspend_<агентство>, /unsuspend_<агентство>, "
+                          "/demo_on, /demo_off, /demo")
         return
     try:
         async with async_session() as session:
@@ -228,6 +230,17 @@ async def handle_operator_command(op_id: int, text: str) -> None:
         logger.error("Operator command failed", command=command, error=str(e)[:300])
         reply = f"Не получилось: {e}"
     await send(op_id, reply)
+
+
+async def _tell_client(req, text: str) -> str:
+    """Send ``text`` to the client through the sales bot. A request from the demo
+    form has no Telegram: then the operator gets the number to call and the text
+    to pass on, appended to the command's answer."""
+    if req.telegram_id:
+        await send(req.telegram_id, text)
+        return ""
+    return (f"\n\nКлиент оставил заявку в демо, Telegram у него нет — позвоните "
+            f"+{req.phone or '—'} и передайте:\n{text}")
 
 
 async def _request(session, target: str, statuses: tuple[str, ...]):
@@ -271,12 +284,13 @@ async def _cmd_approve(session, op_id, target, args) -> str:
         pay_text = "Реквизиты для оплаты пришлёт наш менеджер."
     req.status = "payment_pending"
     await session.commit()
-    await send(req.telegram_id,
-               f"Заявка одобрена. Тариф «{plan.name}», подключение — {plan.one_time_price:,} ₽"
-               .replace(",", " ") + (f", далее {plan.monthly_price:,} ₽ в месяц".replace(",", " ")
-                                      if plan.monthly_price else "") + f".\n\n{pay_text}")
-    return f"Заявка {target}: ссылка отправлена ({plan.id})." if config.billing_enabled else \
-        f"Заявка {target}: ЮKassa не настроена, клиенту сказано ждать реквизиты. После оплаты — /paid_{target}"
+    extra = await _tell_client(
+        req, f"Заявка одобрена. Тариф «{plan.name}», подключение — {plan.one_time_price:,} ₽"
+        .replace(",", " ") + (f", далее {plan.monthly_price:,} ₽ в месяц".replace(",", " ")
+                               if plan.monthly_price else "") + f".\n\n{pay_text}")
+    return (f"Заявка {target}: ссылка отправлена ({plan.id})." if config.billing_enabled else
+            f"Заявка {target}: ЮKassa не настроена, клиенту сказано ждать реквизиты. "
+            f"После оплаты — /paid_{target}") + extra
 
 
 async def _cmd_paid(session, op_id, target, args) -> str:
@@ -302,20 +316,21 @@ async def _cmd_create(session, op_id, target, args) -> str:
     agency, link = await create_agency_from_onboarding(
         session, req, bot_token=args[0] if args else None, trial_days=trial,
         operator=f"operator:{op_id}")
-    await send(req.telegram_id,
-               "Готово, REIP подключён.\n\nОткройте кабинет по ссылке — вы войдёте как владелец. "
-               f"Её же отправьте менеджерам:\n{link}\n\nПервым делом загрузите каталог объектов "
-               "(Объекты → «Загрузить каталог»): без него подбирать покупателям нечего.")
-    return f"Агентство создано: {agency.name}, id {str(agency.id)[:8]}. Ссылка владельцу отправлена."
+    extra = await _tell_client(
+        req, "Готово, REIP подключён.\n\nОткройте кабинет по ссылке — вы войдёте как владелец. "
+        f"Её же отправьте менеджерам:\n{link}\n\nПервым делом загрузите каталог объектов "
+        "(Объекты → «Загрузить каталог»): без него подбирать покупателям нечего.")
+    return (f"Агентство создано: {agency.name}, id {str(agency.id)[:8]}. "
+            + ("Ссылка владельцу отправлена." if not extra else "") + extra)
 
 
 async def _cmd_reject(session, op_id, target, args) -> str:
     req = await _request(session, target, ("pending", "payment_pending"))
     req.status = "rejected"
     await session.commit()
-    await send(req.telegram_id, "Спасибо за интерес к REIP. Сейчас подключить ваш город мы не можем — "
-                                "напишите, если хотите обсудить детали.")
-    return f"Заявка {target} отклонена."
+    extra = await _tell_client(req, "Спасибо за интерес к REIP. Сейчас подключить ваш город мы не "
+                                    "можем — напишите, если хотите обсудить детали.")
+    return f"Заявка {target} отклонена." + extra
 
 
 async def _agency(session, target):
@@ -349,3 +364,19 @@ async def _cmd_unsuspend(session, op_id, target, args) -> str:
 
     agency = await set_suspended(session, await _agency(session, target), False, f"operator:{op_id}")
     return f"{agency.name}: кабинет снова доступен."
+
+
+async def _cmd_demo(session, op_id, target, args) -> str:
+    """Демо-режим одним тоглом (ТЗ «Сигналы» 7.1, D-08)."""
+    from app.config import config  # noqa: PLC0415
+    from app.services.demo.session import load_config_from_db, save_config  # noqa: PLC0415
+
+    if target in ("on", "off"):
+        cfg = await save_config(session, op_id, {"enabled": target == "on"})
+    else:
+        cfg = await load_config_from_db()
+    link = f"{config.base_url.rstrip('/')}/mini-app/?demo=1"
+    lines = [f"Демо-режим {'включён' if cfg['enabled'] else 'выключен'}.",
+             f"Город по умолчанию: {cfg['demo_city']}, сессия {cfg['session_ttl_min']} мин.",
+             f"Ссылка: {link}" if cfg["enabled"] else "Включить: /demo_on"]
+    return "\n".join(lines)

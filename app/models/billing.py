@@ -57,7 +57,10 @@ class PlatformOperator(CreatedAtMixin, Base):
 class OnboardingRequest(CreatedAtMixin, UpdatedAtMixin, Base):
     __tablename__ = "onboarding_requests"
 
-    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # None for a request left on the demo form (ТЗ «Сигналы» 7.5): no Telegram,
+    # the operator calls the phone instead. Migration 067.
+    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    source: Mapped[str] = mapped_column(Text, default="sales_bot")
     username: Mapped[Optional[str]] = mapped_column(Text)
     display_name: Mapped[Optional[str]] = mapped_column(Text)
     _phone_encrypted: Mapped[Optional[bytes]] = mapped_column("phone_encrypted", LargeBinary)

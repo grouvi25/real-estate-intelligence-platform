@@ -20,6 +20,7 @@ from app.config import config
 from app.database import check_database_connection, engine, run_migrations
 from app.exceptions import AIBudgetExceededError, AppException, ConsentRequiredError
 from app.logging_config import setup_logging
+from app.middleware.demo import DemoModeMiddleware
 from app.routers import (
     admin,
     agency,
@@ -29,6 +30,7 @@ from app.routers import (
     billing,
     bot,
     deals,
+    demo,
     discovery,
     documents,
     geo,
@@ -104,6 +106,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ТЗ «Сигналы» v1.0, апгрейд C. Added before CORS so that CORS wraps it: a demo
+# answer is produced here and must still carry the CORS headers.
+app.add_middleware(DemoModeMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if config.node_env == "development" else [config.base_url],
@@ -176,6 +182,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 app.include_router(sources.router, prefix="/api/sources", tags=["Sources"])
 app.include_router(discovery.router, prefix="/api/discovery", tags=["Discovery"])
+app.include_router(demo.router, prefix="/api/demo", tags=["Demo"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(topnlab_webhooks.router, prefix="/api/topnlab", tags=["TopNLab"])
 app.include_router(topnlab.router, prefix="/api/topnlab", tags=["TopNLab"])

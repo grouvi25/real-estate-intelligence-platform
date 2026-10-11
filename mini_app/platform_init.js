@@ -184,6 +184,9 @@ window._utm = (() => {
 
 const api = {
   token: null,
+  // ТЗ «Сигналы» 7: a demo visitor carries X-Demo-Token and never a JWT; the
+  // server answers such requests from synthetic data only.
+  demoToken: null,
   // One place where a failed response becomes an Error. There are four call
   // sites and they used to disagree about whether the server's words were worth
   // keeping; the one used for signing in kept nothing, so a manager refused for
@@ -196,7 +199,9 @@ const api = {
   async failure(res) {
     let body = null;
     try { body = await res.json(); } catch (e) { /* not JSON, or no body */ }
-    const said = body && (body.error || body.detail || body.message);
+    let said = body && (body.error || body.detail || body.message);
+    if (body && body.error === 'demo_restricted') said = 'Доступно после подключения';
+    else if (body && typeof body.error === 'string' && body.error.startsWith('demo_')) said = body.message;
     const err = new Error(typeof said === 'string' && said ? said : `API ${res.status}`);
     err.status = res.status;
     err.code = body && body.code;
@@ -212,7 +217,8 @@ const api = {
   async request(endpoint, method = 'GET', body = null) {
     const build = () => {
       const headers = { 'Content-Type': 'application/json' };
-      if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      if (this.demoToken) headers['X-Demo-Token'] = this.demoToken;
+      else if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
       return fetch(`${API_BASE}/api${endpoint}`, {
         method,
         headers,
@@ -220,6 +226,10 @@ const api = {
       });
     };
     let res = await build();
+    // The demo session ran out: open a new one and repeat the request once.
+    if (res.status === 401 && this.demoToken && typeof openDemoSession === 'function') {
+      try { await openDemoSession(true); res = await build(); } catch (e) { /* fall through */ }
+    } else
     // JWT expired/invalid: drop the cached token, re-authenticate once, retry.
     if (res.status === 401 && typeof authenticate === 'function' && !endpoint.startsWith('/auth/')) {
       await StorageAdapter.remove('jwt_token');

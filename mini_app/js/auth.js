@@ -66,7 +66,42 @@ async function launchSignature() {
   return value;
 }
 
+// ТЗ «Сигналы» 7: /mini-app/?demo=1 opens the cabinet on synthetic data, for
+// anyone, without Telegram. The session lives 30 minutes on the server; its
+// token is kept for the tab only.
+function demoRequested() {
+  try {
+    if (new URLSearchParams(window.location.search).get('demo') === '1') return true;
+    return !!sessionStorage.getItem('demo_token');
+  } catch (e) { return false; }
+}
+
+async function openDemoSession(fresh) {
+  let token = null;
+  try { token = fresh ? null : sessionStorage.getItem('demo_token'); } catch (e) { /* private mode */ }
+  let info = null;
+  if (token) {
+    api.demoToken = token;
+    try { info = await api.request('/demo/session'); } catch (e) { info = null; }
+  }
+  if (!info) {
+    api.demoToken = null;
+    let city = null;
+    try { city = sessionStorage.getItem('demo_city'); } catch (e) { /* ignore */ }
+    const res = await api.request('/demo/session', 'POST', city ? { city } : {});
+    api.demoToken = res.token;
+    try { sessionStorage.setItem('demo_token', res.token); } catch (e) { /* ignore */ }
+    info = res;
+  }
+  window._demo = { ...(window._demo || {}), ...info };
+  window._manager = { id: 'demo', role: 'demo', name: 'Гость' };
+  window._agency = { id: 'demo', name: 'Демо-агентство · ' + info.city, city: info.city };
+  try { sessionStorage.setItem('demo_city', info.city); } catch (e) { /* ignore */ }
+  return api.demoToken;
+}
+
 async function authenticate() {
+  if (demoRequested()) return openDemoSession(false);
   try { window._agency = JSON.parse(sessionStorage.getItem('agency') || 'null'); } catch (e) { /* ignore */ }
   try { window._manager = JSON.parse(sessionStorage.getItem('manager') || 'null'); } catch (e) { /* ignore */ }
   // The key lives wherever the token lives. It used to sit in sessionStorage
