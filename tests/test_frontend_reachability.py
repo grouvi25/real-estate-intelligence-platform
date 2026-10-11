@@ -60,6 +60,9 @@ NOT_UI_REACHABLE |= {
 # The source list already carries every health field, and «Проверить» returns
 # them fresh; the single-source read is for integrations (ТЗ «Сигналы» 4).
 NOT_UI_REACHABLE |= {"GET /api/sources/{}/health"}
+# Demo mode (ТЗ «Сигналы» 7): its public config is for a landing page that links
+# to the demo, and its settings are the operator's (API or /demo_on in the bot).
+NOT_UI_REACHABLE |= {"GET /api/demo/config", "GET /api/demo/settings", "PATCH /api/demo/settings"}
 # Public buyer-facing endpoints: TZ 30 lists 13 manager screens and none of them
 # are lead magnets, which live on separate landing pages.
 NOT_UI_PREFIXES = ("/api/lm/",)

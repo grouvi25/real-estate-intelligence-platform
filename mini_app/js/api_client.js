@@ -216,6 +216,11 @@
     updateSource: (id, body) => api.request(`/sources/${id}`, 'PATCH', body),
     deleteSource: (id) => api.request(`/sources/${id}`, 'DELETE'),
     recheckSource: (id) => api.request(`/sources/${id}/recheck`, 'POST'),
+    // ТЗ «Сигналы» v1.0, апгрейд C: demo mode
+    openDemoSession: (body) => api.request('/demo/session', 'POST', body),
+    demoSession: () => api.request('/demo/session'),
+    setDemoCity: (city) => api.request('/demo/session', 'PATCH', { city }),
+    demoRequest: (body) => api.request('/demo/request', 'POST', body),
     // ТЗ «Сигналы» v1.0, апгрейд A
     discoveryConfig: () => api.request('/discovery/config'),
     updateDiscoveryConfig: (body) => api.request('/discovery/config', 'PATCH', body),
