@@ -121,10 +121,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Key auth, not a password: the server stopped offering password auth
-      # ("no supported methods remain") and every deploy failed. VPS_SSH_KEY is a
-      # dedicated ed25519 key used only by this workflow, so it can be revoked by
-      # deleting one line from authorized_keys without touching the root password.
+      # Production is grouvi-vps (Beget, Moscow) since 11.10.2026; the Yandex Cloud
+      # VM behind the jump host is gone. Key auth with VM_SSH_KEY, a dedicated
+      # ed25519 key ("reip-github-deploy") used only by this workflow: revoke it by
+      # deleting its line from root's authorized_keys. Telegram is reachable from
+      # Beget directly, so .env carries no TELEGRAM_PROXY_URL.
       - name: Prepare VPS (Docker + .env)
         uses: appleboy/ssh-action@v1.2.2
         with:
@@ -132,16 +133,12 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          proxy_host: ${{ secrets.JUMP_HOST }}
-          proxy_username: ${{ secrets.JUMP_USER }}
-          proxy_key: ${{ secrets.VPS_SSH_KEY }}
-          proxy_port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | sh
             fi
-            sudo mkdir -p /opt/reip && sudo chown ubuntu:ubuntu /opt/reip
+            mkdir -p /opt/reip
             if [ ! -f /opt/reip/.env ]; then
               ENC=$(openssl rand -base64 32 | tr '+/' '-_')
               SEC=$(openssl rand -hex 32)
@@ -178,10 +175,6 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          proxy_host: ${{ secrets.JUMP_HOST }}
-          proxy_username: ${{ secrets.JUMP_USER }}
-          proxy_key: ${{ secrets.VPS_SSH_KEY }}
-          proxy_port: ${{ secrets.VPS_PORT }}
           envs: VK_SERVICE_TOKEN
           script: |
             set -e
@@ -202,10 +195,6 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          proxy_host: ${{ secrets.JUMP_HOST }}
-          proxy_username: ${{ secrets.JUMP_USER }}
-          proxy_key: ${{ secrets.VPS_SSH_KEY }}
-          proxy_port: ${{ secrets.VPS_PORT }}
           source: "."
           target: "/opt/reip"
           overwrite: true
@@ -217,10 +206,6 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
-          proxy_host: ${{ secrets.JUMP_HOST }}
-          proxy_username: ${{ secrets.JUMP_USER }}
-          proxy_key: ${{ secrets.VPS_SSH_KEY }}
-          proxy_port: ${{ secrets.VPS_PORT }}
           command_timeout: 20m
           script: |
             set -e
@@ -238,3 +223,6 @@ jobs:
             done
             docker compose ps
             curl -fsS http://localhost:8000/health || (docker compose logs app --tail 60; exit 1)
+            # The server is shared with other projects and its disk is small:
+            # drop the images this build replaced (never anything still in use).
+            docker image prune -f >/dev/null
