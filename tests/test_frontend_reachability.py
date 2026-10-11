@@ -53,7 +53,13 @@ NOT_UI_REACHABLE |= {
     "POST /api/operator/agencies/{}/unsuspend", "PATCH /api/operator/agencies/{}",
     "PUT /api/operator/agencies/{}/bot", "GET /api/operator/onboarding",
     "GET /api/operator/cities", "GET /api/operator/stats",
+    # ТЗ «Сигналы» v1.0: discovery runs and forum seeds are the operator's
+    "POST /api/discovery/run", "GET /api/discovery/forum-seeds",
+    "POST /api/discovery/forum-seeds", "DELETE /api/discovery/forum-seeds/{}",
 }
+# The source list already carries every health field, and «Проверить» returns
+# them fresh; the single-source read is for integrations (ТЗ «Сигналы» 4).
+NOT_UI_REACHABLE |= {"GET /api/sources/{}/health"}
 # Public buyer-facing endpoints: TZ 30 lists 13 manager screens and none of them
 # are lead magnets, which live on separate landing pages.
 NOT_UI_PREFIXES = ("/api/lm/",)

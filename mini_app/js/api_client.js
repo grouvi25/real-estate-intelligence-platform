@@ -212,5 +212,13 @@
     createSource: (body) => api.request('/sources', 'POST', body),
     updateSource: (id, body) => api.request(`/sources/${id}`, 'PATCH', body),
     deleteSource: (id) => api.request(`/sources/${id}`, 'DELETE'),
+    recheckSource: (id) => api.request(`/sources/${id}/recheck`, 'POST'),
+    // ТЗ «Сигналы» v1.0, апгрейд A
+    discoveryConfig: () => api.request('/discovery/config'),
+    updateDiscoveryConfig: (body) => api.request('/discovery/config', 'PATCH', body),
+    discoveryLog: (limit) => api.request('/discovery/log' + qs({ limit })),
+    discoveryCandidates: (f) => api.request('/discovery/candidates' + qs(f)),
+    activateCandidate: (id) => api.request(`/discovery/candidates/${id}/activate`, 'POST'),
+    rejectCandidate: (id) => api.request(`/discovery/candidates/${id}/reject`, 'POST'),
   };
 })();

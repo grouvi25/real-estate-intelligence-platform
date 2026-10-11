@@ -73,7 +73,7 @@ services:
     # Threads pool, not gevent: tasks run async code on a shared event loop
     # (worker/async_runner.py), and gevent's single-OS-thread greenlets made
     # concurrent tasks collide on that loop.
-    command: celery -A worker.celery_app worker -l info -c 4 --pool=threads
+    command: celery -A worker.celery_app worker -l info -c 4 --pool=threads -Q celery,discovery
     env_file: .env
     volumes:
       # Telethon session file: without a volume the one-off interactive login
