@@ -199,7 +199,7 @@ body {
 .demo-bar__cta { color: var(--warm); font-weight: 650; text-decoration: underline;
   background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
 .demo-bar__cta:active { opacity: .7; }
-.demo-bar__cta:hover { color: var(--fg); }
+@media (hover: hover) { .demo-bar__cta:hover { color: var(--fg); } }
 .demo-bar__cta:focus-visible { outline: 2px solid var(--warm); outline-offset: 2px; border-radius: 4px; }
 .demo-bar__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-top: var(--s-2); }
 .demo-bar__city { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
