@@ -120,6 +120,9 @@ async def test_demo_city_switch(client, demo_redis):
     assert res.status_code == 200 and res.json()["city"] == "Анапа"
     after = (await client.get("/api/signals?limit=5", headers=h)).json()["signals"]
     assert {x["id"] for x in before}.isdisjoint({x["id"] for x in after})
+    old_signal = before[0]["id"]
+    gone = await client.get(f"/api/signals/{old_signal}", headers=h)  # a card of the old city
+    assert gone.status_code == 404 and gone.json()["code"] == "NOT_FOUND"
     cfg = (await client.get("/api/auth/config", headers=h)).json()
     assert cfg["agency"]["city"] == "Анапа" and cfg["manager"]["role"] == "demo"
     assert (await client.patch("/api/demo/session", headers=h, json={"city": "Лондон"})).status_code == 400
@@ -184,7 +187,7 @@ async def test_demo_no_real_data_leak(client, demo_redis):
     paths -= {"/api/demo/config"}  # public, no data
     for path in sorted(paths):
         res = await client.get(path, headers=h)
-        assert res.status_code in (200, 403), (path, res.status_code)
+        assert res.status_code in (200, 403, 404), (path, res.status_code)
         assert res.headers.get("x-demo") == "1", path
         if res.status_code == 200:
             assert "is_demo" in res.text or path == "/api/demo/session", path

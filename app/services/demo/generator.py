@@ -17,6 +17,7 @@ from stored minute offsets, and every five minutes another signal becomes
 from __future__ import annotations
 
 import json
+import re
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -230,8 +231,13 @@ def _pick(obj: dict, fields) -> dict:
     return {k: obj.get(k) for k in fields}
 
 
+NOT_FOUND = {"__demo_not_found__": True}
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
 def respond(data: dict, path: str, query: dict, agency_city: str, now: Optional[datetime] = None):
-    """The JSON a demo GET gets, or None when the path is not part of the demo."""
+    """The JSON a demo GET gets, NOT_FOUND for a card the dataset does not have,
+    or None when the path is not part of the demo."""
     now = now or datetime.now(timezone.utc)
     limit = max(1, min(int(query.get("limit") or 50), 200)) if str(query.get("limit") or "50").isdigit() else 50
     signals = _live(data["signals"], now)
@@ -245,10 +251,12 @@ def respond(data: dict, path: str, query: dict, agency_city: str, now: Optional[
         return {"count": len(items), "signals": items}
     if path.startswith("/api/signals/"):
         sid = path.rsplit("/", 1)[-1]
+        if not _UUID.match(sid) or path.count("/") != 3:
+            return None  # /api/signals/<id>/something: not a card
         for s in signals:
             if s["id"] == sid:
                 return {**_pick(s, SIGNAL_LIST_FIELDS), "lead_id": s.get("lead_id")}
-        return None
+        return NOT_FOUND
     if path in ("/api/leads", "/api/leads/") or path.startswith("/api/leads/"):
         leads = []
         for lead in data["leads"]:
@@ -260,7 +268,9 @@ def respond(data: dict, path: str, query: dict, agency_city: str, now: Optional[
             items = [ld for ld in leads if not status or ld["status"] == status]
             return {"count": len(items[:limit]), "leads": [_pick(ld, LEAD_LIST_FIELDS) for ld in items[:limit]]}
         lid = path.rsplit("/", 1)[-1]
-        return next((ld for ld in leads if ld["id"] == lid), None)
+        if not _UUID.match(lid) or path.count("/") != 3:
+            return None  # /api/leads/export and the like: not part of the demo
+        return next((ld for ld in leads if ld["id"] == lid), NOT_FOUND)
     simple = {
         "/api/analytics/overview": "overview", "/api/analytics/funnel": "funnel",
         "/api/analytics/managers": "managers", "/api/analytics/timeline": "timeline",
