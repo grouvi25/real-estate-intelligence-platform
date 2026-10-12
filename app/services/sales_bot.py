@@ -11,6 +11,8 @@ lands with the operators, who drive it on from the same chat:
     /reject_<id>                  decline
     /extend_<agency> <months>     extend a subscription
     /suspend_<agency>, /unsuspend_<agency>
+    /link_<agency>                the owner's invite link again
+    /bot_<agency> <bot_token>     connect the agency's own bot later
     /demo_on, /demo_off, /demo   демо-режим (ТЗ «Сигналы» 7): включить, выключить, статус
 
 Ids are the first 8 characters, as printed in the notifications. Conversation
@@ -75,7 +77,24 @@ async def send(chat_id: int, text: str, reply_markup: Optional[dict] = None,
         return False
 
 
-async def notify_operators(text: str) -> None:
+async def call(method: str, payload: dict) -> bool:
+    """Any Bot API method through the sales bot (button answers, message edits).
+    Never raises, like send()."""
+    from app.services.bot_abstraction import _redact, bot_layer  # noqa: PLC0415
+
+    token = config.platform_onboarding_bot_token
+    if not token:
+        return False
+    try:
+        resp = await asyncio.wait_for(bot_layer.telegram_http.post(
+            f"https://api.telegram.org/bot{token}/{method}", json=payload), timeout=20)
+        return bool(resp.json().get("ok"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Sales bot call failed", method=method, error=_redact(str(e))[:200])
+        return False
+
+
+async def notify_operators(text: str, reply_markup: Optional[dict] = None) -> None:
     from sqlalchemy import select  # noqa: PLC0415
 
     from app.database import async_session  # noqa: PLC0415
@@ -91,8 +110,10 @@ async def notify_operators(text: str) -> None:
     # Without a sales bot the operators still have to hear about a request (the
     # demo form leaves them too): REIP's own bot, which they use anyway.
     token = config.platform_onboarding_bot_token or config.telegram_bot_token
+    # Buttons answer to the bot that sent them: only the sales bot handles them.
+    markup = reply_markup if config.platform_onboarding_bot_token else None
     for op in ids:
-        await send(op, text, token=token)
+        await send(op, text, markup, token=token)
 
 
 async def _redis():
@@ -137,16 +158,47 @@ async def handle_update(update: dict) -> None:
     """Entry point for every sales bot update (polling or webhook)."""
     from app.dependencies import is_platform_operator  # noqa: PLC0415
 
+    if update.get("callback_query"):
+        from app.services.sales_bot_menu import handle_callback  # noqa: PLC0415
+
+        await handle_callback(update["callback_query"])
+        return
     msg = update.get("message") or {}
     user = msg.get("from") or {}
     uid = user.get("id")
     if not uid or (msg.get("chat") or {}).get("type", "private") != "private":
         return
     text = (msg.get("text") or "").strip()
-    if text.startswith("/") and not text.startswith("/start") and await is_platform_operator(int(uid)):
-        await handle_operator_command(int(uid), text)
-        return
+    if await is_platform_operator(int(uid)):
+        if await _operator_message(int(uid), user, text, msg.get("contact")):
+            return
     await handle_prospect(int(uid), user, text, msg.get("contact"))
+
+
+async def _operator_message(uid: int, user: dict, text: str, contact: Optional[dict]) -> bool:
+    """An operator gets the button menu; /client walks the prospect path to see
+    what clients see. Returns False when the message is for the prospect path."""
+    from app.services.sales_bot_menu import MENU, MENU_TEXT  # noqa: PLC0415
+
+    command = text.split(" ", 1)[0].split("@", 1)[0].lower()
+    if command == "/client":
+        await handle_prospect(uid, user, "/start", contact)
+        return True
+    if command in ("/start", "/menu", "/help"):
+        await set_state(uid, None)
+        # the "/" menu of this chat only: clients keep seeing just /start
+        await call("setMyCommands", {"scope": {"type": "chat", "chat_id": uid}, "commands": [
+            {"command": "menu", "description": "Панель оператора"},
+            {"command": "client", "description": "Бот глазами клиента"}]})
+        await send(uid, MENU_TEXT + "\n\nПосмотреть бота глазами клиента — /client", MENU)
+        return True
+    if text.startswith("/"):
+        await handle_operator_command(uid, text)
+        return True
+    if await get_state(uid) is None:
+        await send(uid, MENU_TEXT, MENU)
+        return True
+    return False
 
 
 async def handle_prospect(uid: int, user: dict, text: str, contact: Optional[dict] = None) -> None:
@@ -197,15 +249,13 @@ async def _submit(uid: int, user: dict, state: dict, phone: str) -> None:
         req.phone = phone
         session.add(req)
         await session.commit()
-        rid = str(req.id)[:8]
+    from app.services.sales_bot_menu import request_buttons, request_text  # noqa: PLC0415
+
     await set_state(uid, {"step": "done"})
     await send(uid, SUBMITTED.format(agency=state["agency"], city=state["city"]),
                {"remove_keyboard": True})
-    await notify_operators(
-        f"Новая заявка на REIP\nАгентство: {state['agency']}\nГород: {state['city']}\n"
-        f"Telegram: @{user.get('username') or uid}\nТелефон: +{phone}\n\n"
-        f"/approve_{rid} — отправить ссылку на оплату (тариф: start, pro, isolated)\n"
-        f"/reject_{rid} — отклонить")
+    await notify_operators("🆕 Новая заявка на REIP\n\n" + request_text(req),
+                           request_buttons(req, back=False))
 
 
 # ------------------------------------------------------------------ operator
@@ -220,12 +270,14 @@ async def handle_operator_command(op_id: int, text: str) -> None:
         "requests": _cmd_requests, "approve": _cmd_approve, "paid": _cmd_paid,
         "create": _cmd_create, "reject": _cmd_reject, "extend": _cmd_extend,
         "suspend": _cmd_suspend, "unsuspend": _cmd_unsuspend, "demo": _cmd_demo,
+        "link": _cmd_link, "bot": _cmd_bot,
     }
     handler = handlers.get(command.split("@")[0])
     if handler is None:
         await send(op_id, "Команды: /requests, /approve_<id> [тариф], /paid_<id>, /create_<id> [токен бота], "
                           "/reject_<id>, /extend_<агентство> <мес>, /suspend_<агентство>, /unsuspend_<агентство>, "
-                          "/demo_on, /demo_off, /demo")
+                          "/link_<агентство>, /bot_<агентство> <токен>, /demo_on, /demo_off, /demo.\n"
+                          "Удобнее кнопками: /menu")
         return
     try:
         async with async_session() as session:
@@ -354,6 +406,31 @@ async def _cmd_extend(session, op_id, target, args) -> str:
     agency = await extend_subscription(session, await _agency(session, target), int(args[0]),
                                        created_by=f"operator:{op_id}")
     return f"{agency.name}: оплачено до {agency.subscription_expires_at:%d.%m.%Y}."
+
+
+async def _cmd_link(session, op_id, target, args) -> str:
+    """The owner's invite link again: lost, or the connection broke halfway."""
+    from app.services.onboarding import invite_link  # noqa: PLC0415
+
+    agency = await _agency(session, target)
+    link = invite_link(agency)
+    if agency.owner_telegram_id:
+        await send(agency.owner_telegram_id,
+                   f"Ссылка в кабинет REIP «{agency.name}» — вы войдёте как владелец. "
+                   f"Её же отправьте менеджерам:\n{link}")
+        return f"{agency.name}: ссылка отправлена владельцу.\n{link}"
+    return f"{agency.name}: Telegram владельца нет, передайте ссылку сами:\n{link}"
+
+
+async def _cmd_bot(session, op_id, target, args) -> str:
+    """Connect the agency's own bot after the agency exists: /bot_<агентство> <токен>."""
+    from app.services.agency_bots import attach_bot  # noqa: PLC0415
+
+    if not args:
+        raise ValueError("пришлите токен бота: /bot_<агентство> 123456:ABC…")
+    agency = await _agency(session, target)
+    username = await attach_bot(session, agency, args[0])
+    return f"{agency.name}: подключён бот @{username}. Новая ссылка владельцу — /link_{target}"
 
 
 async def _cmd_suspend(session, op_id, target, args) -> str:

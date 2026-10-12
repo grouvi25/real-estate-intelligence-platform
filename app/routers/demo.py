@@ -151,10 +151,9 @@ async def leave_request(req: DemoLeadRequest, request: Request, session=Depends(
     row.phone = phone
     session.add(row)
     await session.commit()
-    rid = str(row.id)[:8]
-    await sales_bot.notify_operators(
-        f"Новая заявка на REIP — из демо\nАгентство: {agency_name}\nГород: {check.city}\n"
-        f"Контакт: {row.display_name or '—'}, +{phone}\nTelegram нет — звонить.\n\n"
-        f"/approve_{rid} — тариф и оплата\n/reject_{rid} — отклонить")
+    from app.services.sales_bot_menu import request_buttons, request_text  # noqa: PLC0415
+
+    await sales_bot.notify_operators("🆕 Новая заявка на REIP — из демо\n\n" + request_text(row),
+                                     request_buttons(row, back=False))
     return {"ok": True, "city": check.city,
             "message": "Заявка отправлена — мы позвоним в ближайшее время"}
