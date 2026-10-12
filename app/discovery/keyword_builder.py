@@ -136,6 +136,45 @@ def _sanitize(parsed: Any, city_name: str) -> dict:
     return out
 
 
+_MERGED_LISTS = ("city_variations", "intent_phrases", "financial_terms", "property_terms")
+
+
+def merge_keywords(old: Any, fresh: Any) -> tuple[dict, dict[str, list[str]]]:
+    """Old vocabulary plus whatever the fresh one adds; returns (merged, added).
+
+    Regenerating used to replace the lists, and the AI answers shorter every
+    time: on Геленджик the city forms went 14 -> 3 and intent phrases 23 -> 5,
+    which costs signals with no error anywhere. Merging keeps everything that
+    already matched. A new negative keyword that occurs inside a kept phrase
+    would silently block that phrase, so such negatives are dropped.
+    """
+    old = old if isinstance(old, dict) else {}
+    fresh = fresh if isinstance(fresh, dict) else {}
+    merged = dict(old)
+    added: dict[str, list[str]] = {}
+    for field in (*_MERGED_LISTS, "negative_keywords"):
+        before = _clean_list(old.get(field))
+        known = {v.lower() for v in before}
+        new = [v for v in _clean_list(fresh.get(field)) if v.lower() not in known]
+        if field == "negative_keywords":
+            positives = [p.lower() for f in _MERGED_LISTS
+                         for p in _clean_list(old.get(f)) + _clean_list(fresh.get(f))]
+            new = [v for v in new if not any(v.lower() in p for p in positives)]
+        merged[field] = before + new
+        if new:
+            added[field] = new
+    queries = dict(old.get("search_queries") or {})
+    for channel, values in (fresh.get("search_queries") or {}).items():
+        before = _clean_list(queries.get(channel))
+        known = {v.lower() for v in before}
+        new = [v for v in _clean_list(values) if v.lower() not in known]
+        queries[channel] = before + new
+        if new:
+            added[f"search_queries.{channel}"] = new
+    merged["search_queries"] = queries
+    return merged, added
+
+
 async def generate_geo_keywords(city_data: dict[str, Any]) -> dict:
     """Generate the full keyword set for a geo. Returns sanitised AI JSON."""
     from app.prompts.geo_keywords import SYSTEM_PROMPT_GEO_KEYWORDS, USER_PROMPT_GEO_KEYWORDS

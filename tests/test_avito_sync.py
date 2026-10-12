@@ -23,8 +23,10 @@ def _item(i, title="2-к. квартира, 54,3 м², 3/9 эт.", category="К�
     ("2-к. квартира, 54,3 м², 3/9 эт.", {"rooms": 2, "area_total": 54.3, "floor": 3, "floors_total": 9}),
     ("Квартира-студия, 25 м², 2/5 эт.", {"rooms": 0, "area_total": 25.0, "floor": 2, "floors_total": 5}),
     ("3-комн. квартира 80 м2", {"rooms": 3, "area_total": 80.0}),
-    ("Дом 120 м² на участке 6 сот.", {"area_total": 120.0}),
-    ("Участок 6 сот. (ИЖС)", {}),
+    ("Дом 120 м² на участке 6 сот.", {"area_total": 120.0, "land_area_sotki": 6.0}),
+    ("Участок 6 сот. (ИЖС)", {"land_area_sotki": 6.0}),
+    ("Участок 12,5 сот. (СНТ, ДНП)", {"land_area_sotki": 12.5}),
+    ("Участок 1,2 га (СНТ, ДНП)", {"land_area_sotki": 120.0}),
 ])
 def test_what_the_title_says(title, expected):
     assert avito_sync.parse_title(title) == expected

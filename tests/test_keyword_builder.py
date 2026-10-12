@@ -227,3 +227,29 @@ def test_the_search_does_not_go_looking_for_classified_ad_boards():
     # And it does ask about the things a buyer talks about before they buy.
     assert "переезд" in queries
     assert "чат" in queries
+
+
+def test_regenerated_keywords_add_to_the_old_ones():
+    """A shorter AI answer must not shrink the vocabulary; a new negative that
+    sits inside a kept phrase would block it and is dropped."""
+    from app.discovery.keyword_builder import merge_keywords
+
+    old = {"city_variations": ["Геленджик", "Геленджике", "гдж"],
+           "intent_phrases": ["ищу квартиру", "посоветуйте риелтора"],
+           "negative_keywords": ["сдам"],
+           "search_queries": {"telegram": ["Геленджик чат"]}}
+    fresh = {"city_variations": ["Геленджик"],
+             "intent_phrases": ["Ищу квартиру", "хотим переехать"],
+             "negative_keywords": ["посуточно", "риелтор", "сдам"],
+             "search_queries": {"telegram": ["Геленджик чат", "Геленджик форум"]}}
+
+    merged, added = merge_keywords(old, fresh)
+
+    assert merged["city_variations"] == ["Геленджик", "Геленджике", "гдж"]
+    assert merged["intent_phrases"] == ["ищу квартиру", "посоветуйте риелтора", "хотим переехать"]
+    # "риелтор" sits inside "посоветуйте риелтора": as a negative it would kill that phrase
+    assert merged["negative_keywords"] == ["сдам", "посуточно"]
+    assert merged["search_queries"]["telegram"] == ["Геленджик чат", "Геленджик форум"]
+    assert added == {"intent_phrases": ["хотим переехать"], "negative_keywords": ["посуточно"],
+                     "search_queries.telegram": ["Геленджик форум"]}
+

@@ -251,3 +251,43 @@ async def test_one_lead_with_two_escalation_tasks_does_not_stop_the_sweep(bot):
             select(func.count()).select_from(Task).where(
                 Task.lead_id == broken_id, Task.task_type == "escalation"))
     assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_lead_of_a_deleted_manager_escalates_to_the_owner(bot):
+    """leads.assigned_to has no foreign key, tasks.manager_id has one: a lead
+    whose manager was deleted failed the 48h task on every run and was never
+    escalated. Now the owner gets the task and the 4h ping."""
+    from app.database import async_session, run_migrations
+    from app.models.lead import Lead
+    from app.models.manager import Manager
+    from app.models.task import Task
+    from sqlalchemy import select
+    from worker.tasks.maintenance_tasks import _escalate_overdue_leads
+
+    await run_migrations()
+    async with async_session() as s:
+        lead = await _lead(s, hours_idle=50)
+        owner_id = lead.assigned_to
+        lead_id = lead.id
+        gone = Manager(agency_id=lead.agency_id, name="Уволен", role="manager",
+                       telegram_id=unique_telegram_id(), is_active=True)
+        s.add(gone)
+        await s.flush()
+        lead = await s.get(Lead, lead_id)
+        lead.assigned_to = gone.id
+        await s.flush()
+        lead.updated_at = datetime.now(timezone.utc) - timedelta(hours=50)
+        await s.delete(gone)
+        await s.commit()
+
+    await _escalate_overdue_leads()
+
+    async with async_session() as s:
+        task = (await s.execute(select(Task).where(
+            Task.lead_id == lead_id, Task.task_type == "escalation"))).scalars().first()
+        lead = await s.get(Lead, lead_id)
+    assert task is not None, "задача эскалации должна появиться"
+    assert task.manager_id == owner_id
+    assert lead.escalation_stage == 48
+    assert any(m == str(owner_id) and str(lead_id)[:6] in text for m, text in bot.sent)

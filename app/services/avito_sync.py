@@ -80,6 +80,12 @@ def parse_title(title: str) -> dict:
     floors = re.search(r"(\d+)\s*/\s*(\d+)\s*эт", t)
     if floors:
         out["floor"], out["floors_total"] = int(floors.group(1)), int(floors.group(2))
+    land = re.search(r"(\d+(?:[.,]\d+)?)\s*сот", t)
+    hectares = re.search(r"(\d+(?:[.,]\d+)?)\s*га\b", t)
+    if land:
+        out["land_area_sotki"] = _number(land.group(1))
+    elif hectares and _number(hectares.group(1)) is not None:
+        out["land_area_sotki"] = round(_number(hectares.group(1)) * 100, 2)
     return out
 
 

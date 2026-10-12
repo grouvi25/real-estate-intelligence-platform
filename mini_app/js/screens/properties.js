@@ -16,6 +16,7 @@ function propertyCard(p) {
     p.district,
     p.rooms ? `${p.rooms}-комн.` : null,
     p.area_total ? `${p.area_total} м²` : null,
+    p.land_area_sotki ? `участок ${p.land_area_sotki} сот.` : null,
     (p.floor && p.floors_total) ? `${p.floor}/${p.floors_total} эт.` : null,
   ].filter(Boolean).join(' · ');
   return `
@@ -83,6 +84,7 @@ Screens.propertyDetail = async function (params) {
     p.district,
     p.rooms ? `${p.rooms}-комн.` : null,
     p.area_total ? `${p.area_total} м²` : null,
+    p.land_area_sotki ? `участок ${p.land_area_sotki} сот.` : null,
     (p.floor && p.floors_total) ? `${p.floor}/${p.floors_total} эт.` : null,
   ].filter(Boolean).join(' · ');
 
