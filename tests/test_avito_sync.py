@@ -27,6 +27,8 @@ def _item(i, title="2-к. квартира, 54,3 м², 3/9 эт.", category="К�
     ("Участок 6 сот. (ИЖС)", {"land_area_sotki": 6.0}),
     ("Участок 12,5 сот. (СНТ, ДНП)", {"land_area_sotki": 12.5}),
     ("Участок 1,2 га (СНТ, ДНП)", {"land_area_sotki": 120.0}),
+    # Avito puts a no-break space between the number and the unit
+    ("Дом 165,4 м² на участке 7,7 сот.", {"area_total": 165.4, "land_area_sotki": 7.7}),
 ])
 def test_what_the_title_says(title, expected):
     assert avito_sync.parse_title(title) == expected
