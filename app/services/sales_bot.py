@@ -75,7 +75,24 @@ async def send(chat_id: int, text: str, reply_markup: Optional[dict] = None,
         return False
 
 
-async def notify_operators(text: str) -> None:
+async def call(method: str, payload: dict) -> bool:
+    """Any Bot API method through the sales bot (button answers, message edits).
+    Never raises, like send()."""
+    from app.services.bot_abstraction import _redact, bot_layer  # noqa: PLC0415
+
+    token = config.platform_onboarding_bot_token
+    if not token:
+        return False
+    try:
+        resp = await asyncio.wait_for(bot_layer.telegram_http.post(
+            f"https://api.telegram.org/bot{token}/{method}", json=payload), timeout=20)
+        return bool(resp.json().get("ok"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Sales bot call failed", method=method, error=_redact(str(e))[:200])
+        return False
+
+
+async def notify_operators(text: str, reply_markup: Optional[dict] = None) -> None:
     from sqlalchemy import select  # noqa: PLC0415
 
     from app.database import async_session  # noqa: PLC0415
@@ -91,8 +108,10 @@ async def notify_operators(text: str) -> None:
     # Without a sales bot the operators still have to hear about a request (the
     # demo form leaves them too): REIP's own bot, which they use anyway.
     token = config.platform_onboarding_bot_token or config.telegram_bot_token
+    # Buttons answer to the bot that sent them: only the sales bot handles them.
+    markup = reply_markup if config.platform_onboarding_bot_token else None
     for op in ids:
-        await send(op, text, token=token)
+        await send(op, text, markup, token=token)
 
 
 async def _redis():
@@ -137,16 +156,47 @@ async def handle_update(update: dict) -> None:
     """Entry point for every sales bot update (polling or webhook)."""
     from app.dependencies import is_platform_operator  # noqa: PLC0415
 
+    if update.get("callback_query"):
+        from app.services.sales_bot_menu import handle_callback  # noqa: PLC0415
+
+        await handle_callback(update["callback_query"])
+        return
     msg = update.get("message") or {}
     user = msg.get("from") or {}
     uid = user.get("id")
     if not uid or (msg.get("chat") or {}).get("type", "private") != "private":
         return
     text = (msg.get("text") or "").strip()
-    if text.startswith("/") and not text.startswith("/start") and await is_platform_operator(int(uid)):
-        await handle_operator_command(int(uid), text)
-        return
+    if await is_platform_operator(int(uid)):
+        if await _operator_message(int(uid), user, text, msg.get("contact")):
+            return
     await handle_prospect(int(uid), user, text, msg.get("contact"))
+
+
+async def _operator_message(uid: int, user: dict, text: str, contact: Optional[dict]) -> bool:
+    """An operator gets the button menu; /client walks the prospect path to see
+    what clients see. Returns False when the message is for the prospect path."""
+    from app.services.sales_bot_menu import MENU, MENU_TEXT  # noqa: PLC0415
+
+    command = text.split(" ", 1)[0].split("@", 1)[0].lower()
+    if command == "/client":
+        await handle_prospect(uid, user, "/start", contact)
+        return True
+    if command in ("/start", "/menu", "/help"):
+        await set_state(uid, None)
+        # the "/" menu of this chat only: clients keep seeing just /start
+        await call("setMyCommands", {"scope": {"type": "chat", "chat_id": uid}, "commands": [
+            {"command": "menu", "description": "Панель оператора"},
+            {"command": "client", "description": "Бот глазами клиента"}]})
+        await send(uid, MENU_TEXT + "\n\nПосмотреть бота глазами клиента — /client", MENU)
+        return True
+    if text.startswith("/"):
+        await handle_operator_command(uid, text)
+        return True
+    if await get_state(uid) is None:
+        await send(uid, MENU_TEXT, MENU)
+        return True
+    return False
 
 
 async def handle_prospect(uid: int, user: dict, text: str, contact: Optional[dict] = None) -> None:
@@ -197,15 +247,13 @@ async def _submit(uid: int, user: dict, state: dict, phone: str) -> None:
         req.phone = phone
         session.add(req)
         await session.commit()
-        rid = str(req.id)[:8]
+    from app.services.sales_bot_menu import request_buttons, request_text  # noqa: PLC0415
+
     await set_state(uid, {"step": "done"})
     await send(uid, SUBMITTED.format(agency=state["agency"], city=state["city"]),
                {"remove_keyboard": True})
-    await notify_operators(
-        f"Новая заявка на REIP\nАгентство: {state['agency']}\nГород: {state['city']}\n"
-        f"Telegram: @{user.get('username') or uid}\nТелефон: +{phone}\n\n"
-        f"/approve_{rid} — отправить ссылку на оплату (тариф: start, pro, isolated)\n"
-        f"/reject_{rid} — отклонить")
+    await notify_operators("🆕 Новая заявка на REIP\n\n" + request_text(req),
+                           request_buttons(req, back=False))
 
 
 # ------------------------------------------------------------------ operator

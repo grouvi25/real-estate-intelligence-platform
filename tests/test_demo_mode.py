@@ -253,8 +253,8 @@ async def test_demo_request_form_reaches_the_operators(client, demo_redis, monke
 
     told = []
 
-    async def notify(text):
-        told.append(text)
+    async def notify(text, reply_markup=None):
+        told.append(f"{text}\n{reply_markup}")
 
     sent = []
 
@@ -289,4 +289,5 @@ async def test_demo_request_form_reaches_the_operators(client, demo_redis, monke
     finally:
         await engine.dispose()
     assert "из демо" in told[0] and "+79001234567" in told[0]
+    assert f"ap:{str(row.id)[:8]}:start" in told[0]  # the request arrives with its buttons
     assert "позвоните +79001234567" in reply and sent == []  # nobody to message in Telegram

@@ -138,8 +138,8 @@ def outbox(monkeypatch):
         sent.append((chat_id, text))
         return True
 
-    async def notify(text):
-        sent.append(("operators", text))
+    async def notify(text, reply_markup=None):
+        sent.append(("operators", f"{text}\n{reply_markup}"))
 
     monkeypatch.setattr(sales_bot, "send", send)
     monkeypatch.setattr(sales_bot, "notify_operators", notify)
@@ -188,7 +188,7 @@ async def test_from_start_to_a_working_agency(outbox, monkeypatch):
             raw_phone = bytes(req._phone_encrypted)
             assert req.phone == "79185554433" and b"79185554433" not in raw_phone
         rid = str(req.id)[:8]
-        assert any(t == "operators" and f"/approve_{rid}" in x for t, x in outbox)
+        assert any(t == "operators" and f"ap:{rid}:start" in x for t, x in outbox)
 
         # «Выделенный»: a plan name the schema from 001 did not allow at all.
         for command in (f"/approve_{rid} isolated", f"/paid_{rid}", f"/create_{rid}"):
@@ -215,6 +215,91 @@ async def test_from_start_to_a_working_agency(outbox, monkeypatch):
         async with async_session() as s:
             agency = await s.get(Agency, agency.id)
         assert agency.subscription_expires_at > datetime.now(timezone.utc) + timedelta(days=89)
+    finally:
+        await engine.dispose()
+
+
+def _press(uid, data, message_id=7):
+    return {"update_id": 2, "callback_query": {
+        "id": "cb1", "from": {"id": uid}, "data": data,
+        "message": {"message_id": message_id, "chat": {"id": uid, "type": "private"}}}}
+
+
+@db_only
+@pytest.mark.asyncio
+async def test_the_operator_connects_an_agency_with_buttons(outbox, monkeypatch):
+    """Menu on /start, the request card from the notification, approve -> paid ->
+    connect by pressing, each step editing the same message."""
+    from sqlalchemy import select
+
+    from tests.helpers import unique_telegram_id
+
+    import worker.tasks.geo_tasks as geo_tasks
+    from app.config import config
+    from app.database import async_session, engine, run_migrations
+    from app.models.billing import OnboardingRequest
+    from app.services import sales_bot
+
+    calls = []
+
+    async def call(method, payload):
+        calls.append((method, payload))
+        return True
+
+    monkeypatch.setattr(sales_bot, "call", call)
+    monkeypatch.setattr(config, "platform_operator_ids_raw", str(OPERATOR_ID))
+    monkeypatch.setattr(config, "yookassa_shop_id", None)
+    monkeypatch.setattr(geo_tasks.generate_keywords_for_geo, "delay", lambda *a, **k: None)
+    await run_migrations()
+    city = "Туапсе-" + uuid.uuid4().hex[:6]
+    prospect = unique_telegram_id()
+    try:
+        await sales_bot.handle_update(_msg(OPERATOR_ID, "/start"))
+        assert outbox[-1][0] == OPERATOR_ID and "Панель оператора" in outbox[-1][1]
+
+        for step in (_msg(prospect, "/start"), _msg(prospect, city), _msg(prospect, "Туапсе Кнопка"),
+                     _msg(prospect, contact={"phone_number": "+7 918 555-44-33"})):
+            await sales_bot.handle_update(step)
+        async with async_session() as s:
+            req = (await s.execute(select(OnboardingRequest).where(
+                OnboardingRequest.telegram_id == prospect))).scalar_one()
+        rid = str(req.id)[:8]
+
+        for data in (f"ap:{rid}:pro", f"pd:{rid}", f"cr:{rid}"):
+            await sales_bot.handle_update(_press(OPERATOR_ID, data))
+        edits = [p for m, p in calls if m == "editMessageText"]
+        assert len(edits) == 3 and all(p["message_id"] == 7 for p in edits)
+        assert "pd:" in str(edits[0]["reply_markup"])  # after approval: "Оплата получена"
+        assert "cr:" in str(edits[1]["reply_markup"])  # after payment: "Подключить агентство"
+        assert "/create_" not in edits[1]["text"]       # no command to type
+        async with async_session() as s:
+            req = await s.get(OnboardingRequest, req.id)
+        assert req.status == "completed" and req.plan_id == "pro"
+        assert any(t == prospect and "inv_" in x for t, x in outbox)
+
+        from app.models.agency import Agency
+
+        aid = str(req.agency_id)[:8]
+        async with async_session() as s:
+            before = (await s.get(Agency, req.agency_id)).subscription_expires_at
+        calls.clear()
+        for data in (f"ex:{aid}:3", f"sp:{aid}", f"spy:{aid}"):
+            await sales_bot.handle_update(_press(OPERATOR_ID, data))
+        edits = [p for m, p in calls if m == "editMessageText"]
+        assert "Да, заблокировать" in str(edits[1]["reply_markup"])  # asks before blocking
+        async with async_session() as s:
+            agency = await s.get(Agency, req.agency_id)
+        assert agency.subscription_expires_at > before + timedelta(days=85)
+        assert agency.subscription_active is False
+        await sales_bot.handle_update(_press(OPERATOR_ID, f"us:{aid}"))
+        async with async_session() as s:
+            assert (await s.get(Agency, req.agency_id)).subscription_active is True
+
+        stranger = unique_telegram_id()
+        calls.clear()
+        await sales_bot.handle_update(_press(stranger, "m:req"))
+        assert calls == [("answerCallbackQuery", {"callback_query_id": "cb1",
+                                                  "text": "Эти кнопки — только для операторов REIP"})]
     finally:
         await engine.dispose()
 
