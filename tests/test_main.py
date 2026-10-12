@@ -72,3 +72,14 @@ def test_the_api_schema_is_not_public_in_production(monkeypatch):
     finally:
         monkeypatch.setattr(config, "node_env", "development")
         importlib.reload(main)
+
+
+def test_privacy_page_names_the_operator():
+    """The bot's consent request links here (152-FZ): the page must exist."""
+    client = TestClient(app)
+    r = client.get("/privacy")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "Карпов Максим Владимирович" in r.text
+    assert "230406400050" in r.text
+    assert "322237500113545" in r.text

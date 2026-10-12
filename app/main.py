@@ -37,6 +37,7 @@ from app.routers import (
     health,
     lead_magnets,
     leads,
+    legal,
     operator,
     partners,
     platform,
@@ -192,6 +193,8 @@ app.include_router(bot.router, prefix="/api/bot", tags=["AI bot"])
 app.include_router(operator.router, prefix="/api/operator", tags=["Operator"])
 app.include_router(platform.router, prefix="/api/platform", tags=["Platform"])
 app.include_router(health.router, prefix="/api", tags=["Health"])
+# public pages: the privacy policy the bots link to
+app.include_router(legal.router, tags=["Legal"])
 
 # Serve the Mini App SPA as static files (bot opens /mini-app/). html=True makes
 # /mini-app/ resolve to index.html. Guarded so tests/imports don't require it.
