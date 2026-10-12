@@ -112,6 +112,30 @@ async def _notify_owners(session, agency_id, sources) -> None:
             logger.warning("Source-disabled notice not sent", error=str(e)[:120])
 
 
+async def _save(session, source, result: HealthResult, now: datetime) -> bool:
+    """Write one source in its own transaction; True when it was just disabled.
+
+    The collector updates the same source rows while the checks run. One
+    transaction over every source took the row locks in a different order and
+    deadlocked against it (prod, 12.10.2026 08:45 UTC): the whole hour's checks
+    were lost. A short transaction per source leaves nothing to deadlock on; if
+    it still happens, the row is re-read and the result applied once more.
+    """
+    for attempt in (1, 2):
+        just_disabled = apply_result(source, result, now)
+        try:
+            await session.commit()
+            return just_disabled
+        except Exception as e:  # noqa: BLE001 - one source, not the run
+            await session.rollback()
+            if attempt == 1 and "deadlock" in str(e).lower():
+                await session.refresh(source)
+                continue
+            logger.warning("Health result not saved", source_id=str(source.id), error=str(e)[:160])
+            return False
+    return False
+
+
 async def check_sources(session, sources, clients, guard=None, now=None) -> dict:
     """Check ``sources`` and write the results. Returns counts per outcome."""
     now = now or datetime.now(timezone.utc)
@@ -137,9 +161,8 @@ async def check_sources(session, sources, clients, guard=None, now=None) -> dict
         if source_ref(source)[0] in outage:
             result = HealthResult("skipped", reason="площадка недоступна целиком")
         counts[result.status] = counts.get(result.status, 0) + 1
-        if apply_result(source, result, now):
+        if await _save(session, source, result, now):
             disabled.setdefault(source.agency_id, []).append(source)
-    await session.commit()
     for agency_id, items in disabled.items():
         counts["disabled"] = counts.get("disabled", 0) + len(items)
         await _notify_owners(session, agency_id, items)

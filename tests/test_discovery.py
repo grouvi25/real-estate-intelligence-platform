@@ -467,3 +467,48 @@ def test_discovery_beat_and_queue():
 
     compose = (Path(__file__).resolve().parent.parent / "docker-compose.yml").read_text(encoding="utf-8")
     assert "-Q celery,discovery" in compose  # someone has to consume the queue
+
+
+@pytest.mark.asyncio
+async def test_a_deadlock_costs_one_retry_not_the_hour(monkeypatch):
+    """Prod, 12.10: the health check wrote every source in one transaction, which
+    deadlocked against the collector and lost the whole run. Now each source is
+    its own transaction and a deadlock is retried on a re-read row."""
+    from types import SimpleNamespace
+
+    from app.services.discovery import health
+
+    async def posts(*a, **k):
+        return None
+
+    monkeypatch.setattr(health, "fetch_posts", posts)
+
+    class Guard:
+        async def spend(self, platform, cost=1):
+            return True
+
+    class Session:
+        def __init__(self):
+            self.commits, self.rollbacks, self.refreshed = 0, 0, []
+
+        async def commit(self):
+            self.commits += 1
+            if self.commits == 1:
+                raise RuntimeError("(asyncpg.exceptions.DeadlockDetectedError) deadlock detected")
+
+        async def rollback(self):
+            self.rollbacks += 1
+
+        async def refresh(self, obj):
+            obj.consecutive_failures = 0  # the row as the database has it
+
+    sources = [SimpleNamespace(id=i, agency_id="a", source_type="telegram_chat", status="active",
+                               external_id=f"chat{i}", source_url=f"https://t.me/chat{i}",
+                               consecutive_failures=0, health_status="ok",
+                               last_health_check=None, last_post_at=None) for i in range(2)]
+    session = Session()
+    counts = await health.check_sources(session, sources, _Clients(), Guard(), now=NOW)
+
+    assert counts == {"dead": 2}
+    assert session.commits == 3 and session.rollbacks == 1  # one retry, then one commit each
+    assert all(s.consecutive_failures == 1 for s in sources)  # counted once, not twice
