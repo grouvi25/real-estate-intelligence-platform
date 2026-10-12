@@ -165,6 +165,14 @@ class Settings(BaseSettings):
     platform_reminder_days_raw: str = Field(default="7,3,1", alias="PLATFORM_REMINDER_DAYS_BEFORE")
     yookassa_shop_id: Optional[str] = Field(default=None, alias="YOOKASSA_SHOP_ID")
     yookassa_secret_key: Optional[str] = Field(default=None, alias="YOOKASSA_SECRET_KEY")
+    # Operator of personal data for /privacy (152-FZ): the platform owner.
+    privacy_operator_name: str = Field(
+        default="Индивидуальный предприниматель Карпов Максим Владимирович",
+        alias="PRIVACY_OPERATOR_NAME")
+    privacy_operator_inn: str = Field(default="230406400050", alias="PRIVACY_OPERATOR_INN")
+    privacy_operator_ogrn: str = Field(default="322237500113545", alias="PRIVACY_OPERATOR_OGRNIP")
+    # Where people send requests about their data; empty = through the sales bot.
+    privacy_contact_email: Optional[str] = Field(default=None, alias="PRIVACY_CONTACT_EMAIL")
 
     # === APPLICATION ===
     base_url: str = Field(..., alias="BASE_URL")
