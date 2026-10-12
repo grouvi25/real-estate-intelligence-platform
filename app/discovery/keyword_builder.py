@@ -137,6 +137,21 @@ def _sanitize(parsed: Any, city_name: str) -> dict:
 
 
 _MERGED_LISTS = ("city_variations", "intent_phrases", "financial_terms", "property_terms")
+# Negatives are matched as substrings (intent_scoring.quick_filter), so a short
+# one hits unrelated words ("тур" in "температура"), and a property word buyers
+# use ("апартаменты") would drop real buyers. Such new negatives are refused.
+_NEGATIVE_MIN_LEN = 5
+_BUYER_PROPERTY_STEMS = ("квартир", "апартамент", "студи", "дом", "участ", "коттедж",
+                         "таунхаус", "новостро", "жиль", "жильё", "недвижим")
+
+
+def _safe_negative(word: str, positives: list[str]) -> bool:
+    w = word.lower()
+    if len(w) < _NEGATIVE_MIN_LEN:
+        return False
+    if " " not in w and w.startswith(_BUYER_PROPERTY_STEMS):
+        return False
+    return not any(w in p for p in positives)
 
 
 def merge_keywords(old: Any, fresh: Any) -> tuple[dict, dict[str, list[str]]]:
@@ -146,7 +161,8 @@ def merge_keywords(old: Any, fresh: Any) -> tuple[dict, dict[str, list[str]]]:
     time: on Геленджик the city forms went 14 -> 3 and intent phrases 23 -> 5,
     which costs signals with no error anywhere. Merging keeps everything that
     already matched. A new negative keyword that occurs inside a kept phrase
-    would silently block that phrase, so such negatives are dropped.
+    would silently block that phrase, so such negatives are dropped, as are
+    short ones and buyer property words (see _safe_negative).
     """
     old = old if isinstance(old, dict) else {}
     fresh = fresh if isinstance(fresh, dict) else {}
@@ -159,7 +175,7 @@ def merge_keywords(old: Any, fresh: Any) -> tuple[dict, dict[str, list[str]]]:
         if field == "negative_keywords":
             positives = [p.lower() for f in _MERGED_LISTS
                          for p in _clean_list(old.get(f)) + _clean_list(fresh.get(f))]
-            new = [v for v in new if not any(v.lower() in p for p in positives)]
+            new = [v for v in new if _safe_negative(v, positives)]
         merged[field] = before + new
         if new:
             added[field] = new

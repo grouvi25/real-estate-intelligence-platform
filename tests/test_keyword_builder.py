@@ -253,3 +253,16 @@ def test_regenerated_keywords_add_to_the_old_ones():
     assert added == {"intent_phrases": ["хотим переехать"], "negative_keywords": ["посуточно"],
                      "search_queries.telegram": ["Геленджик форум"]}
 
+
+def test_new_negatives_that_would_cut_buyers_are_refused():
+    """Seen on the live Геленджик run: the AI proposed "тур" (a substring of
+    "температура", "культура") and "апартаменты" (what buyers there purchase)."""
+    from app.discovery.keyword_builder import merge_keywords
+
+    old = {"intent_phrases": ["ищу"], "negative_keywords": ["сдам"]}
+    fresh = {"negative_keywords": ["тур", "апартаменты", "гостевой дом", "посуточно", "санатори"]}
+
+    merged, _ = merge_keywords(old, fresh)
+
+    assert merged["negative_keywords"] == ["сдам", "гостевой дом", "посуточно", "санатори"]
+
