@@ -138,6 +138,24 @@ async def _escalate_overdue_leads() -> int:
             )
         )).scalars().all()
 
+        async def owner_of(agency_id):
+            return (await session.execute(
+                select(Manager).where(
+                    Manager.agency_id == agency_id,
+                    Manager.role == "owner").limit(1)
+            )).scalar_one_or_none()
+
+        async def responsible(lead):
+            """Who answers for the lead: its manager, or the owner when that
+            manager is gone. leads.assigned_to has no foreign key, so a lead can
+            outlive its manager; tasks.manager_id has one, and an escalation task
+            for a deleted manager failed on every run, so the lead was never
+            escalated at all."""
+            manager = await session.get(Manager, lead.assigned_to)
+            if manager is not None and manager.agency_id == lead.agency_id and manager.is_active:
+                return manager
+            return await owner_of(lead.agency_id)
+
         async def advance(lead) -> int:
             """Walk one lead up the ladder. Returns how many steps it took."""
             taken = 0
@@ -158,18 +176,16 @@ async def _escalate_overdue_leads() -> int:
                     if lead.urgency != "hot":
                         await record(lead, step)
                         continue
+                    who = await responsible(lead)
                     try:
-                        await bot_layer.notify_manager(
-                            str(lead.assigned_to),
-                            f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
+                        if who is not None:
+                            await bot_layer.notify_manager(
+                                str(who.id),
+                                f"🔔 Горячий лид #{short} без контакта {int(hrs)}ч")
                     except Exception as exc:
                         logger.warning("Escalation notification failed", lead_id=str(lead.id), step=step, error=str(exc))
                 elif step == 24:
-                    owner = (await session.execute(
-                        select(Manager).where(
-                            Manager.agency_id == lead.agency_id,
-                            Manager.role == "owner").limit(1)
-                    )).scalar_one_or_none()
+                    owner = await owner_of(lead.agency_id)
                     if owner:
                         try:
                             await bot_layer.notify_manager(
@@ -189,10 +205,12 @@ async def _escalate_overdue_leads() -> int:
                             Task.lead_id == lead.id,
                             Task.task_type == "escalation").limit(1)
                     )).scalar_one_or_none()
+                    who = await responsible(lead)
                     if not existing:
                         session.add(Task(
                             agency_id=lead.agency_id, lead_id=lead.id,
-                            manager_id=lead.assigned_to, task_type="escalation",
+                            manager_id=who.id if who is not None else None,
+                            task_type="escalation",
                             title=f"🚨 ПРОСРОЧЕНО 48ч: #{short}",
                             due_at=now, status="pending", is_urgent=True,
                             escalated_at=now,

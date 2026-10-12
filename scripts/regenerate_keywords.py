@@ -7,9 +7,10 @@ city, this does not start source discovery again.
     docker compose exec app python scripts/regenerate_keywords.py           # show
     docker compose exec app python scripts/regenerate_keywords.py --apply   # write
 
-Without --apply nothing is written: the AI answers differently every time, and a
-worse vocabulary silently costs signals, so look at the counts first. A result
-without city variations or intent phrases is never written even with --apply.
+The fresh vocabulary is merged into the old one (merge_keywords): nothing that
+already matched is lost, new negatives that would block a kept phrase are
+dropped. Without --apply nothing is written: the additions are printed first.
+A result without city variations or intent phrases is never written.
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ async def main() -> int:
     from sqlalchemy import select
 
     from app.database import async_session, engine
-    from app.discovery.keyword_builder import generate_geo_keywords
+    from app.discovery.keyword_builder import generate_geo_keywords, merge_keywords
     from app.models.geo_location import GeoLocation
 
     try:
@@ -48,10 +49,13 @@ async def main() -> int:
                     "agency_id": str(geo.agency_id),
                 })
                 usable = bool(fresh.get("city_variations")) and bool(fresh.get("intent_phrases"))
-                print(f"{geo.city_name}: было [{_counts(geo.keywords)}] → стало [{_counts(fresh)}]"
+                merged, added = merge_keywords(geo.keywords, fresh)
+                print(f"{geo.city_name}: было [{_counts(geo.keywords)}] → станет [{_counts(merged)}]"
                       + ("" if usable else "  — пустой ответ ИИ, не записываю"))
-                if args.apply and usable:
-                    geo.keywords = fresh
+                for field, values in added.items():
+                    print(f"  + {field}: {', '.join(values)}")
+                if args.apply and usable and added:
+                    geo.keywords = merged
             if args.apply:
                 await session.commit()
                 print("Записано.")

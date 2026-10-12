@@ -111,8 +111,11 @@ services:
     env_file: .env
     healthcheck:
       disable: true
+    # app runs the migrations on start: the bot reads agency bots from the
+    # database, so it waits for a healthy app instead of a started one.
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
 
   # Ships every container's logs to Yandex Cloud Logging (TZ 35.11). Docker is

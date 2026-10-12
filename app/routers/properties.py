@@ -49,6 +49,7 @@ def _property_summary(prop: Property) -> dict:
         "price": prop.price,
         "rooms": prop.rooms,
         "area_total": prop.area_total,
+        "land_area_sotki": prop.land_area_sotki,
         "district": prop.district,
         "status": prop.status,
         "deal_type": prop.deal_type,

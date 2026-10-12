@@ -40,6 +40,8 @@ class Property(CreatedAtMixin, UpdatedAtMixin, Base):
     price_per_sqm: Mapped[Optional[int]] = mapped_column(Integer)
     area_total: Mapped[Optional[float]] = mapped_column(Float)
     area_living: Mapped[Optional[float]] = mapped_column(Float)
+    # Land plot in sotki (1 сотка = 100 м²), from the Avito title (migration 068).
+    land_area_sotki: Mapped[Optional[float]] = mapped_column(Float)
     rooms: Mapped[Optional[int]] = mapped_column(Integer)
     floor: Mapped[Optional[int]] = mapped_column(Integer)
     floors_total: Mapped[Optional[int]] = mapped_column(Integer)
