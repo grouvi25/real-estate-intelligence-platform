@@ -153,7 +153,13 @@ async def create_agency_from_onboarding(
 
     from app.routers.geo import CreateGeoRequest, _create_geo  # noqa: PLC0415
 
-    await _create_geo(session, agency.id, CreateGeoRequest(city_name=request.city_name, region=""))
+    # The agency is already saved: a failure here must not keep the owner from
+    # getting the invite link. The city can be added again from the cabinet.
+    try:
+        await _create_geo(session, agency.id, CreateGeoRequest(city_name=request.city_name, region=""))
+    except Exception as e:  # noqa: BLE001
+        await session.rollback()
+        logger.error("City of a new agency not set up", agency_id=str(agency.id), error=str(e)[:300])
     username = None
     if bot_token:
         from app.services.agency_bots import attach_bot  # noqa: PLC0415

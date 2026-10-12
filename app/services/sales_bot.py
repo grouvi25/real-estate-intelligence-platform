@@ -11,6 +11,8 @@ lands with the operators, who drive it on from the same chat:
     /reject_<id>                  decline
     /extend_<agency> <months>     extend a subscription
     /suspend_<agency>, /unsuspend_<agency>
+    /link_<agency>                the owner's invite link again
+    /bot_<agency> <bot_token>     connect the agency's own bot later
     /demo_on, /demo_off, /demo   демо-режим (ТЗ «Сигналы» 7): включить, выключить, статус
 
 Ids are the first 8 characters, as printed in the notifications. Conversation
@@ -268,12 +270,14 @@ async def handle_operator_command(op_id: int, text: str) -> None:
         "requests": _cmd_requests, "approve": _cmd_approve, "paid": _cmd_paid,
         "create": _cmd_create, "reject": _cmd_reject, "extend": _cmd_extend,
         "suspend": _cmd_suspend, "unsuspend": _cmd_unsuspend, "demo": _cmd_demo,
+        "link": _cmd_link, "bot": _cmd_bot,
     }
     handler = handlers.get(command.split("@")[0])
     if handler is None:
         await send(op_id, "Команды: /requests, /approve_<id> [тариф], /paid_<id>, /create_<id> [токен бота], "
                           "/reject_<id>, /extend_<агентство> <мес>, /suspend_<агентство>, /unsuspend_<агентство>, "
-                          "/demo_on, /demo_off, /demo")
+                          "/link_<агентство>, /bot_<агентство> <токен>, /demo_on, /demo_off, /demo.\n"
+                          "Удобнее кнопками: /menu")
         return
     try:
         async with async_session() as session:
@@ -402,6 +406,31 @@ async def _cmd_extend(session, op_id, target, args) -> str:
     agency = await extend_subscription(session, await _agency(session, target), int(args[0]),
                                        created_by=f"operator:{op_id}")
     return f"{agency.name}: оплачено до {agency.subscription_expires_at:%d.%m.%Y}."
+
+
+async def _cmd_link(session, op_id, target, args) -> str:
+    """The owner's invite link again: lost, or the connection broke halfway."""
+    from app.services.onboarding import invite_link  # noqa: PLC0415
+
+    agency = await _agency(session, target)
+    link = invite_link(agency)
+    if agency.owner_telegram_id:
+        await send(agency.owner_telegram_id,
+                   f"Ссылка в кабинет REIP «{agency.name}» — вы войдёте как владелец. "
+                   f"Её же отправьте менеджерам:\n{link}")
+        return f"{agency.name}: ссылка отправлена владельцу.\n{link}"
+    return f"{agency.name}: Telegram владельца нет, передайте ссылку сами:\n{link}"
+
+
+async def _cmd_bot(session, op_id, target, args) -> str:
+    """Connect the agency's own bot after the agency exists: /bot_<агентство> <токен>."""
+    from app.services.agency_bots import attach_bot  # noqa: PLC0415
+
+    if not args:
+        raise ValueError("пришлите токен бота: /bot_<агентство> 123456:ABC…")
+    agency = await _agency(session, target)
+    username = await attach_bot(session, agency, args[0])
+    return f"{agency.name}: подключён бот @{username}. Новая ссылка владельцу — /link_{target}"
 
 
 async def _cmd_suspend(session, op_id, target, args) -> str:

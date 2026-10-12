@@ -80,11 +80,14 @@ def request_buttons(req, back: bool = True) -> dict:
 
 def agency_text(agency) -> str:
     until = agency.subscription_expires_at
+    bot = f"@{agency.telegram_bot_username}" if agency.telegram_bot_username else \
+        f"общий бот платформы (свой: /bot_{str(agency.id)[:8]} <токен>)"
     return "\n".join([
         f"{agency.name} · {agency.base_city or '—'}",
         f"Тариф: {agency.subscription_plan}",
         "Оплачено до: " + (f"{until:%d.%m.%Y}" if until else "без срока"),
         "Кабинет: " + ("работает" if agency.subscription_active else "⛔ заблокирован"),
+        f"Бот: {bot}",
     ])
 
 
@@ -92,6 +95,7 @@ def agency_buttons(agency) -> dict:
     aid = str(agency.id)[:8]
     return keyboard([
         [("+1 мес.", f"ex:{aid}:1"), ("+3 мес.", f"ex:{aid}:3"), ("+12 мес.", f"ex:{aid}:12")],
+        [("🔗 Ссылка для владельца", f"lk:{aid}")],
         [("⛔ Заблокировать", f"sp:{aid}")] if agency.subscription_active
         else [("✅ Разблокировать", f"us:{aid}")],
         [("⬅ Все агентства", "m:ag")],
@@ -191,9 +195,11 @@ async def screen_for(session, op_id: int, data: str) -> tuple[str, dict]:
         text = request_text(req) + (f"\n\n{_short(result)}" if result else "")
         return text, request_buttons(req)
 
-    if action in ("ag", "ex", "sp", "spy", "us"):
+    if action in ("ag", "ex", "sp", "spy", "us", "lk"):
         result = ""
-        if action == "ex":
+        if action == "lk":
+            result = await sb._cmd_link(session, op_id, target, [])
+        elif action == "ex":
             result = await sb._cmd_extend(session, op_id, target, [arg])
         elif action == "spy":
             result = await sb._cmd_suspend(session, op_id, target, [])

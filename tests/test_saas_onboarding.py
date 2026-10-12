@@ -295,6 +295,10 @@ async def test_the_operator_connects_an_agency_with_buttons(outbox, monkeypatch)
         async with async_session() as s:
             assert (await s.get(Agency, req.agency_id)).subscription_active is True
 
+        sent_before = len(outbox)
+        await sales_bot.handle_update(_press(OPERATOR_ID, f"lk:{aid}"))
+        assert any(t == prospect and "inv_" in x for t, x in outbox[sent_before:])
+
         stranger = unique_telegram_id()
         calls.clear()
         await sales_bot.handle_update(_press(stranger, "m:req"))
@@ -394,3 +398,19 @@ async def test_daily_check_reminds_and_suspends(monkeypatch, outbox):
     assert stats["reminded"] >= 1 and any("через 3 дня" in t for t in told)
     assert gone.subscription_active is False
     assert any(t == "operators" and gone.name in x for t, x in outbox)
+
+
+def test_the_bot_process_queues_tasks_to_the_real_broker():
+    """/create in the sales bot queues the city's keywords from the bot process.
+    It never imported worker.celery_app, so Celery fell back to its default
+    broker on localhost: "[Errno 111] Connection refused" on prod, 12.10.
+    A fresh interpreter, because the test session has imported app.main already."""
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "-c", "import app.services.telegram_polling; from celery import current_app; "
+                               "from app.config import config; "
+                               "print(current_app.conf.broker_url == config.redis_url)"],
+        capture_output=True, text=True, timeout=120)
+    assert out.stdout.strip().endswith("True"), out.stderr[-500:]

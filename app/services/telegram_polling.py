@@ -26,6 +26,12 @@ import structlog
 
 from app.config import config
 
+# Celery is configured on import of worker.celery_app. The API imports it in
+# app.main; this process did not, so a task queued from here (the geo keywords
+# when the operator connects an agency in the sales bot) went to Celery's
+# default broker on localhost: "[Errno 111] Connection refused".
+import worker.celery_app  # noqa: E402,F401
+
 logger = structlog.get_logger()
 
 POLL_TIMEOUT = 50  # seconds Telegram holds getUpdates open
