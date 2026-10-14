@@ -51,6 +51,7 @@
     ['admin/geo/new', () => Screens.adminGeoNew()],
     ['admin/sources', () => Screens.adminSources()],
     ['admin/bot', () => Screens.adminBot()],
+    ['admin/lead-magnets', () => Screens.adminLeadMagnets()],
   ];
 
   const NAV = [

@@ -191,6 +191,8 @@
     // AI sales bot (ТЗ «AI-бот продажник»): settings, what it did, its numbers
     botSettings: () => api.request('/bot/settings'),
     updateBotSettings: (body) => api.request('/bot/settings', 'PATCH', body),
+    leadMagnets: () => api.request('/agency/lead-magnets'),
+    updateLeadMagnets: (body) => api.request('/agency/lead-magnets', 'PATCH', body),
     botReplies: () => api.request('/bot/replies'),
     botPerformance: () => api.request('/bot/performance'),
 

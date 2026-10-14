@@ -23,8 +23,10 @@ def calculate_investment_roi(
     down_payment: Optional[int] = None,
     renovation_budget: int = 0,
     monthly_expenses: int = 5_000,
+    assumptions: Optional[dict] = None,
 ) -> dict:
-    a = RENTAL_ASSUMPTIONS.get(city, RENTAL_ASSUMPTIONS["default"])
+    """``assumptions``: the agency's own rental figures (lead_magnets.settings)."""
+    a = assumptions or RENTAL_ASSUMPTIONS.get(city, RENTAL_ASSUMPTIONS["default"])
     total = property_price + renovation_budget
     monthly_rental = property_price * a["rate_pct"]
     annual_gross = monthly_rental * a["season_months"] * a["occupancy"]

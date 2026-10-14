@@ -19,6 +19,7 @@ Screens.admin = async function () {
       <button class="tile" data-go="admin/sources"><span class="tile__ico">${UI.icon('signals')}</span><span class="tile__t">Источники</span><span class="tile__s">Мониторинг и активность</span></button>
       <button class="tile" data-go="tasks"><span class="tile__ico">${UI.icon('check')}</span><span class="tile__t">Задачи</span><span class="tile__s">Работа команды</span></button>
       <button class="tile" data-go="admin/bot"><span class="tile__ico">${UI.icon('sparkles')}</span><span class="tile__t">ИИ-бот</span><span class="tile__s">Ответы в чатах и диалоги</span></button>
+      <button class="tile" data-go="admin/lead-magnets"><span class="tile__ico">${UI.icon('target')}</span><span class="tile__t">Лид-магниты</span><span class="tile__s">Калькуляторы для клиентов</span></button>
       <button class="tile" data-go="analytics"><span class="tile__ico">${UI.icon('analytics')}</span><span class="tile__t">Аналитика</span><span class="tile__s">Воронка и ROI</span></button>
     </div>
     <div class="section-title">Команда</div><div id="admin-team">${UI.skelList(2)}</div>
@@ -208,4 +209,95 @@ async function drawBotReplies() {
       { icon: 'sparkles', title: 'Бот ещё не отвечал', sub: 'Черновики появятся в очереди ответов' });
     Router.bindGo();
   } catch (e) { box.innerHTML = UI.errorState(e.message); }
+}
+
+// Lead magnets: the public pages for clients (/lm/<agency>/<tool>), which are
+// on, their links, requests they brought, the agency's own rates.
+Screens.adminLeadMagnets = async function () {
+  if (!ownerOnly()) return;
+  UI.setHeader('Лид-магниты', 'Калькуляторы и подборки для клиентов', { back: true });
+  UI.render(`<div id="lm-box">${UI.skelList(3)}</div>`, drawLeadMagnets);
+};
+
+const lmNum = (v) => String(v).replace('.', ',');
+
+async function lmCopy(text) {
+  try { await navigator.clipboard.writeText(text); UI.toast('Ссылка скопирована'); }
+  catch (e) { UI.toast('Скопируйте вручную'); }
+}
+
+async function drawLeadMagnets() {
+  const box = document.getElementById('lm-box');
+  if (!box) return;
+  let d;
+  try { d = await API.leadMagnets(); } catch (e) { box.innerHTML = UI.errorState(e.message); return; }
+  const r = d.rental;
+  box.innerHTML = `
+    ${d.available ? '' : `<div class="card"><div class="item__sub">Кабинет заблокирован — страницы для клиентов сейчас не открываются.</div></div>`}
+    <div class="card">
+      <div class="item__title">Все инструменты на одной странице</div>
+      <div class="item__sub">Ссылка для сайта, бота и рассылок: клиент видит только включённые инструменты.
+        Заявки приходят в «Лиды» с источником «Лид-магнит» и задачей менеджеру.</div>
+      <div class="copyfield mt-2">${UI.esc(d.overview_url)}</div>
+      <div class="row row--wrap mt-2">
+        <button class="btn btn--sm" data-lm-copy="${UI.esc(d.overview_url)}">${UI.icon('copy')} Скопировать</button>
+        <a class="btn btn--sm btn--secondary" href="${UI.esc(d.overview_url)}" target="_blank" rel="noopener">${UI.icon('link')} Открыть</a>
+      </div>
+    </div>
+    <div class="section-title">Инструменты</div>
+    ${d.tools.map((t) => `<div class="card">
+      <div class="between"><div class="item__title">${UI.esc(t.title)}</div>
+        <span class="chip ${t.enabled ? 'chip--success' : ''}">${t.enabled ? 'включён' : 'выключен'}</span></div>
+      <div class="item__sub">${UI.esc(t.description)}</div>
+      <div class="item__meta mt-1">Заявок за 30 дней: ${t.leads_30d}</div>
+      <div class="row row--wrap mt-2">
+        <button class="btn btn--sm ${t.enabled ? 'btn--secondary' : ''}" data-lm-toggle="${t.slug}">${t.enabled ? 'Выключить' : 'Включить'}</button>
+        ${t.enabled ? `<button class="btn btn--sm btn--secondary" data-lm-copy="${UI.esc(t.url)}">${UI.icon('copy')} Ссылка</button>
+        <a class="btn btn--sm btn--ghost" href="${UI.esc(t.url)}" target="_blank" rel="noopener">Открыть</a>` : ''}
+      </div>
+    </div>`).join('')}
+    <div class="section-title">Ставки ипотеки, % годовых</div>
+    <div class="card">
+      ${d.mortgage_programs.map((p) => `<div class="field"><label for="lm-r-${p.key}">${UI.esc(p.name)}</label>
+        <input id="lm-r-${p.key}" type="number" inputmode="decimal" step="0.01" min="0" max="50" value="${p.rate_percent}">
+        ${p.rate_percent !== p.default_rate_percent ? `<div class="field__hint">По умолчанию ${lmNum(p.default_rate_percent)} %</div>` : ''}</div>`).join('')}
+      <button class="btn btn--block" id="lm-rates-save">${UI.icon('check')} Сохранить ставки</button>
+    </div>
+    <div class="section-title">Аренда в калькуляторе доходности · ${UI.esc(r.city)}</div>
+    <div class="card">
+      <div class="field"><label for="lm-season">Сезон, месяцев в году</label>
+        <input id="lm-season" type="number" inputmode="decimal" step="0.5" min="0.5" max="12" value="${r.season_months}"></div>
+      <div class="field"><label for="lm-rent">Аренда в месяц сезона, % от цены квартиры</label>
+        <input id="lm-rent" type="number" inputmode="decimal" step="0.01" min="0.05" max="5" value="${r.monthly_rent_percent}">
+        <div class="field__hint">Например, 0,7 % от квартиры за 8 млн — 56 000 ₽ в месяц</div></div>
+      <div class="field"><label for="lm-occ">Загрузка в сезон, %</label>
+        <input id="lm-occ" type="number" inputmode="decimal" step="1" min="5" max="100" value="${r.occupancy_percent}"></div>
+      <button class="btn btn--block" id="lm-rent-save">${UI.icon('check')} Сохранить</button>
+    </div>`;
+
+  box.querySelectorAll('[data-lm-copy]').forEach((b) => { b.onclick = () => lmCopy(b.dataset.lmCopy); });
+  box.querySelectorAll('[data-lm-toggle]').forEach((b) => {
+    b.onclick = () => UI.busy(b, async () => {
+      const slug = b.dataset.lmToggle;
+      const enabled = d.tools.filter((t) => (t.slug === slug ? !t.enabled : t.enabled)).map((t) => t.slug);
+      try { await API.updateLeadMagnets({ enabled }); UI.toast('Сохранено'); drawLeadMagnets(); }
+      catch (e) { UI.toast(e.message); }
+    });
+  });
+  const val = (id) => parseFloat(String(document.getElementById(id).value).replace(',', '.'));
+  const rates = document.getElementById('lm-rates-save');
+  rates.onclick = () => UI.busy(rates, async () => {
+    const body = {};
+    d.mortgage_programs.forEach((p) => { body[p.key] = val(`lm-r-${p.key}`); });
+    if (Object.values(body).some((v) => isNaN(v))) { UI.toast('Заполните все ставки'); return; }
+    try { await API.updateLeadMagnets({ mortgage_rates_percent: body }); UI.toast('Ставки сохранены'); drawLeadMagnets(); }
+    catch (e) { UI.toast(e.message); }
+  });
+  const rent = document.getElementById('lm-rent-save');
+  rent.onclick = () => UI.busy(rent, async () => {
+    const body = { season_months: val('lm-season'), monthly_rent_percent: val('lm-rent'), occupancy_percent: val('lm-occ') };
+    if (Object.values(body).some((v) => isNaN(v))) { UI.toast('Заполните все поля'); return; }
+    try { await API.updateLeadMagnets({ rental: body }); UI.toast('Сохранено'); drawLeadMagnets(); }
+    catch (e) { UI.toast(e.message); }
+  });
 }
