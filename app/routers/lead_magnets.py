@@ -35,7 +35,6 @@ from app.services.lead_magnets import (
     object_checker,
     roi_calculator,
 )
-from app.services.lead_magnets import settings as lm_settings
 from app.services.rate_limit import rate_limit
 
 logger = structlog.get_logger()
@@ -76,10 +75,11 @@ async def _create_lm_lead(
     telegram_username: Optional[str] = None,
     budget_max: Optional[int] = None,
     segment: Optional[str] = None,
-    slug: str,
 ) -> dict:
-    """Shared subscribe helper: the tool is on, dedup, create lead + task."""
-    await lm_settings.require_enabled(session, agency_id, slug)
+    """Shared subscribe helper: validate agency, dedup, create lead + task."""
+    agency = await session.get(Agency, agency_id)
+    if agency is None:
+        raise NotFoundError("Agency", str(agency_id))
 
     existing = await find_duplicate(session, agency_id, contact_phone)
     if existing is not None:
@@ -170,7 +170,9 @@ async def lm1_submit(req: LM1Result, session=Depends(get_session)):
     if not req.consent_given:
         raise ConsentRequiredError()
 
-    await lm_settings.require_enabled(session, req.agency_id, "finder")
+    agency = await session.get(Agency, req.agency_id)
+    if agency is None:
+        raise NotFoundError("Agency", str(req.agency_id))
 
     existing = await find_duplicate(session, req.agency_id, req.contact_phone)
     if existing is not None:
@@ -246,8 +248,6 @@ class LM2CalcRequest(BaseModel):
     program: str = "standard"
     use_matkapital: bool = False
     monthly_income: Optional[int] = None
-    # From the agency's page: its own rates, and the tool must be on.
-    agency_id: Optional[uuid.UUID] = None
 
 
 class LM2SubscribeRequest(UTMFields):
@@ -264,17 +264,13 @@ class LM2SubscribeRequest(UTMFields):
     "/lm2/calculate",
     dependencies=[Depends(rate_limit("lm2_calc", limit=20, window=60))],
 )
-async def lm2_calculate(req: LM2CalcRequest, session=Depends(get_session)):
-    programs = None
-    if req.agency_id:
-        agency = await lm_settings.require_enabled(session, req.agency_id, "mortgage")
-        programs = lm_settings.programs_for(agency)
+async def lm2_calculate(req: LM2CalcRequest):
     return {
         "selected_program": mortgage_calculator.calculate_mortgage(
             req.property_price, req.down_payment, req.term_years,
-            req.program, req.use_matkapital, req.monthly_income, programs=programs),
+            req.program, req.use_matkapital, req.monthly_income),
         "all_programs": mortgage_calculator.compare_programs(
-            req.property_price, req.down_payment, req.term_years, programs=programs),
+            req.property_price, req.down_payment, req.term_years),
     }
 
 
@@ -286,13 +282,11 @@ async def lm2_calculate(req: LM2CalcRequest, session=Depends(get_session)):
 async def lm2_subscribe(req: LM2SubscribeRequest, session=Depends(get_session)):
     if not req.consent_given:
         raise ConsentRequiredError()
-    agency = await lm_settings.require_enabled(session, req.agency_id, "mortgage")
     calc = mortgage_calculator.calculate_mortgage(
         req.calc_data.property_price, req.calc_data.down_payment,
-        req.calc_data.term_years, req.calc_data.program, req.calc_data.use_matkapital,
-        req.calc_data.monthly_income, programs=lm_settings.programs_for(agency))
+        req.calc_data.term_years, req.calc_data.program)
     res = await _create_lm_lead(
-        session, agency_id=req.agency_id, slug="mortgage", contact_name=req.contact_name,
+        session, agency_id=req.agency_id, contact_name=req.contact_name,
         contact_phone=req.contact_phone, consent_text=req.consent_text,
         telegram_username=req.telegram_username, budget_max=req.calc_data.property_price,
         buyer_profile={"lm_source": "lm2_mortgage", "calc_result": calc}, utm=req,
@@ -310,7 +304,6 @@ class LM3AnalyzeRequest(BaseModel):
     listing_url: Optional[str] = None
     listing_text: Optional[str] = None
     city: str
-    agency_id: Optional[uuid.UUID] = None
 
 
 class LM3SubscribeRequest(UTMFields):
@@ -353,9 +346,7 @@ async def _analyze_listing(city: str, listing_url: Optional[str], listing_text: 
     "/lm3/analyze",
     dependencies=[Depends(rate_limit("lm3_analyze", limit=20, window=60))],
 )
-async def lm3_analyze(req: LM3AnalyzeRequest, session=Depends(get_session)):
-    if req.agency_id:
-        await lm_settings.require_enabled(session, req.agency_id, "checker")
+async def lm3_analyze(req: LM3AnalyzeRequest):
     result = await _analyze_listing(req.city, req.listing_url, req.listing_text)
     result["url"] = req.listing_url
     return result
@@ -381,7 +372,7 @@ async def lm3_subscribe(req: LM3SubscribeRequest, session=Depends(get_session)):
         except Exception:  # noqa: BLE001
             analysis = {}
     out = await _create_lm_lead(
-        session, agency_id=req.agency_id, slug="checker", contact_name=req.contact_name,
+        session, agency_id=req.agency_id, contact_name=req.contact_name,
         contact_phone=req.contact_phone, consent_text=req.consent_text,
         buyer_profile={"lm_source": "lm3_checker", "checked_url": req.listing_url,
                        "ai_analysis": analysis}, utm=req,
@@ -399,7 +390,6 @@ class LM4DistrictsRequest(BaseModel):
     city: str
     scenario: str = Field(..., pattern="^(family|investor|relocant|remote|senior|vacationer)$")
     budget_max: Optional[int] = None
-    agency_id: Optional[uuid.UUID] = None
 
 
 class LM4SubscribeRequest(UTMFields):
@@ -417,10 +407,8 @@ class LM4SubscribeRequest(UTMFields):
     "/lm4/districts",
     dependencies=[Depends(rate_limit("lm4_districts", limit=20, window=60))],
 )
-async def lm4_districts(req: LM4DistrictsRequest, session=Depends(get_session)):
+async def lm4_districts(req: LM4DistrictsRequest):
     """AI top-3 districts by life scenario; falls back to static data if AI is off."""
-    if req.agency_id:
-        await lm_settings.require_enabled(session, req.agency_id, "districts")
     from app.services.ai_service import AIService, safe_ai_parse
 
     budget_line = f"Бюджет до: {req.budget_max:,} ₽" if req.budget_max else "Бюджет: не указан"
@@ -452,7 +440,7 @@ async def lm4_subscribe(req: LM4SubscribeRequest, session=Depends(get_session)):
     if not req.consent_given:
         raise ConsentRequiredError()
     return await _create_lm_lead(
-        session, agency_id=req.agency_id, slug="districts", contact_name=req.contact_name,
+        session, agency_id=req.agency_id, contact_name=req.contact_name,
         contact_phone=req.contact_phone, consent_text=req.consent_text,
         budget_max=req.budget_max,
         buyer_profile={"lm_source": "lm4_districts", "scenario": req.scenario, "city": req.city},
@@ -471,7 +459,6 @@ class LM6CalcRequest(BaseModel):
     down_payment: Optional[int] = None
     renovation_budget: int = 0
     monthly_expenses: int = 5_000
-    agency_id: Optional[uuid.UUID] = None
 
 
 class LM6SubscribeRequest(UTMFields):
@@ -487,14 +474,10 @@ class LM6SubscribeRequest(UTMFields):
     "/lm6/calculate",
     dependencies=[Depends(rate_limit("lm6_calc", limit=20, window=60))],
 )
-async def lm6_calculate(req: LM6CalcRequest, session=Depends(get_session)):
-    assumptions = None
-    if req.agency_id:
-        agency = await lm_settings.require_enabled(session, req.agency_id, "roi")
-        assumptions = lm_settings.rental_for(agency, req.city)
+async def lm6_calculate(req: LM6CalcRequest):
     return roi_calculator.calculate_investment_roi(
         req.property_price, req.city, req.down_payment,
-        req.renovation_budget, req.monthly_expenses, assumptions=assumptions)
+        req.renovation_budget, req.monthly_expenses)
 
 
 @router.post(
@@ -505,13 +488,10 @@ async def lm6_calculate(req: LM6CalcRequest, session=Depends(get_session)):
 async def lm6_subscribe(req: LM6SubscribeRequest, session=Depends(get_session)):
     if not req.consent_given:
         raise ConsentRequiredError()
-    agency = await lm_settings.require_enabled(session, req.agency_id, "roi")
     roi = roi_calculator.calculate_investment_roi(
-        req.calc_data.property_price, req.calc_data.city, req.calc_data.down_payment,
-        req.calc_data.renovation_budget, req.calc_data.monthly_expenses,
-        assumptions=lm_settings.rental_for(agency, req.calc_data.city))
+        req.calc_data.property_price, req.calc_data.city, req.calc_data.down_payment)
     res = await _create_lm_lead(
-        session, agency_id=req.agency_id, slug="roi", contact_name=req.contact_name,
+        session, agency_id=req.agency_id, contact_name=req.contact_name,
         contact_phone=req.contact_phone, consent_text=req.consent_text,
         budget_max=req.calc_data.property_price, segment="investor",
         buyer_profile={"lm_source": "lm6_roi", "roi_result": roi, "city": req.calc_data.city},
@@ -534,7 +514,6 @@ class LM5ReportRequest(BaseModel):
     budget_min: Optional[int] = Field(default=None, ge=0)
     budget_max: Optional[int] = Field(default=None, ge=0)
     goal: str = "own"
-    agency_id: Optional[uuid.UUID] = None
 
 
 class LM5SubscribeRequest(UTMFields):
@@ -562,10 +541,8 @@ def _validate_lm5(req: LM5ReportRequest | LM5SubscribeRequest) -> None:
     "/lm5/report",
     dependencies=[Depends(rate_limit("lm5_report", limit=10, window=60))],
 )
-async def lm5_report(req: LM5ReportRequest, session=Depends(get_session)):
+async def lm5_report(req: LM5ReportRequest):
     _validate_lm5(req)
-    if req.agency_id:
-        await lm_settings.require_enabled(session, req.agency_id, "market")
     from app.services.lead_magnets.market_report import generate_market_report
 
     return await generate_market_report(
@@ -586,8 +563,6 @@ async def lm5_subscribe(req: LM5SubscribeRequest, session=Depends(get_session)):
     if not req.consent_given:
         raise ConsentRequiredError()
     _validate_lm5(req)
-    # before the AI call: a switched-off tool must not spend money
-    await lm_settings.require_enabled(session, req.agency_id, "market")
     from app.services.lead_magnets.market_report import generate_market_report
 
     report = await generate_market_report(
@@ -600,7 +575,6 @@ async def lm5_subscribe(req: LM5SubscribeRequest, session=Depends(get_session)):
     result = await _create_lm_lead(
         session,
         agency_id=req.agency_id,
-        slug="market",
         contact_name=req.contact_name,
         contact_phone=req.contact_phone,
         consent_text=req.consent_text,
@@ -616,36 +590,3 @@ async def lm5_subscribe(req: LM5SubscribeRequest, session=Depends(get_session)):
         segment=req.segment,
     )
     return {**result, "report": report}
-
-
-# ---------------------------------------------------------------------------
-# The agency's public lead magnet pages (/lm/<agency_id>/<tool>) read this.
-# ---------------------------------------------------------------------------
-
-
-@router.get(
-    "/config/{agency_id}",
-    dependencies=[Depends(rate_limit("lm_config", limit=60, window=60))],
-)
-async def lm_config(agency_id: uuid.UUID, session=Depends(get_session)):
-    """What the agency's public pages show: its name and city, the tools that
-    are on, its mortgage rates. 404 for an unknown agency."""
-    from app.config import config  # noqa: PLC0415
-
-    agency = await session.get(Agency, agency_id)
-    if agency is None:
-        raise NotFoundError("Agency", str(agency_id))
-    enabled = set(lm_settings.enabled_slugs(agency))
-    programs = lm_settings.programs_for(agency)
-    return {
-        "agency": {"name": agency.name, "city": agency.base_city},
-        "tools": [{"slug": slug, "title": title, "description": lm_settings.CLIENT_DESCRIPTION[slug]}
-                  for slug, _, title, _ in lm_settings.TOOLS if slug in enabled],
-        "mortgage_programs": [
-            {"key": key, "name": p.name, "rate_percent": round(p.rate * 100, 2),
-             "max_term_years": p.max_term_years, "conditions": p.description}
-            for key, p in programs.items()],
-        "matkapital": mortgage_calculator.MATKAPITAL_2026,
-        "scenarios": [{"key": k, "label": v.split(":")[0]} for k, v in districts_lm.LIFE_SCENARIOS.items()],
-        "privacy_url": f"{config.base_url.rstrip('/')}/privacy",
-    }
