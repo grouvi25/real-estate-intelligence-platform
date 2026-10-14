@@ -42,10 +42,9 @@ _FALLBACK_DISTRICTS = {
 
 def fallback_districts(city: str, scenario: str) -> dict:
     districts = _FALLBACK_DISTRICTS.get(city, [])
-    label = LIFE_SCENARIOS.get(scenario, scenario).split(":")[0]
     return {
         "districts": districts,
-        "city_overview": f"{city}: районы для сценария «{label}».",
+        "city_overview": f"{city}: подборка районов под сценарий «{scenario}».",
         "recommendation": "Уточните бюджет — менеджер подберёт объекты в выбранном районе.",
         "ai_used": False,
     }
