@@ -93,3 +93,93 @@ async def update_signal_filter(
         forget_competitors(agency_id)
     await session.commit()
     return await _dto(session, agency_id)
+
+
+# --- lead magnets: which are on, the agency's rates, links and requests -----
+
+class LeadMagnetsRequest(BaseModel):
+    """Same units as the GET answer: percents, months."""
+    enabled: Optional[list[str]] = None
+    mortgage_rates_percent: Optional[dict[str, float]] = None
+    rental: Optional[dict[str, float]] = None  # season_months, monthly_rent_percent, occupancy_percent
+
+    def stored_units(self) -> tuple[Optional[dict], Optional[dict]]:
+        rates = None if self.mortgage_rates_percent is None else {
+            k: v / 100 for k, v in self.mortgage_rates_percent.items()}
+        rental = None
+        if self.rental is not None:
+            names = {"season_months": ("season_months", 1), "monthly_rent_percent": ("rate_pct", 100),
+                     "occupancy_percent": ("occupancy", 100)}
+            rental = {}
+            for key, value in self.rental.items():
+                stored_key, scale = names.get(key, (key, 1))
+                rental[stored_key] = value / scale
+        return rates, rental
+
+
+async def _lm_dto(session, agency_id: uuid.UUID) -> dict:
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+
+    from sqlalchemy import func, select  # noqa: PLC0415
+
+    from app.config import config  # noqa: PLC0415
+    from app.models.agency import Agency  # noqa: PLC0415
+    from app.models.lead import Lead  # noqa: PLC0415
+    from app.services.lead_magnets import mortgage_calculator  # noqa: PLC0415
+    from app.services.lead_magnets import settings as lm  # noqa: PLC0415
+
+    agency = await session.get(Agency, agency_id)
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    source = Lead.buyer_profile["lm_source"].astext
+    counts = dict((await session.execute(
+        select(source, func.count()).where(
+            Lead.agency_id == agency_id, Lead.source_type == "lead_magnet",
+            Lead.created_at >= since).group_by(source))).all())
+    off = lm.disabled(agency)
+    base = f"{config.base_url.rstrip('/')}/lm/{agency_id}"
+    programs = lm.programs_for(agency)
+    rental = lm.rental_for(agency, agency.base_city)
+    return {
+        "available": lm.is_available(agency),
+        "overview_url": base,
+        "tools": [{"slug": slug, "title": title, "description": about, "enabled": slug not in off,
+                   "url": f"{base}/{slug}", "leads_30d": int(counts.get(source_key, 0))}
+                  for slug, source_key, title, about in lm.TOOLS],
+        "mortgage_programs": [
+            {"key": key, "name": p.name, "rate_percent": round(p.rate * 100, 2),
+             "default_rate_percent": round(mortgage_calculator.MORTGAGE_PROGRAMS[key].rate * 100, 2)}
+            for key, p in programs.items()],
+        "rental": {"city": agency.base_city, "season_months": rental["season_months"],
+                   "monthly_rent_percent": round(rental["rate_pct"] * 100, 3),
+                   "occupancy_percent": round(rental["occupancy"] * 100, 1)},
+    }
+
+
+@router.get("/lead-magnets")
+async def get_lead_magnets(
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    await require_owner(session, current)
+    return await _lm_dto(session, uuid.UUID(current.agency_id))
+
+
+@router.patch("/lead-magnets")
+async def update_lead_magnets(
+    req: LeadMagnetsRequest,
+    current: CurrentManager = Depends(get_current_manager),
+    session=Depends(get_session),
+):
+    from app.models.agency import Agency  # noqa: PLC0415
+    from app.services.lead_magnets import settings as lm  # noqa: PLC0415
+
+    await require_owner(session, current)
+    agency_id = uuid.UUID(current.agency_id)
+    agency = await session.get(Agency, agency_id)
+    settings = dict(agency.settings or {})
+    rates, rental = req.stored_units()
+    settings[lm.SETTINGS_KEY] = lm.validate_update(
+        lm.stored(agency), enabled=req.enabled, mortgage_rates=rates, rental=rental)
+    agency.settings = settings
+    await session.commit()
+    return await _lm_dto(session, agency_id)

@@ -42,8 +42,11 @@ def calculate_mortgage(
     program_key: str = "standard",
     use_matkapital: bool = False,
     monthly_income: Optional[int] = None,
+    programs: Optional[dict[str, MortgageProgram]] = None,
 ) -> dict:
-    prog = MORTGAGE_PROGRAMS.get(program_key, MORTGAGE_PROGRAMS["standard"])
+    """``programs``: the agency's own rates (lead_magnets.settings); TZ figures by default."""
+    programs = programs or MORTGAGE_PROGRAMS
+    prog = programs.get(program_key, programs["standard"])
     eff_down = down_payment + (MATKAPITAL_2026 if use_matkapital else 0)
     if eff_down >= property_price:
         return {"error": "Первоначальный взнос >= стоимости объекта"}
@@ -69,10 +72,12 @@ def calculate_mortgage(
     }
 
 
-def compare_programs(property_price: int, down_payment: int, term_years: int) -> list:
+def compare_programs(property_price: int, down_payment: int, term_years: int,
+                     programs: Optional[dict[str, MortgageProgram]] = None) -> list:
+    programs = programs or MORTGAGE_PROGRAMS
     results = []
-    for key in MORTGAGE_PROGRAMS:
-        c = calculate_mortgage(property_price, down_payment, term_years, key)
+    for key in programs:
+        c = calculate_mortgage(property_price, down_payment, term_years, key, programs=programs)
         c["program_key"] = key
         results.append(c)
     return sorted(results, key=lambda x: x.get("monthly_payment", 9_999_999))

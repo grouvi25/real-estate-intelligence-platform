@@ -202,6 +202,19 @@ _mini_app_dir = Path(__file__).resolve().parent.parent / "mini_app"
 if _mini_app_dir.exists():
     app.mount("/mini-app", StaticFiles(directory=str(_mini_app_dir), html=True), name="mini_app")
 
+# The agency's public lead magnet pages: /lm/<agency_id> lists its tools,
+# /lm/<agency_id>/<tool> opens one. One page, the script reads the path.
+_lm_dir = Path(__file__).resolve().parent.parent / "lm_web"
+if _lm_dir.exists():
+    from fastapi.responses import FileResponse
+
+    app.mount("/lm-assets", StaticFiles(directory=str(_lm_dir)), name="lm_assets")
+
+    @app.get("/lm/{agency_id}", include_in_schema=False)
+    @app.get("/lm/{agency_id}/{tool}", include_in_schema=False)
+    async def lead_magnet_page(agency_id: str, tool: str = ""):
+        return FileResponse(_lm_dir / "index.html", headers={"Cache-Control": "no-cache"})
+
 
 @app.get("/")
 async def root():
