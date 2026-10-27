@@ -10,6 +10,16 @@ volume:
 
     docker compose exec app python scripts/telethon_login.py
 
+Вход по QR без кода из SMS — как «Подключить устройство» в приложении:
+
+    docker compose exec app python scripts/telethon_login.py --qr /app/telethon/имя
+
+Скрипт печатает ссылку tg://login; из неё делают QR и сканируют телефоном
+этого аккаунта: Настройки → Устройства → Подключить устройство. Так входят
+аккаунты, у которых нет своих api_id/api_hash: работает общий ключ приложения.
+Входить лучше прямо на сервере: сессия, созданная на одной машине и перенесённая
+на другую, чаще вылетает.
+
 The script never stores the phone, code, or 2FA password: it forwards them
 straight to Telethon, which writes only the resulting session token.
 """
@@ -39,7 +49,9 @@ async def main() -> int:
     # Каким аккаунтом входим, решает аргумент: без него — основной. Резервные
     # места очереди (TELETHON_SESSIONS) заполняются именно так, поэтому имя
     # обязано быть выбираемым, а не жёстко взятым из основной настройки.
-    session = sys.argv[1] if len(sys.argv) > 1 else config.telethon_session_name
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    use_qr = "--qr" in sys.argv[1:]
+    session = args[0] if args else config.telethon_session_name
     known = telethon_sessions.sessions()
     if session not in known:
         print(f"ВНИМАНИЕ: {session} нет в очереди TELETHON_SESSIONS ({', '.join(known)}).")
@@ -53,24 +65,14 @@ async def main() -> int:
     print(f"api_id: {config.telethon_api_id}")
     if config.telethon_dc_port:
         print(f"MTProto port: {config.telethon_dc_port} (pinned via TELETHON_DC_PORT)")
-    print("\nTelegram will ask for the phone number of the COLLECTOR account,")
-    print("then for the login code, and for the 2FA password if you have one.\n")
 
     # Same connection settings as the collector, so a session created here works
     # unchanged in the worker.
     client = build_client(session)
-    # start() prompts on stdin for phone / code / password as needed.
-    # Телефон из настроек — это номер основного аккаунта. Для любого другого
-    # спрашиваем, иначе Telethon молча отправит код не туда.
-    #
-    # Спрашивать надо именно приглашением: start(phone=None) не переспрашивает,
-    # а падает с "No phone number or bot token provided" — по умолчанию там
-    # стоит функция ввода, и подменять её на None нельзя.
-    phone = config.telethon_phone if session == config.telethon_session_name else None
-    if phone:
-        await client.start(phone=phone)
+    if use_qr:
+        await _qr_login(client)
     else:
-        await client.start(phone=lambda: input("Номер телефона аккаунта (+7...): ").strip())
+        await _code_login(client, session)
 
     me = await client.get_me()
     username = f"@{me.username}" if me.username else "(no username)"
@@ -88,6 +90,47 @@ async def main() -> int:
     if revived:
         print(f"Пометка «выбыл» с {session} снята — аккаунт снова в очереди.")
     return 0
+
+
+async def _code_login(client, session: str) -> None:
+    print("\nTelegram will ask for the phone number of the COLLECTOR account,")
+    print("then for the login code, and for the 2FA password if you have one.\n")
+    # start() prompts on stdin for phone / code / password as needed.
+    # Телефон из настроек — это номер основного аккаунта. Для любого другого
+    # спрашиваем, иначе Telethon молча отправит код не туда.
+    #
+    # Спрашивать надо именно приглашением: start(phone=None) не переспрашивает,
+    # а падает с "No phone number or bot token provided" — по умолчанию там
+    # стоит функция ввода, и подменять её на None нельзя.
+    phone = config.telethon_phone if session == config.telethon_session_name else None
+    if phone:
+        await client.start(phone=phone)
+    else:
+        await client.start(phone=lambda: input("Номер телефона аккаунта (+7...): ").strip())
+
+
+async def _qr_login(client) -> None:
+    """Вход по QR: ссылка живёт около 30 секунд, обновляем её, пока не отсканируют."""
+    import getpass  # noqa: PLC0415
+
+    from telethon.errors import SessionPasswordNeededError  # noqa: PLC0415
+
+    await client.connect()
+    if await client.is_user_authorized():
+        print("Этот файл сессии уже вошёл в аккаунт.")
+        return
+    qr = await client.qr_login()
+    for _ in range(20):
+        print("\nСсылка для QR (действует ~30 с):", qr.url, flush=True)
+        try:
+            await qr.wait(timeout=30)
+            return
+        except SessionPasswordNeededError:
+            await client.sign_in(password=getpass.getpass("Облачный пароль (2FA): "))
+            return
+        except asyncio.TimeoutError:
+            await qr.recreate()
+    raise SystemExit("QR так и не отсканировали — запустите заново.")
 
 
 if __name__ == "__main__":

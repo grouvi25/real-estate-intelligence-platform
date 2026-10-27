@@ -122,12 +122,16 @@ class TelegramCollector:
             await self._client.connect()
         return self._client
 
-    async def is_authorized(self) -> bool:
+    async def is_authorized(self) -> Optional[bool]:
         """Есть ли за этим именем живой вход, а не пустой файл сессии.
 
         Имя аккаунта, под которым ещё ни разу не входили, Telethon молча заводит
         как новую пустую сессию — и сбор потом падает на каждом источнике по
         отдельности, вместо того чтобы сразу перейти к следующему аккаунту.
+
+        None — проверить не удалось (нет связи, файл сессии занят). Это не ответ
+        «входа нет»: раньше такой сбой списывал живой аккаунт, и сбор стоял, пока
+        пометку не сняли руками.
         """
         try:
             client = await self._get_client()
@@ -135,7 +139,7 @@ class TelegramCollector:
         except Exception as e:  # noqa: BLE001
             logger.warning("Не проверить вход аккаунта",
                            session=self.session_name, error=str(e)[:120])
-            return False
+            return None
 
     @staticmethod
     def _username(source) -> Optional[str]:
