@@ -68,7 +68,7 @@ async def _clear_telethon_pause() -> None:
         await client.aclose()
 
 
-async def _switch_or_pause(session_name: str, error: BaseException) -> bool:
+async def _switch_or_pause(session_name: str, error: BaseException | str) -> bool:
     """Пометить аккаунт негодным и сказать, есть ли кем продолжать.
 
     Заблокированный аккаунт больше не берётся в работу. Пока в очереди остаётся
@@ -99,7 +99,7 @@ async def _switch_or_pause(session_name: str, error: BaseException) -> bool:
     return False
 
 
-async def _pause_telethon(error: BaseException) -> None:
+async def _pause_telethon(error: BaseException | str) -> None:
     """Pause noisy retries and alert the operator that re-authorization is needed."""
     import redis.asyncio as redis
 
@@ -116,14 +116,16 @@ async def _pause_telethon(error: BaseException) -> None:
 
     logger.error(
         "Telethon session error - collection paused",
-        error=type(error).__name__,
+        error=error if isinstance(error, str) else type(error).__name__,
         pause_hours=TELETHON_PAUSE_HOURS,
     )
     try:
         await send_critical_alert(
             f"""🚨 Telegram-аккаунты для сбора закончились — живых не осталось.
 Сбор приостановлен на {TELETHON_PAUSE_HOURS}ч.
-Нужен новый аккаунт: вход через scripts/telethon_login.py."""
+Причина: {str(error)[:120]}
+Если аккаунт живой, он вернётся сам при следующей проверке.
+Если вход потерян — войти заново: scripts/telethon_login.py --qr."""
         )
     except Exception as alert_error:  # noqa: BLE001
         logger.error("Could not send Telethon re-auth alert", error=str(alert_error))
@@ -179,7 +181,11 @@ async def _collect_telegram_sources_locked(limit_per_source: int = 50) -> int:
     for _ in range(len(telethon_sessions.sessions())):
         session_name = await telethon_sessions.active_session()
         if session_name is None:
+            # Раньше здесь был только лог, и сбор стоял неделями без единого
+            # оповещения. Пауза с тревогой повторит напоминание через несколько
+            # часов, пока аккаунт не вернут.
             logger.warning("Живых аккаунтов Telegram не осталось")
+            await _pause_telethon(RuntimeError("нет живых аккаунтов"))
             return 0
 
         collector = TelegramCollector(session_name)
@@ -189,12 +195,19 @@ async def _collect_telegram_sources_locked(limit_per_source: int = 50) -> int:
 
         # Аккаунт без входа — такой же выбывший, как заблокированный: работать
         # им нельзя, и держать его первым в очереди значит стоять на месте.
-        if not await collector.is_authorized():
-            await telethon_sessions.mark_dead(session_name, "нет входа в аккаунт")
+        # Но «не смогли проверить» — это сбой связи, а не потерянный вход:
+        # аккаунт не трогаем, пробуем в следующий запуск.
+        authorized = await collector.is_authorized()
+        if authorized is not True:
             try:
                 await collector.close()
             except Exception:  # noqa: BLE001
                 pass
+            if authorized is None:
+                logger.warning("Вход аккаунта не проверить, сбор отложен", account=session_name)
+                return 0
+            if not await _switch_or_pause(session_name, "нет входа в аккаунт"):
+                return 0
             continue
 
         total = 0

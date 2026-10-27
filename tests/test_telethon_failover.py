@@ -111,3 +111,74 @@ async def test_switch_says_stop_when_the_last_account_is_gone(monkeypatch):
 
     switched = await collector_tasks._switch_or_pause("main_acc", RuntimeError("revoked"))
     assert switched is False
+
+
+@pytest.mark.asyncio
+async def test_dead_mark_expires_so_the_account_is_rechecked(monkeypatch):
+    """Бессрочная пометка однажды списала живой аккаунт после сбоя связи."""
+    import redis.asyncio as redis
+
+    _two(monkeypatch)
+    await telethon_sessions.mark_dead("main_acc", "нет входа в аккаунт")
+    client = redis.from_url(config.redis_url)
+    try:
+        ttl = await client.ttl(telethon_sessions.DEAD_KEY.format("main_acc"))
+    finally:
+        await client.aclose()
+    assert 0 < ttl <= telethon_sessions.DEAD_TTL_SECONDS
+
+
+class _Collector:
+    """TelegramCollector без сети: ответ на «есть ли вход» задаёт тест."""
+
+    answer: object = None
+
+    def __init__(self, session_name):
+        self.session_name = session_name
+
+    def is_available(self):
+        return True
+
+    async def is_authorized(self):
+        return _Collector.answer
+
+    async def close(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_unknown_login_state_does_not_write_the_account_off(monkeypatch):
+    """Сбой связи при проверке входа — не повод списывать живой аккаунт."""
+    from app.collectors import telegram_collector
+    from worker.tasks import collector_tasks
+
+    _two(monkeypatch)
+    _Collector.answer = None
+    monkeypatch.setattr(telegram_collector, "TelegramCollector", _Collector)
+
+    assert await collector_tasks._collect_telegram_sources_locked(10) == 0
+    assert await telethon_sessions.alive_sessions() == ["main_acc", "backup_acc"]
+
+
+@pytest.mark.asyncio
+async def test_lost_login_is_reported_not_swallowed(monkeypatch):
+    """Аккаунт без входа выбывает с оповещением, а не молча."""
+    from app.collectors import telegram_collector
+    from worker.tasks import collector_tasks
+
+    monkeypatch.setattr(config, "telethon_sessions_raw", "main_acc")
+    _Collector.answer = False
+    monkeypatch.setattr(telegram_collector, "TelegramCollector", _Collector)
+    sent: list[str] = []
+
+    async def _capture(text: str) -> bool:
+        sent.append(text)
+        return True
+
+    monkeypatch.setattr("app.services.alerts.send_critical_alert", _capture)
+    try:
+        assert await collector_tasks._collect_telegram_sources_locked(10) == 0
+    finally:
+        await collector_tasks._clear_telethon_pause()
+    assert await telethon_sessions.active_session() is None
+    assert sent and "нет входа" in sent[-1]

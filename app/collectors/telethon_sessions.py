@@ -6,10 +6,11 @@
 упавший помечается негодным, работа продолжается со следующего.
 
 Пометка живёт в Redis, а не в памяти процесса: воркеров несколько, и узнать о
-блокировке они должны все сразу, а не каждый на своей ошибке. Она бессрочная —
-заблокированный аккаунт сам не воскреснет, и молчаливый возврат к нему через
-час означал бы новый круг ошибок. Снимается либо руками, либо когда для этого
-аккаунта заводят новую сессию.
+блокировке они должны все сразу, а не каждый на своей ошибке. Живёт она сутки:
+по истечении аккаунт проверяется заново. Бессрочная пометка однажды списала
+живой аккаунт после сбоя связи, и сбор простоял десять дней молча. Раз в сутки
+переспросить мёртвый аккаунт дёшево, а заблокированный снова попадёт в пометку
+с тревогой. Снимается и руками, и при новом входе в аккаунт.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from app.config import config
 logger = structlog.get_logger()
 
 DEAD_KEY = "telethon:session:dead:{}"
+DEAD_TTL_SECONDS = 24 * 3600
 
 
 def sessions() -> list[str]:
@@ -72,7 +74,7 @@ async def active_session() -> Optional[str]:
 async def mark_dead(name: str, error: BaseException | str) -> None:
     client = await _redis()
     try:
-        await client.set(DEAD_KEY.format(name), str(error)[:200])
+        await client.set(DEAD_KEY.format(name), str(error)[:200], ex=DEAD_TTL_SECONDS)
     except Exception as e:  # noqa: BLE001
         logger.error("Не сохранить пометку о негодном аккаунте", error=str(e)[:120])
     finally:
