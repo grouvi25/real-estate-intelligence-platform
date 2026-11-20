@@ -121,8 +121,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Production is grouvi-vps (Beget, Moscow) since 11.10.2026; the Yandex Cloud
-      # VM behind the jump host is gone. Key auth with VM_SSH_KEY, a dedicated
+      # Production is grouvi-beget (Beget, 85.198.67.48) since 17.11.2026, after
+      # grouvi-vps and the Yandex Cloud VM were lost. Key auth with VM_SSH_KEY, a dedicated
       # ed25519 key ("reip-github-deploy") used only by this workflow: revoke it by
       # deleting its line from root's authorized_keys. Telegram is reachable from
       # Beget directly, so .env carries no TELEGRAM_PROXY_URL.
@@ -160,6 +160,7 @@ jobs:
             TELEGRAM_BOT_USERNAME=dev_bot
             EOF
             fi
+            chmod 600 /opt/reip/.env
 
       # The block above writes .env once and never touches it again, so every
       # credential obtained afterwards had to be typed into the file over SSH by
@@ -187,6 +188,8 @@ jobs:
               echo "$1: записан из секрета GitHub"
             }
             upsert VK_SERVICE_TOKEN "$VK_SERVICE_TOKEN"
+            # mv above leaves the new file 644: .env holds every key of the box
+            chmod 600 /opt/reip/.env
 
       - name: Copy code to VPS
         uses: appleboy/scp-action@v0.1.7
