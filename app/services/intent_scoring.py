@@ -89,14 +89,58 @@ def city_mentioned(text: str, variations: list[Any]) -> bool:
     return False
 
 
-def quick_filter(message_text: str, geo_keywords: dict[str, Any]) -> bool:
-    """Stage 1: fast pre-filter. Returns True if the message is worth AI scoring."""
+# Places a buyer may name instead of ours. Used only to switch off the city that
+# a chat's title implies: «ищу квартиру в Анапе» in a chat called «Недвижимость
+# Геленджика» is not looking in Геленджик. The agency's own city stems are
+# removed before use, so the list works for any city on the platform.
+_OTHER_PLACES = (
+    "москв", "питер", "петербург", "краснодар", "анап", "сочи", "новороссийск",
+    "крым", "севастопол", "ялт", "туапсе", "ростов", "ейск", "адлер", "абхаз",
+    "кипр", "турци", "дубай", "таиланд",
+)
+
+
+def source_names_city(source_title: str | None, variations: list[Any]) -> bool:
+    """Is the chat itself about our city («Кабардинка жильё», «Чат Геленджика»)?
+
+    In such a chat people do not repeat the city: «ищу квартиру 1к,2к до 15 млн
+    для покупки» in «Кабардинка жильё» was the only real buyer in thirty days of
+    every public Геленджик chat, and the stage-1 filter dropped it for not
+    naming the city. Unlike city_mentioned the adjective counts here: a chat
+    called «Геленджикский район. Куплю, продам» is about the city too.
+    """
+    import re
+
+    lowered = (source_title or "").lower()
+    for value in variations or []:
+        stem = str(value).strip().lower()
+        if stem and re.search(_WORD_START + re.escape(stem), lowered):
+            return True
+    return False
+
+
+def _names_other_place(text: str, variations: list[Any]) -> bool:
+    own = [str(v).strip().lower() for v in variations or [] if str(v).strip()]
+    return any(place in text for place in _OTHER_PLACES
+               if not any(place in stem or stem in place for stem in own))
+
+
+def quick_filter(message_text: str, geo_keywords: dict[str, Any],
+                 city_implied: bool = False) -> bool:
+    """Stage 1: fast pre-filter. Returns True if the message is worth AI scoring.
+
+    city_implied: the message comes from a chat about the city (see
+    source_names_city), so it does not have to name the city itself -- unless
+    it names some other place instead.
+    """
     text = (message_text or "").lower()
 
     def _any(key: str) -> bool:
         return any(str(v).lower() in text for v in geo_keywords.get(key, []))
 
-    city_is_named = city_mentioned(text, geo_keywords.get("city_variations", []))
+    variations = geo_keywords.get("city_variations", [])
+    city_is_named = city_mentioned(text, variations) or (
+        city_implied and not _names_other_place(text, variations))
     intent_signal = _any("intent_phrases") or any(p in text for p in BUY_INTENT_KEYWORDS)
     financial_signal = _any("financial_terms")
     property_signal = _any("property_terms")

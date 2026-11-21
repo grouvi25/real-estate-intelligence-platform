@@ -15,7 +15,7 @@ import structlog
 
 from app.config import config
 from app.services.channels import get_channel_adapter
-from app.services.intent_scoring import content_fingerprint, quick_filter
+from app.services.intent_scoring import content_fingerprint, quick_filter, source_names_city
 from app.services.signal_bus import ingest_content
 from app.services.signal_classifier import category_for
 
@@ -237,6 +237,7 @@ class TelegramCollector:
             return 0
 
         adapter = get_channel_adapter("telegram")
+        city_implied = source_names_city(source.source_name, geo_keywords.get("city_variations", []))
         client = await self._get_client()
         created = 0
         try:
@@ -263,7 +264,7 @@ class TelegramCollector:
                     select(Signal.id).where(Signal.content_unit_id == cu.id))
                 if exists:
                     continue
-                if not quick_filter(text, geo_keywords):
+                if not quick_filter(text, geo_keywords, city_implied):
                     continue
                 # ...and one per distinct body: the same listing gets reposted
                 # across chats and days with a new message id each time, which

@@ -20,7 +20,7 @@ from typing import Any, Optional
 import structlog
 
 from app.config import config
-from app.services.intent_scoring import quick_filter
+from app.services.intent_scoring import quick_filter, source_names_city
 
 logger = structlog.get_logger()
 
@@ -149,6 +149,7 @@ class YoutubeCollector:
         if not channel_id:
             return 0
 
+        city_implied = source_names_city(source.source_name, geo_keywords.get("city_variations", []))
         created = 0
         for video_id in await self._recent_video_ids(channel_id):
             for comment in (await self._comments(video_id))[:limit]:
@@ -168,7 +169,7 @@ class YoutubeCollector:
                     select(Signal.id).where(Signal.content_unit_id == cu.id))
                 if exists:
                     continue
-                if not quick_filter(comment["text"], geo_keywords):
+                if not quick_filter(comment["text"], geo_keywords, city_implied):
                     continue
 
                 session.add(Signal(
