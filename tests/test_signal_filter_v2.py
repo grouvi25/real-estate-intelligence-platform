@@ -114,3 +114,43 @@ async def test_a_signal_the_model_flags_as_rental_leaves_the_queue(monkeypatch):
             assert buyer.status == "new" and buyer.intent_score == 85
     finally:
         await engine.dispose()
+
+
+# --- Чат о самом городе: город в сообщении не повторяют -------------------
+KAB = dict(GEO, city_variations=["Геленджик", "Кабардинка"])
+
+
+def test_city_implied_by_chat_title():
+    from app.services.intent_scoring import source_names_city
+
+    # Единственный настоящий покупатель за 30 дней по всем открытым чатам
+    # Геленджика, и стадия 1 его теряла: город не назван.
+    text = "Добрый день, ищу квартиру 1к,2к до 15 млн для покупки С ремонтом"
+    assert not quick_filter(text, KAB)
+    assert source_names_city("Кабардинка жильё", KAB["city_variations"])
+    assert quick_filter(text, KAB, city_implied=True)
+
+
+def test_chat_title_adjective_counts():
+    from app.services.intent_scoring import source_names_city
+
+    assert source_names_city("Геленджикский район Продам Куплю Услуги", GEO["city_variations"])
+    assert not source_names_city("Барахолка Новороссийск", GEO["city_variations"])
+    assert not source_names_city(None, GEO["city_variations"])
+
+
+@pytest.mark.parametrize("text", [
+    "Ищу квартиру в Анапе до 8 млн",
+    "Хочу купить дом в Краснодаре, бюджет 10 млн",
+])
+def test_other_city_beats_chat_title(text):
+    assert not quick_filter(text, GEO, city_implied=True)
+
+
+@pytest.mark.parametrize("text", [
+    "Сниму квартиру на лето, бюджет 40 тыс",
+    "Ищу квартиру посуточно на июль",
+    "Продаю квартиру 2к, 9 млн",
+])
+def test_chat_title_keeps_negatives(text):
+    assert not quick_filter(text, GEO, city_implied=True)

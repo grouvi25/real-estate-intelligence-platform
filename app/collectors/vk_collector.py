@@ -39,7 +39,7 @@ import structlog
 
 from app.config import config
 from app.services.channels import get_channel_adapter
-from app.services.intent_scoring import quick_filter
+from app.services.intent_scoring import quick_filter, source_names_city
 
 logger = structlog.get_logger()
 
@@ -336,6 +336,7 @@ class VkCollector:
             return 0
 
         adapter = get_channel_adapter("vk")
+        city_implied = source_names_city(source.source_name, geo_keywords.get("city_variations", []))
         created = 0
         response = await self._call("wall.get", domain=domain, count=limit)
         posts = (response or {}).get("items", [])
@@ -353,7 +354,7 @@ class VkCollector:
                 select(Signal.id).where(Signal.content_unit_id == cu.id))
             if exists:
                 continue
-            if not quick_filter(text, geo_keywords):
+            if not quick_filter(text, geo_keywords, city_implied):
                 continue
 
             norm = adapter.normalize(entry)
