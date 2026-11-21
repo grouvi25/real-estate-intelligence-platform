@@ -244,21 +244,42 @@ async def test_check_dead_sources_pauses():
 
     from app.models.content_unit import ContentUnit
 
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.signal import Signal
+    from worker.tasks.maintenance_tasks import DEAD_SOURCE_DAYS, DEAD_SOURCE_MIN_READ
+
     await run_migrations()
     async with async_session() as s:
         agency, _ = await _seed_agency_geo(s)
-        # Читали и ничего не нашли — источник действительно пустой.
+        # Прочли много и ничего не нашли — источник действительно пустой.
         barren = Source(agency_id=agency.id, source_type="telegram_channel",
                         source_url="https://t.me/dead", source_name="dead chat", status="active")
         # Не читали вовсе: так выглядит источник, пока стоит сам сборщик.
         untouched = Source(agency_id=agency.id, source_type="telegram_channel",
                            source_url="https://t.me/quiet", source_name="quiet chat", status="active")
-        s.add_all([barren, untouched])
+        # Маленький риелторский чат: пара сообщений в неделю, запрос раз в
+        # несколько недель. Именно такие чаты прежнее правило и снимало.
+        small = Source(agency_id=agency.id, source_type="telegram_chat",
+                       source_url="https://t.me/small", source_name="small chat", status="active")
+        # Шумный, но три недели назад дал запрос — в пределах окна, не трогаем.
+        recent = Source(agency_id=agency.id, source_type="telegram_chat",
+                        source_url="https://t.me/recent", source_name="recent chat", status="active")
+        s.add_all([barren, untouched, small, recent])
         await s.flush()
-        s.add(ContentUnit(agency_id=agency.id, source_id=barren.id, channel="telegram",
-                          external_id="dead-1", raw_content="прочитали, но пусто"))
+        for i in range(DEAD_SOURCE_MIN_READ):
+            s.add(ContentUnit(agency_id=agency.id, source_id=barren.id, channel="telegram",
+                              external_id=f"dead-{i}", raw_content="прочитали, но пусто"))
+            s.add(ContentUnit(agency_id=agency.id, source_id=recent.id, channel="telegram",
+                              external_id=f"recent-{i}", raw_content="болтовня"))
+        for i in range(DEAD_SOURCE_MIN_READ // 10):
+            s.add(ContentUnit(agency_id=agency.id, source_id=small.id, channel="telegram",
+                              external_id=f"small-{i}", raw_content="объявление"))
+        s.add(Signal(agency_id=agency.id, source_id=recent.id, raw_text="ищу квартиру в Геленджике",
+                     created_at=datetime.now(timezone.utc) - timedelta(days=DEAD_SOURCE_DAYS - 9)))
         await s.commit()
         barren_id, untouched_id = barren.id, untouched.id
+        small_id, recent_id = small.id, recent.id
 
     dead = await _check_dead_sources()
     assert dead >= 1
@@ -268,6 +289,8 @@ async def test_check_dead_sources_pauses():
         # правило остановило лучшие источники — те, что давали 6-8% выработки.
         # Молчание сборщика больше не считается виной источника.
         assert (await s.get(Source, untouched_id)).status == "active"
+        assert (await s.get(Source, small_id)).status == "active"
+        assert (await s.get(Source, recent_id)).status == "active"
 
 
 @pytest.mark.asyncio

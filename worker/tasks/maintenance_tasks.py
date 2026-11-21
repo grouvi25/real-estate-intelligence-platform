@@ -246,8 +246,16 @@ def escalate_overdue_leads() -> int:
 
 
 # --- Dead source detection (TZ 32.10) --------------------------------------
-# Daily: active sources with no signals for 7+ days -> paused + notify owner.
-DEAD_SOURCE_DAYS = 7
+# Daily: an active source that we read a lot and that still gave no signals
+# for DEAD_SOURCE_DAYS -> paused + notify owner.
+#
+# Покупатели в риелторских чатах города пишут редко: живой чат Геленджика даёт
+# запрос раз в две-три недели. Прежнее правило (7 дней без сигнала) снимало
+# именно такие чаты, и к ноябрю на сборе остались одни барахолки и новости.
+# Теперь источник виноват, только если за месяц мы прочли из него много
+# сообщений и не нашли ни одного запроса. Маленький тихий чат не трогаем.
+DEAD_SOURCE_DAYS = 30
+DEAD_SOURCE_MIN_READ = 200
 
 
 async def _check_dead_sources() -> int:
@@ -283,7 +291,7 @@ async def _check_dead_sources() -> int:
                     ContentUnit.source_id == src.id,
                     ContentUnit.created_at >= cutoff,
                 ))
-            if not read_recently:
+            if (read_recently or 0) < DEAD_SOURCE_MIN_READ:
                 continue
             src.status = "paused"
             dead.append(src)
@@ -303,7 +311,8 @@ async def _check_dead_sources() -> int:
                     try:
                         await bot_layer.notify_manager(
                             str(owner.id),
-                            f"🔇 Источники без сигналов 7+ дней → приостановлены:\n{names_fmt}")
+                            f"🔇 Источники без сигналов {DEAD_SOURCE_DAYS}+ дней "
+                            f"→ приостановлены:\n{names_fmt}")
                     except Exception as exc:
                         logger.warning("Dead source notification failed", agency_id=aid, error=str(exc))
     logger.info("Dead sources paused", sources=len(dead))
